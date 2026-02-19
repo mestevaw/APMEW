@@ -1,4 +1,4 @@
-# APMEW — Planificación Financiera
+# APMEW — Planificación 
 
 Dashboard financiero para planificación de retiro. Conectado a Supabase.
 
