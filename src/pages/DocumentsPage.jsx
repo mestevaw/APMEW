@@ -1,4 +1,8 @@
-import { useState, useEffect } from "react";
+// Archivo: src/pages/DocumentsPage.jsx
+// Versión: 2.0
+// Fecha: 2026-02-20
+
+import { useState, useEffect, useRef } from "react";
 import { C } from "../lib/theme";
 import { I } from "../lib/icons";
 import { DRIVE_ROOT_FOLDER } from "../lib/config";
@@ -42,6 +46,15 @@ const guessCategoryFromPath = (path) => {
   return "otro";
 };
 
+// Google Drive preview URL
+const getPreviewUrl = (fileId) => `https://drive.google.com/file/d/${fileId}/preview`;
+
+// ─── Carpetas ocultas (agrega aquí las que quieras esconder) ───
+const HIDDEN_FOLDERS = [
+  // "nombre_carpeta_obsoleta",
+  // "otra_carpeta_vieja",
+];
+
 // ─── Component ───
 export const DocumentsPage = ({ documents, mob, reload, drive }) => {
   const [tab, setTab] = useState("drive");
@@ -49,8 +62,9 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
   const [breadcrumb, setBreadcrumb] = useState([{ id: DRIVE_ROOT_FOLDER, name: "APMEW" }]);
   const [files, setFiles] = useState([]);
   const [loadingDrive, setLoadingDrive] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
+  const [previewFile, setPreviewFile] = useState(null); // { id, name }
+  const hasSynced = useRef(false);
 
   const { token, gisLoaded, signIn, signOut, listAllFiles } = drive;
 
@@ -66,6 +80,41 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     load();
   }, [token, currentFolder, tab]);
 
+  // ─── Auto-sync on first connect ───
+  useEffect(() => {
+    if (!token || hasSynced.current) return;
+    hasSynced.current = true;
+    const autoSync = async () => {
+      setSyncMsg("Sincronizando con Drive...");
+      let totalFiles = 0, totalFolders = 0;
+      const syncFolder = async (folderId, path) => {
+        const items = await listAllFiles(folderId);
+        if (!items) return;
+        for (const f of items) {
+          if (isFolder(f)) {
+            await supaUpsert("drive_folders", { google_drive_id: f.id, name: f.name, parent_drive_id: folderId, folder_path: path + "/" + f.name });
+            totalFolders++;
+            if (totalFolders % 5 === 0) setSyncMsg(`Sincronizando... ${totalFolders} carpetas, ${totalFiles} archivos`);
+            await syncFolder(f.id, path + "/" + f.name);
+          } else {
+            const doc = { title: f.name, google_drive_file_id: f.id, google_drive_url: f.webViewLink, folder_path: path, parent_folder_drive_id: folderId, mime_type: f.mimeType, file_type: getFileExt(f.mimeType), category: guessCategoryFromPath(path), synced_from_drive: true, last_synced_at: new Date().toISOString() };
+            const existing = await supaFetch("documents", { filters: `google_drive_file_id=eq.${f.id}` });
+            if (existing && existing.length > 0) await supaUpdate("documents", existing[0].id, doc);
+            else await supaInsert("documents", doc);
+            totalFiles++;
+          }
+        }
+      };
+      try {
+        await syncFolder(DRIVE_ROOT_FOLDER, "APMEW");
+        setSyncMsg(`✓ Sincronizado: ${totalFolders} carpetas, ${totalFiles} archivos`);
+        reload();
+      } catch (e) { console.error(e); setSyncMsg("Error al sincronizar: " + e.message); }
+      setTimeout(() => setSyncMsg(""), 5000);
+    };
+    autoSync();
+  }, [token]);
+
   const navigateToFolder = (folderId, folderName) => {
     setCurrentFolder(folderId);
     setBreadcrumb(prev => [...prev, { id: folderId, name: folderName }]);
@@ -76,63 +125,11 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     setBreadcrumb(breadcrumb.slice(0, index + 1));
   };
 
-  const folders = files.filter(isFolder);
+  // Filter hidden folders
+  const allFolders = files.filter(isFolder);
+  const folders = allFolders.filter(f => !HIDDEN_FOLDERS.some(h => f.name.toLowerCase() === h.toLowerCase()));
   const docs = files.filter(f => !isFolder(f));
   const currentPath = breadcrumb.map(b => b.name).join("/");
-
-  // Sync current folder
-  const syncToSupabase = async () => {
-    setSyncing(true); setSyncMsg("Sincronizando...");
-    let count = 0;
-    try {
-      for (const f of folders) {
-        await supaUpsert("drive_folders", { google_drive_id: f.id, name: f.name, parent_drive_id: currentFolder, folder_path: currentPath + "/" + f.name });
-      }
-      for (const f of docs) {
-        const doc = { title: f.name, google_drive_file_id: f.id, google_drive_url: f.webViewLink, folder_path: currentPath, parent_folder_drive_id: currentFolder, mime_type: f.mimeType, file_type: getFileExt(f.mimeType), category: guessCategoryFromPath(currentPath), synced_from_drive: true, last_synced_at: new Date().toISOString() };
-        const existing = await supaFetch("documents", { filters: `google_drive_file_id=eq.${f.id}` });
-        if (existing && existing.length > 0) await supaUpdate("documents", existing[0].id, doc);
-        else await supaInsert("documents", doc);
-        count++;
-      }
-      setSyncMsg(`✓ ${count} archivos + ${folders.length} carpetas sincronizados`);
-      reload();
-    } catch (e) { console.error(e); setSyncMsg("Error al sincronizar"); }
-    setSyncing(false);
-    setTimeout(() => setSyncMsg(""), 4000);
-  };
-
-  // Recursive sync
-  const syncAllRecursive = async () => {
-    setSyncing(true); setSyncMsg("Sincronizando todo recursivamente...");
-    let totalFiles = 0, totalFolders = 0;
-    const syncFolder = async (folderId, path) => {
-      const items = await listAllFiles(folderId);
-      if (!items) return;
-      for (const f of items) {
-        if (isFolder(f)) {
-          await supaUpsert("drive_folders", { google_drive_id: f.id, name: f.name, parent_drive_id: folderId, folder_path: path + "/" + f.name });
-          totalFolders++;
-          setSyncMsg(`Sincronizando... ${totalFolders} carpetas, ${totalFiles} archivos`);
-          await syncFolder(f.id, path + "/" + f.name);
-        } else {
-          const doc = { title: f.name, google_drive_file_id: f.id, google_drive_url: f.webViewLink, folder_path: path, parent_folder_drive_id: folderId, mime_type: f.mimeType, file_type: getFileExt(f.mimeType), category: guessCategoryFromPath(path), synced_from_drive: true, last_synced_at: new Date().toISOString() };
-          const existing = await supaFetch("documents", { filters: `google_drive_file_id=eq.${f.id}` });
-          if (existing && existing.length > 0) await supaUpdate("documents", existing[0].id, doc);
-          else await supaInsert("documents", doc);
-          totalFiles++;
-          setSyncMsg(`Sincronizando... ${totalFolders} carpetas, ${totalFiles} archivos`);
-        }
-      }
-    };
-    try {
-      await syncFolder(DRIVE_ROOT_FOLDER, "APMEW");
-      setSyncMsg(`✓ Completo: ${totalFolders} carpetas, ${totalFiles} archivos`);
-      reload();
-    } catch (e) { console.error(e); setSyncMsg("Error: " + e.message); }
-    setSyncing(false);
-    setTimeout(() => setSyncMsg(""), 6000);
-  };
 
   const TabBtn = ({ id, label }) => (
     <button onClick={() => setTab(id)} style={{
@@ -148,10 +145,33 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
       <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, marginBottom: 4 }}>Documentos</h1>
       <p style={{ fontFamily: "DM Sans", fontSize: mob ? 12 : 14, color: C.textDim, marginBottom: 20 }}>Google Drive + índice en Supabase</p>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
         <TabBtn id="drive" label="📁 Google Drive" />
-        <TabBtn id="indexed" label="🗂️ Indexados en Supabase" />
+        <TabBtn id="indexed" label="🗂️ Indexados" />
+        {syncMsg && <span style={{ fontFamily: "DM Sans", fontSize: 13, color: syncMsg.startsWith("✓") ? C.green : syncMsg.startsWith("Error") ? C.red : C.accent, marginLeft: 8 }}>{syncMsg}</span>}
       </div>
+
+      {/* ─── Preview modal ─── */}
+      {previewFile && (
+        <>
+          <div onClick={() => setPreviewFile(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000 }} />
+          <div style={{ position: "fixed", top: mob ? "2%" : "5%", left: mob ? "2%" : "10%", right: mob ? "2%" : "10%", bottom: mob ? "2%" : "5%", zIndex: 1001, display: "flex", flexDirection: "column", background: C.surface, borderRadius: 16, border: `1px solid ${C.accent}40`, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
+              <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{previewFile.name}</span>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <a href={`https://drive.google.com/file/d/${previewFile.id}/view`} target="_blank" rel="noopener" style={{ fontFamily: "DM Sans", fontSize: 12, color: C.blue, textDecoration: "none", padding: "4px 10px", border: `1px solid ${C.border}`, borderRadius: 6 }}>Abrir en Drive ↗</a>
+                <button onClick={() => setPreviewFile(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.close}</button>
+              </div>
+            </div>
+            <iframe
+              src={getPreviewUrl(previewFile.id)}
+              style={{ flex: 1, border: "none", background: "#fff" }}
+              allow="autoplay"
+              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+            />
+          </div>
+        </>
+      )}
 
       {tab === "drive" && (
         <div>
@@ -164,14 +184,6 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
             </Card>
           ) : (
             <div>
-              {/* Toolbar */}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16, alignItems: "center" }}>
-                <Btn onClick={syncToSupabase} disabled={syncing} small>{syncing ? <Spinner /> : I.sync} Sync esta carpeta</Btn>
-                <Btn onClick={syncAllRecursive} disabled={syncing} small outline>{syncing ? <Spinner /> : I.sync} Sync TODO recursivo</Btn>
-                <Btn onClick={signOut} small outline style={{ marginLeft: "auto" }}>Desconectar</Btn>
-                {syncMsg && <span style={{ fontFamily: "DM Sans", fontSize: 13, color: syncMsg.startsWith("✓") ? C.green : syncMsg.startsWith("Error") ? C.red : C.accent }}>{syncMsg}</span>}
-              </div>
-
               {/* Breadcrumb */}
               <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
                 {breadcrumb.map((b, i) => (
@@ -208,13 +220,13 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
                       </button>
                     ))}
                     {docs.map(f => (
-                      <a key={f.id} href={f.webViewLink} target="_blank" rel="noopener" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, textDecoration: "none", width: "100%" }}
+                      <button key={f.id} onClick={() => setPreviewFile({ id: f.id, name: f.name })} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, textDecoration: "none", width: "100%", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
                         onMouseEnter={e => e.currentTarget.style.background = C.surface2}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <span style={{ fontSize: 16 }}>{getFileIcon(f.mimeType)}</span>
                         <span style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, flex: 1 }}>{f.name}</span>
                         <Badge color={C.blue}>{getFileExt(f.mimeType) || "file"}</Badge>
-                      </a>
+                      </button>
                     ))}
                     {folders.length === 0 && docs.length === 0 && (
                       <div style={{ textAlign: "center", padding: 30 }}>
@@ -237,14 +249,16 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
               <div style={{ textAlign: "center", padding: mob ? 30 : 40 }}>
                 <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
                 <p style={{ fontFamily: "DM Sans", fontSize: 15, color: C.textDim }}>Aún no hay documentos indexados</p>
-                <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textMuted, marginTop: 4 }}>Usa la pestaña Google Drive → Sync para indexar</p>
+                <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textMuted, marginTop: 4 }}>Conecta Google Drive para sincronizar automáticamente</p>
               </div>
             ) : (
               <Table columns={[
                 { label: "Título", key: "title", bold: true },
                 { label: "Carpeta", key: "folder_path", color: () => C.textDim, render: r => r.folder_path || "—" },
                 { label: "Tipo", key: "file_type", render: r => r.file_type ? <Badge color={C.blue}>{r.file_type}</Badge> : "—" },
-                { label: "Link", key: "google_drive_url", render: r => r.google_drive_url ? <a href={r.google_drive_url} target="_blank" rel="noopener" style={{ color: C.blue, textDecoration: "none", fontSize: 13 }}>Abrir ↗</a> : "—" },
+                { label: "Ver", key: "google_drive_file_id", render: r => r.google_drive_file_id ? (
+                  <button onClick={() => setPreviewFile({ id: r.google_drive_file_id, name: r.title })} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.blue }}>Vista previa</button>
+                ) : "—" },
               ]} data={documents} onDelete={(row) => { if (confirm("¿Eliminar del índice?")) { supaDelete("documents", row.id).then(reload); } }} mob={mob} />
             )}
           </Card>
