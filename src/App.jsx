@@ -1,3 +1,7 @@
+// Archivo: src/App.jsx
+// Versión: 2.0
+// Fecha: 2026-02-20
+
 import { useState, useEffect, useCallback } from "react";
 
 // ─── Lib ───
@@ -20,6 +24,12 @@ import { ChecklistPage } from "./pages/ChecklistPage";
 import { ProjectionPage } from "./pages/ProjectionPage";
 import { DailyExpensesPage } from "./pages/DailyExpensesPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
+
+// ─── Date helper ───
+const todayStr = () => {
+  const d = new Date();
+  return d.toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" });
+};
 
 // ═══════════════════════════════════════════
 // MAIN APP
@@ -93,7 +103,10 @@ export default function App() {
     if (loading) return <Loading />;
     switch (page) {
       case "dashboard":
-        return <DashboardPage data={data} mob={mob} />;
+        return <DashboardPage data={data} mob={mob}
+          onProfileClick={(p) => { /* TODO: abrir detalle de perfil */ }}
+          onHeartClick={() => { /* TODO: algo bonito */ }}
+        />;
 
       case "income":
         return <CrudPage title="Ingresos Actuales" subtitle="Últimos ingresos antes de retirarse" table="current_income" items={data.income} mob={mob} reload={loadData} totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
@@ -182,7 +195,7 @@ export default function App() {
         {!mob && (
           <div style={{ padding: "8px 16px 24px", borderBottom: `1px solid ${C.border}`, marginBottom: 16 }}>
             <div style={{ fontFamily: "JetBrains Mono", fontSize: 20, fontWeight: 700, color: C.accent, letterSpacing: 2 }}>APMEW</div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, marginTop: 2, letterSpacing: .5 }}>PLANIFICACIÓN FINANCIERA</div>
+            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, marginTop: 4 }}>{todayStr()}</div>
           </div>
         )}
 
