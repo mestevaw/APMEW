@@ -1,5 +1,5 @@
 // Archivo: src/App.jsx
-// Versión: 2.0
+// Versión: 3.0
 // Fecha: 2026-02-20
 
 import { useState, useEffect, useCallback } from "react";
@@ -83,9 +83,8 @@ export default function App() {
     loadData();
   };
 
-  // ─── Navigation ───
+  // ─── Navigation (sin Dashboard — se accede via APMEW logo) ───
   const navItems = [
-    { id: "dashboard", label: "Dashboard", icon: I.dashboard },
     { id: "income", label: "Ingresos Actuales", icon: I.income },
     { id: "retIncome", label: "Ingresos Retiro", icon: I.income },
     { id: "expenses", label: "Gastos Retiro", icon: I.expenses },
@@ -96,6 +95,7 @@ export default function App() {
     { id: "docs", label: "Documentos", icon: I.docs },
   ];
 
+  const goHome = () => { setPage("dashboard"); if (mob) setSidebarOpen(false); };
   const handleNav = (id) => { setPage(id); if (mob) setSidebarOpen(false); };
 
   // ─── Page Router ───
@@ -103,10 +103,7 @@ export default function App() {
     if (loading) return <Loading />;
     switch (page) {
       case "dashboard":
-        return <DashboardPage data={data} mob={mob}
-          onProfileClick={(p) => { /* TODO: abrir detalle de perfil */ }}
-          onHeartClick={() => { /* TODO: algo bonito */ }}
-        />;
+        return <DashboardPage data={data} mob={mob} />;
 
       case "income":
         return <CrudPage title="Ingresos Actuales" subtitle="Últimos ingresos antes de retirarse" table="current_income" items={data.income} mob={mob} reload={loadData} totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
@@ -172,7 +169,7 @@ export default function App() {
           <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", padding: 4, display: "flex" }}>
             {sidebarOpen ? I.close : I.menu}
           </button>
-          <span style={{ fontFamily: "JetBrains Mono", fontSize: 16, fontWeight: 700, color: C.accent, letterSpacing: 2 }}>APMEW</span>
+          <button onClick={goHome} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "JetBrains Mono", fontSize: 16, fontWeight: 700, color: C.accent, letterSpacing: 2 }}>APMEW</button>
           <div style={{ width: 32 }} />
         </div>
       )}
@@ -194,7 +191,15 @@ export default function App() {
       }}>
         {!mob && (
           <div style={{ padding: "8px 16px 24px", borderBottom: `1px solid ${C.border}`, marginBottom: 16 }}>
-            <div style={{ fontFamily: "JetBrains Mono", fontSize: 20, fontWeight: 700, color: C.accent, letterSpacing: 2 }}>APMEW</div>
+            <button onClick={goHome} style={{
+              background: "none", border: "none", cursor: "pointer",
+              fontFamily: "JetBrains Mono", fontSize: 20, fontWeight: 700,
+              color: C.accent, letterSpacing: 2, padding: 0, textAlign: "left",
+              transition: "opacity 0.2s",
+            }}
+              onMouseEnter={e => e.currentTarget.style.opacity = "0.8"}
+              onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+            >APMEW</button>
             <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, marginTop: 4 }}>{todayStr()}</div>
           </div>
         )}
