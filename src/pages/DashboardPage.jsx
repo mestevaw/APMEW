@@ -1,5 +1,5 @@
 // Archivo: src/pages/DashboardPage.jsx
-// Versión: 10.0
+// Versión: 12.0
 // Fecha: 2026-02-22
 
 import { useState, useEffect, useCallback } from "react";
@@ -81,6 +81,31 @@ const getFileExt = (mime) => {
 const isImage = (mime) => mime && mime.includes("image");
 const getPreviewUrl = (fileId) => `https://drive.google.com/file/d/${fileId}/preview`;
 const getThumbnailUrl = (fileId) => `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
+const getDriveMediaUrl = (fileId) => `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+
+// ─── Authenticated image component ───
+const AuthImage = ({ fileId, token, alt, style }) => {
+  const [src, setSrc] = useState(null);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    if (!fileId) return;
+    let cancelled = false;
+    if (token) {
+      fetch(getDriveMediaUrl(fileId), { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+        .then(blob => { if (!cancelled) setSrc(URL.createObjectURL(blob)); })
+        .catch(() => { if (!cancelled) setSrc(getThumbnailUrl(fileId)); });
+    } else {
+      setSrc(getThumbnailUrl(fileId));
+    }
+    return () => { cancelled = true; };
+  }, [fileId, token]);
+
+  if (err) return <span style={{ fontSize: 24 }}>📷</span>;
+  if (!src) return <Spinner />;
+  return <img src={src} alt={alt || ""} style={style} onError={() => setErr(true)} />;
+};
 
 // ─── Supabase folder lookup ───
 const findFolderByAddress = async (address) => {
@@ -106,7 +131,7 @@ const ArrowRight = () => <svg width="28" height="28" fill="none" stroke="current
 // ═══════════════════════════════════════════
 // PHOTO GALLERY (flechas para recorrer fotos)
 // ═══════════════════════════════════════════
-const PhotoGallery = ({ images, startIndex, onClose, mob }) => {
+const PhotoGallery = ({ images, startIndex, onClose, mob, token }) => {
   const [idx, setIdx] = useState(startIndex || 0);
   const img = images[idx];
   const prev = () => setIdx(i => i > 0 ? i - 1 : images.length - 1);
@@ -139,12 +164,12 @@ const PhotoGallery = ({ images, startIndex, onClose, mob }) => {
         </div>
 
         {/* Image */}
-        <div style={{ width: mob ? "92vw" : "80vw", height: mob ? "55vh" : "70vh", borderRadius: 8, overflow: "hidden", background: "#000" }}>
-          <iframe
-            src={getPreviewUrl(img.google_drive_file_id || img.id)}
-            style={{ width: "100%", height: "100%", border: "none" }}
-            allow="autoplay"
-            sandbox="allow-same-origin allow-scripts allow-popups"
+        <div style={{ width: mob ? "92vw" : "80vw", height: mob ? "55vh" : "70vh", borderRadius: 8, overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <AuthImage
+            fileId={img.google_drive_file_id || img.id}
+            token={token}
+            alt={img.title || img.name}
+            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
           />
         </div>
 
@@ -168,7 +193,7 @@ const PhotoGallery = ({ images, startIndex, onClose, mob }) => {
 // ═══════════════════════════════════════════
 // SUPABASE EXPLORER (100% Supabase, 0% Drive API)
 // ═══════════════════════════════════════════
-const SupaExplorer = ({ rootFolderId, mob }) => {
+const SupaExplorer = ({ rootFolderId, mob, drive }) => {
   const [currentFolder, setCurrentFolder] = useState(rootFolderId);
   const [breadcrumb, setBreadcrumb] = useState([{ id: rootFolderId, name: "Inicio" }]);
   const [subfolders, setSubfolders] = useState([]);
@@ -217,7 +242,7 @@ const SupaExplorer = ({ rootFolderId, mob }) => {
     <div>
       {/* Photo gallery */}
       {galleryImages && (
-        <PhotoGallery images={galleryImages} startIndex={galleryStart} onClose={() => setGalleryImages(null)} mob={mob} />
+        <PhotoGallery images={galleryImages} startIndex={galleryStart} onClose={() => setGalleryImages(null)} mob={mob} token={drive?.token} />
       )}
 
       {/* File preview modal (non-image) */}
@@ -279,19 +304,30 @@ const SupaExplorer = ({ rootFolderId, mob }) => {
             {/* Image grid with gallery */}
             {imageFiles.length > 0 && (
               <div style={{ padding: "12px 0 4px" }}>
-                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, marginBottom: 8, paddingLeft: 4 }}>🖼️ {imageFiles.length} fotos — click para ver en galería</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>🖼️ {imageFiles.length} fotos</span>
+                  {!drive?.token && drive?.signIn && (
+                    <button onClick={drive.signIn} style={{
+                      fontFamily: "DM Sans", fontSize: 11, color: C.blue, background: `${C.blue}15`,
+                      border: `1px solid ${C.blue}40`, borderRadius: 6, padding: "3px 10px", cursor: "pointer",
+                    }}>Conectar Drive para ver fotos</button>
+                  )}
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: mob ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 6 }}>
                   {imageFiles.map((img, idx) => (
                     <button key={img.id} onClick={() => openImage(img, idx)} style={{
                       background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8,
                       cursor: "pointer", overflow: "hidden", aspectRatio: "1", display: "flex",
-                      flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
-                      padding: 4, transition: "border-color 0.2s",
+                      alignItems: "center", justifyContent: "center", padding: 0, transition: "border-color 0.2s",
                     }}
                       onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
                       onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-                      <span style={{ fontSize: 24 }}>📷</span>
-                      <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", width: "100%", whiteSpace: "nowrap" }}>{idx + 1}</span>
+                      {drive?.token ? (
+                        <AuthImage fileId={img.google_drive_file_id} token={drive.token} alt={img.title}
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <span style={{ fontSize: 24 }}>📷</span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -393,7 +429,7 @@ const PropertiesView = ({ mob, onSelectProperty, onBack }) => {
 // ═══════════════════════════════════════════
 // PROPERTY DETAIL
 // ═══════════════════════════════════════════
-const PropertyDetail = ({ property, mob, onBack }) => {
+const PropertyDetail = ({ property, mob, drive, onBack }) => {
   const [folderId, setFolderId] = useState(null);
   const [searching, setSearching] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -419,7 +455,7 @@ const PropertyDetail = ({ property, mob, onBack }) => {
       </div>
       {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando...</p></Card>}
       {notFound && <Card style={{ textAlign: "center", padding: 30 }}><div style={{ fontSize: 36, marginBottom: 12 }}>📂</div><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta para esta propiedad</p><p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 4 }}>Verifica que exista en Google Drive y sincroniza desde Documentos</p></Card>}
-      {folderId && <SupaExplorer rootFolderId={folderId} mob={mob} />}
+      {folderId && <SupaExplorer rootFolderId={folderId} mob={mob} drive={drive} />}
     </div>
   );
 };
@@ -427,21 +463,21 @@ const PropertyDetail = ({ property, mob, onBack }) => {
 // ═══════════════════════════════════════════
 // PERSON DETAIL
 // ═══════════════════════════════════════════
-const PersonDetail = ({ person, mob, onBack }) => (
+const PersonDetail = ({ person, mob, drive, onBack }) => (
   <div>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
       <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
       {person.img && <div style={{ width: 40, height: 40, borderRadius: 10, overflow: "hidden", border: `2px solid ${C.accent}60`, flexShrink: 0 }}><img src={person.img} alt={person.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
       <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent }}>{person.name}</h1>
     </div>
-    <SupaExplorer rootFolderId={person.folderId} mob={mob} />
+    <SupaExplorer rootFolderId={person.folderId} mob={mob} drive={drive} />
   </div>
 );
 
 // ═══════════════════════════════════════════
 // MAIN DASHBOARD
 // ═══════════════════════════════════════════
-export const DashboardPage = ({ data, mob }) => {
+export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const { profiles, income, retIncome, expenses, assets, debts, checklist } = data;
   const [showKids, setShowKids] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState(null);
@@ -463,8 +499,8 @@ export const DashboardPage = ({ data, mob }) => {
   const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); };
 
   // ═══ SUBVIEWS ═══
-  if (selectedPerson) return <PersonDetail person={selectedPerson} mob={mob} onBack={goBack} />;
-  if (selectedProperty) return <PropertyDetail property={selectedProperty} mob={mob} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} />;
+  if (selectedPerson) return <PersonDetail person={selectedPerson} mob={mob} drive={drive} onBack={goBack} />;
+  if (selectedProperty) return <PropertyDetail property={selectedProperty} mob={mob} drive={drive} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} />;
   if (showProperties) return <PropertiesView mob={mob} onSelectProperty={(p) => { setSelectedProperty(p); setShowProperties(false); }} onBack={goBack} />;
 
   // ═══ DASHBOARD ═══
@@ -523,7 +559,7 @@ export const DashboardPage = ({ data, mob }) => {
         </div>
       )}
 
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: mob ? 12 : 16 }}>
+      <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: mob ? 12 : 16, flexWrap: "wrap" }}>
         <button onClick={() => { setShowProperties(true); setShowKids(false); }} style={{
           display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
           background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
@@ -533,6 +569,14 @@ export const DashboardPage = ({ data, mob }) => {
           <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Propiedades</span>
           <Badge color={C.textDim}>{PROPERTIES.length}</Badge>
         </button>
+        {goToPage && <button onClick={() => goToPage("daily")} style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
+          background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
+        }} onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
+          <span style={{ color: C.accent }}>{I.expenses}</span>
+          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Gastos Diarios</span>
+        </button>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(auto-fit, minmax(200px, 1fr))", gap: mob ? 10 : 16, marginBottom: mob ? 16 : 28 }}>
