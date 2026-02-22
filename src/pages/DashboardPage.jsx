@@ -1,8 +1,8 @@
 // Archivo: src/pages/DashboardPage.jsx
-// Versión: 13.0
+// Versión: 14.0
 // Fecha: 2026-02-22
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { C } from "../lib/theme";
 import { fmt } from "../lib/helpers";
 import { I } from "../lib/icons";
@@ -453,6 +453,9 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
   const [folderId, setFolderId] = useState(null);
   const [searching, setSearching] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState("");
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null);
@@ -463,16 +466,57 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
     });
   }, [property.address]);
 
+  const handleUploadPhotos = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !drive?.token || !drive?.uploadPhotos || !folderId) return;
+    setUploading(true); setUploadMsg(`Preparando ${files.length} fotos...`);
+    try {
+      const { dateFolder, results } = await drive.uploadPhotos(
+        files, folderId, property.address,
+        (i, total, name) => setUploadMsg(`Subiendo ${i}/${total}: ${name}`)
+      );
+      setUploadMsg(`✓ ${results.length} fotos subidas`);
+      setTimeout(() => setUploadMsg(""), 5000);
+    } catch (err) {
+      console.error(err);
+      setUploadMsg(`Error: ${err.message}`);
+    }
+    setUploading(false);
+    e.target.value = "";
+  };
+
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
         <span style={{ color: OWNER_COLORS[property.owner] || C.accent }}><HouseIcon /></span>
-        <div>
+        <div style={{ flex: 1 }}>
           <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{property.address}</h1>
           <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}</span>
         </div>
       </div>
+
+      {/* Photo upload button */}
+      {folderId && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleUploadPhotos} style={{ display: "none" }} />
+          {drive?.token ? (
+            <button onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "8px 16px",
+              background: uploading ? C.surface2 : `${C.green}15`, border: `1px solid ${uploading ? C.border : C.green}40`,
+              borderRadius: 8, cursor: uploading ? "default" : "pointer", fontFamily: "DM Sans", fontSize: 13, color: C.green,
+            }}>📸 {uploading ? "Subiendo..." : "Subir fotos a Inspección"}</button>
+          ) : drive?.signIn ? (
+            <button onClick={drive.signIn} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "8px 16px",
+              background: `${C.blue}15`, border: `1px solid ${C.blue}40`,
+              borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 13, color: C.blue,
+            }}>🔗 Conectar Drive para subir fotos</button>
+          ) : null}
+          {uploadMsg && <span style={{ fontFamily: "DM Sans", fontSize: 12, color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent }}>{uploadMsg}</span>}
+        </div>
+      )}
+
       {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando...</p></Card>}
       {notFound && <Card style={{ textAlign: "center", padding: 30 }}><div style={{ fontSize: 36, marginBottom: 12 }}>📂</div><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta para esta propiedad</p><p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 4 }}>Verifica que exista en Google Drive y sincroniza desde Documentos</p></Card>}
       {folderId && <SupaExplorer rootFolderId={folderId} mob={mob} drive={drive} />}
