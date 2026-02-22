@@ -1,5 +1,5 @@
 // Archivo: src/App.jsx
-// Versión: 5.0
+// Versión: 6.0
 // Fecha: 2026-02-20
 
 import { useState, useEffect, useCallback } from "react";
@@ -38,6 +38,7 @@ export default function App() {
   const [page, setPage] = useState("dashboard");
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [dashKey, setDashKey] = useState(0);
   const mob = useIsMobile();
   const drive = useGoogleDrive();
 
@@ -95,7 +96,7 @@ export default function App() {
     { id: "docs", label: "Documentos", icon: I.docs },
   ];
 
-  const goHome = () => { setPage("dashboard"); if (mob) setSidebarOpen(false); };
+  const goHome = () => { setPage("dashboard"); setDashKey(k => k + 1); if (mob) setSidebarOpen(false); };
   const handleNav = (id) => { setPage(id); if (mob) setSidebarOpen(false); };
 
   // ─── Page Router ───
@@ -103,7 +104,7 @@ export default function App() {
     if (loading) return <Loading />;
     switch (page) {
       case "dashboard":
-        return <DashboardPage data={data} mob={mob} />;
+        return <DashboardPage key={dashKey} data={data} mob={mob} />;
 
       case "income":
         return <CrudPage title="Ingresos Actuales" subtitle="Últimos ingresos antes de retirarse" table="current_income" items={data.income} mob={mob} reload={loadData} totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
@@ -154,7 +155,7 @@ export default function App() {
         return <DocumentsPage documents={data.documents} mob={mob} reload={loadData} drive={drive} />;
 
       default:
-        return <DashboardPage data={data} mob={mob} />;
+        return <DashboardPage key={dashKey} data={data} mob={mob} />;
     }
   };
 
