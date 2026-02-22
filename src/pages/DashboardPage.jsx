@@ -1,5 +1,5 @@
 // Archivo: src/pages/DashboardPage.jsx
-// Versión: 6.0
+// Versión: 7.0
 // Fecha: 2026-02-22
 
 import { useState, useEffect } from "react";
@@ -58,8 +58,7 @@ const OWNER_COLORS = {
   "Miguel y AnaP": "#C8A862",
 };
 
-// ─── Drive file helpers ───
-const isFolder = (f) => f.mimeType === "application/vnd.google-apps.folder";
+// ─── File helpers ───
 const getFileIcon = (mime) => {
   if (!mime) return "📄";
   if (mime.includes("pdf")) return "📕";
@@ -83,40 +82,43 @@ const getFileExt = (mime) => {
 };
 const getPreviewUrl = (fileId) => `https://drive.google.com/file/d/${fileId}/preview`;
 
-// ─── Supabase folder lookup (busca en drive_folders por nombre) ───
-const findFolderByName = async (searchName) => {
-  // Busca carpeta cuyo nombre contenga la dirección (case insensitive)
-  const words = searchName.split(" ").filter(w => w.length > 2);
-  // Usar la primera palabra significativa (el número de la dirección)
-  const firstWord = searchName.match(/^\d+/) ? searchName.match(/^\d+/)[0] : words[0];
+// ─── Supabase folder lookup ───
+const findFolderByAddress = async (address) => {
+  // Extraer el número de la dirección como clave de búsqueda
+  const numMatch = address.match(/^\d+/);
+  if (numMatch) {
+    const results = await supaFetch("drive_folders", {
+      filters: `name=ilike.*${numMatch[0]}*&folder_path=ilike.*PROPERTY*`,
+    });
+    if (results && results.length > 0) {
+      // Buscar mejor match: que contenga más palabras de la dirección
+      const words = address.toLowerCase().split(/[\s,]+/).filter(w => w.length > 2);
+      const scored = results.map(r => ({
+        ...r,
+        score: words.filter(w => r.name.toLowerCase().includes(w)).length,
+      }));
+      scored.sort((a, b) => b.score - a.score);
+      return scored[0];
+    }
+  }
+  // Fallback: buscar por primera palabra significativa
+  const firstWord = address.split(/[\s,]+/)[0];
   const results = await supaFetch("drive_folders", {
     filters: `name=ilike.*${firstWord}*&folder_path=ilike.*PROPERTY*`,
   });
-  if (results && results.length > 0) {
-    // Intentar match más específico
-    const best = results.find(r => {
-      const rName = r.name.toLowerCase();
-      const sName = searchName.toLowerCase();
-      // Checa si el nombre contiene al menos 2 palabras de la dirección
-      const matchCount = words.filter(w => rName.includes(w.toLowerCase())).length;
-      return matchCount >= 2 || rName.includes(firstWord);
-    });
-    return best || results[0];
-  }
-  return null;
+  return results && results.length > 0 ? results[0] : null;
 };
 
 // ═══════════════════════════════════════════
-// DRIVE EXPLORER (reusable embedded browser)
+// SUPABASE EXPLORER (no Google Drive needed!)
 // ═══════════════════════════════════════════
-const DriveExplorer = ({ rootFolderId, drive, mob }) => {
+const SupaExplorer = ({ rootFolderId, mob }) => {
   const [currentFolder, setCurrentFolder] = useState(rootFolderId);
   const [breadcrumb, setBreadcrumb] = useState([{ id: rootFolderId, name: "Inicio" }]);
-  const [files, setFiles] = useState([]);
+  const [subfolders, setSubfolders] = useState([]);
+  const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
-
-  const { token, listAllFiles } = drive;
 
   useEffect(() => {
     setCurrentFolder(rootFolderId);
@@ -124,39 +126,39 @@ const DriveExplorer = ({ rootFolderId, drive, mob }) => {
   }, [rootFolderId]);
 
   useEffect(() => {
-    if (!token) return;
     const load = async () => {
       setLoading(true);
-      try { const f = await listAllFiles(currentFolder); setFiles(f || []); }
-      catch (e) { console.error(e); setFiles([]); }
+      try {
+        // Buscar subcarpetas en drive_folders donde parent_drive_id = currentFolder
+        const folders = await supaFetch("drive_folders", {
+          filters: `parent_drive_id=eq.${currentFolder}`,
+          order: "name",
+        });
+        // Buscar archivos en documents donde parent_folder_drive_id = currentFolder
+        const files = await supaFetch("documents", {
+          filters: `parent_folder_drive_id=eq.${currentFolder}`,
+          order: "title",
+        });
+        setSubfolders(folders || []);
+        setDocs(files || []);
+      } catch (e) { console.error(e); setSubfolders([]); setDocs([]); }
       setLoading(false);
     };
     load();
-  }, [token, currentFolder]);
+  }, [currentFolder]);
 
-  const navigateToFolder = (folderId, folderName) => {
-    setCurrentFolder(folderId);
-    setBreadcrumb(prev => [...prev, { id: folderId, name: folderName }]);
+  const navigateToFolder = (driveId, folderName) => {
+    setCurrentFolder(driveId);
+    setBreadcrumb(prev => [...prev, { id: driveId, name: folderName }]);
   };
   const navigateToBreadcrumb = (index) => {
     setCurrentFolder(breadcrumb[index].id);
     setBreadcrumb(breadcrumb.slice(0, index + 1));
   };
 
-  const folders = files.filter(isFolder);
-  const docs = files.filter(f => !isFolder(f));
-
-  if (!token) {
-    return (
-      <Card style={{ textAlign: "center", padding: mob ? 20 : 40 }}>
-        <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, marginBottom: 16 }}>Conecta Google Drive para ver archivos</p>
-        <Btn onClick={drive.signIn} disabled={!drive.gisLoaded}>{I.google} <span style={{ marginLeft: 6 }}>Conectar Google Drive</span></Btn>
-      </Card>
-    );
-  }
-
   return (
     <div>
+      {/* Preview modal */}
       {previewFile && (
         <>
           <div onClick={() => setPreviewFile(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000 }} />
@@ -173,6 +175,7 @@ const DriveExplorer = ({ rootFolderId, drive, mob }) => {
         </>
       )}
 
+      {/* Breadcrumb */}
       {breadcrumb.length > 1 && (
         <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
           {breadcrumb.map((b, i) => (
@@ -195,29 +198,29 @@ const DriveExplorer = ({ rootFolderId, drive, mob }) => {
                 {I.back}<span style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>.. Regresar</span>
               </button>
             )}
-            {folders.map(f => (
-              <button key={f.id} onClick={() => navigateToFolder(f.id, f.name)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", borderRadius: 8, width: "100%", textAlign: "left" }}
+            {subfolders.map(f => (
+              <button key={f.id} onClick={() => navigateToFolder(f.google_drive_id, f.name)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", borderRadius: 8, width: "100%", textAlign: "left" }}
                 onMouseEnter={e => e.currentTarget.style.background = C.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <span style={{ color: C.accent }}>{I.folder}</span>
                 <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 500, color: C.text, flex: 1 }}>{f.name}</span>
                 <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted }}>Carpeta</span>
               </button>
             ))}
-            {docs.map(f => (
-              <button key={f.id} onClick={() => setPreviewFile({ id: f.id, name: f.name })} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, width: "100%", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+            {docs.map(d => (
+              <button key={d.id} onClick={() => d.google_drive_file_id && setPreviewFile({ id: d.google_drive_file_id, name: d.title })} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, width: "100%", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
                 onMouseEnter={e => e.currentTarget.style.background = C.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <span style={{ fontSize: 16 }}>{getFileIcon(f.mimeType)}</span>
-                <span style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, flex: 1 }}>{f.name}</span>
-                <Badge color={C.blue}>{getFileExt(f.mimeType) || "file"}</Badge>
+                <span style={{ fontSize: 16 }}>{getFileIcon(d.mime_type)}</span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, flex: 1 }}>{d.title}</span>
+                <Badge color={C.blue}>{d.file_type || getFileExt(d.mime_type) || "file"}</Badge>
               </button>
             ))}
-            {folders.length === 0 && docs.length === 0 && !loading && (
+            {subfolders.length === 0 && docs.length === 0 && !loading && (
               <div style={{ textAlign: "center", padding: 30 }}><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>Carpeta vacía</p></div>
             )}
           </div>
         )}
       </Card>
-      <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 8 }}>{folders.length} carpetas, {docs.length} archivos</div>
+      <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 8 }}>{subfolders.length} carpetas, {docs.length} archivos</div>
     </div>
   );
 };
@@ -233,7 +236,7 @@ const HouseIcon = () => (
 // ═══════════════════════════════════════════
 // PROPERTIES VIEW
 // ═══════════════════════════════════════════
-const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
+const PropertiesView = ({ mob, onSelectProperty, onBack }) => {
   const [filter, setFilter] = useState("all");
   const owners = [...new Set(PROPERTIES.map(p => p.owner))];
   const filtered = filter === "all" ? PROPERTIES : PROPERTIES.filter(p => p.owner === filter);
@@ -290,9 +293,9 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
 };
 
 // ═══════════════════════════════════════════
-// PROPERTY DETAIL (Supabase lookup → Drive)
+// PROPERTY DETAIL (busca en Supabase, navega sin Drive)
 // ═══════════════════════════════════════════
-const PropertyDetail = ({ property, mob, drive, onBack }) => {
+const PropertyDetail = ({ property, mob, onBack }) => {
   const [folderId, setFolderId] = useState(null);
   const [searching, setSearching] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -301,16 +304,11 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
     setSearching(true);
     setNotFound(false);
     setFolderId(null);
-    const lookup = async () => {
-      const folder = await findFolderByName(property.address);
-      if (folder) {
-        setFolderId(folder.google_drive_id);
-      } else {
-        setNotFound(true);
-      }
+    findFolderByAddress(property.address).then(folder => {
+      if (folder) { setFolderId(folder.google_drive_id); }
+      else { setNotFound(true); }
       setSearching(false);
-    };
-    lookup();
+    });
   }, [property.address]);
 
   return (
@@ -325,24 +323,37 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
       </div>
 
       {searching && (
-        <Card style={{ textAlign: "center", padding: 30 }}>
-          <Spinner />
-          <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando carpeta en Supabase...</p>
-        </Card>
+        <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando en Supabase...</p></Card>
       )}
-
       {notFound && (
         <Card style={{ textAlign: "center", padding: 30 }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
           <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta para esta propiedad</p>
-          <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 4 }}>Verifica que exista en Google Drive y vuelve a sincronizar</p>
+          <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 4 }}>Verifica que exista en Google Drive y vuelve a sincronizar desde Documentos</p>
         </Card>
       )}
-
-      {folderId && <DriveExplorer rootFolderId={folderId} drive={drive} mob={mob} />}
+      {folderId && <SupaExplorer rootFolderId={folderId} mob={mob} />}
     </div>
   );
 };
+
+// ═══════════════════════════════════════════
+// PERSON DETAIL (perfil o hijo → navega carpeta)
+// ═══════════════════════════════════════════
+const PersonDetail = ({ person, mob, onBack }) => (
+  <div>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
+      {person.img && (
+        <div style={{ width: 40, height: 40, borderRadius: 10, overflow: "hidden", border: `2px solid ${C.accent}60`, flexShrink: 0 }}>
+          <img src={person.img} alt={person.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        </div>
+      )}
+      <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent }}>{person.name}</h1>
+    </div>
+    <SupaExplorer rootFolderId={person.folderId} mob={mob} />
+  </div>
+);
 
 // ═══════════════════════════════════════════
 // MAIN DASHBOARD
@@ -410,33 +421,14 @@ export const DashboardPage = ({ data, mob, drive }) => {
     </button>
   );
 
-  // ═══ PERSON FOLDER VIEW ═══
-  if (selectedPerson) {
-    return (
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-          <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
-          {selectedPerson.img && (
-            <div style={{ width: 40, height: 40, borderRadius: 10, overflow: "hidden", border: `2px solid ${C.accent}60`, flexShrink: 0 }}>
-              <img src={selectedPerson.img} alt={selectedPerson.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            </div>
-          )}
-          <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent }}>{selectedPerson.name}</h1>
-        </div>
-        <DriveExplorer rootFolderId={selectedPerson.folderId} drive={drive} mob={mob} />
-      </div>
-    );
-  }
+  // ═══ PERSON VIEW ═══
+  if (selectedPerson) return <PersonDetail person={selectedPerson} mob={mob} onBack={goBack} />;
 
   // ═══ PROPERTY DETAIL VIEW ═══
-  if (selectedProperty) {
-    return <PropertyDetail property={selectedProperty} mob={mob} drive={drive} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} />;
-  }
+  if (selectedProperty) return <PropertyDetail property={selectedProperty} mob={mob} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} />;
 
   // ═══ PROPERTIES LIST VIEW ═══
-  if (showProperties) {
-    return <PropertiesView mob={mob} drive={drive} onSelectProperty={handlePropertySelect} onBack={goBack} />;
-  }
+  if (showProperties) return <PropertiesView mob={mob} onSelectProperty={handlePropertySelect} onBack={goBack} />;
 
   // ═══ NORMAL DASHBOARD VIEW ═══
   return (
