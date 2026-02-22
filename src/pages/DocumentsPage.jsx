@@ -1,5 +1,5 @@
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: 2.0
+// Versión: 4.0
 // Fecha: 2026-02-20
 
 import { useState, useEffect, useRef } from "react";
@@ -64,8 +64,6 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
   const [loadingDrive, setLoadingDrive] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
   const [previewFile, setPreviewFile] = useState(null); // { id, name }
-  const hasSynced = useRef(false);
-
   const { token, gisLoaded, signIn, signOut, listAllFiles } = drive;
 
   // Load folder contents
@@ -80,39 +78,77 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     load();
   }, [token, currentFolder, tab]);
 
-  // ─── Auto-sync on first connect ───
-  useEffect(() => {
-    if (!token || hasSynced.current) return;
-    hasSynced.current = true;
-    const autoSync = async () => {
-      setSyncMsg("Sincronizando con Drive...");
-      let totalFiles = 0, totalFolders = 0;
-      const syncFolder = async (folderId, path) => {
-        const items = await listAllFiles(folderId);
-        if (!items) return;
-        for (const f of items) {
-          if (isFolder(f)) {
+  // ─── Incremental sync (auto, only indexes missing folders/files) ───
+  const [syncing, setSyncing] = useState(false);
+  const syncedRef = useRef(false);
+
+  const runSync = async (incremental = true) => {
+    if (!token || syncing) return;
+    setSyncing(true);
+    setSyncMsg(incremental ? "Verificando cambios..." : "Sincronización completa...");
+    let totalFiles = 0, totalFolders = 0, skipped = 0;
+
+    // Load existing indexed folder IDs for dedup
+    let knownFolders = new Set();
+    let knownFiles = new Set();
+    if (incremental) {
+      try {
+        const existingFolders = await supaFetch("drive_folders", { order: "id" });
+        if (existingFolders) existingFolders.forEach(f => knownFolders.add(f.google_drive_id));
+        const existingDocs = await supaFetch("documents", { filters: "synced_from_drive=eq.true", order: "id" });
+        if (existingDocs) existingDocs.forEach(d => knownFiles.add(d.google_drive_file_id));
+      } catch (e) { console.error("Could not load existing index", e); }
+      setSyncMsg(`Índice actual: ${knownFolders.size} carpetas, ${knownFiles.size} archivos. Buscando nuevos...`);
+    }
+
+    const syncFolder = async (folderId, path) => {
+      const items = await listAllFiles(folderId);
+      if (!items) return;
+      for (const f of items) {
+        if (isFolder(f)) {
+          if (incremental && knownFolders.has(f.id)) {
+            skipped++;
+            // Still recurse into known folders to find new children
+            await syncFolder(f.id, path + "/" + f.name);
+          } else {
             await supaUpsert("drive_folders", { google_drive_id: f.id, name: f.name, parent_drive_id: folderId, folder_path: path + "/" + f.name });
             totalFolders++;
-            if (totalFolders % 5 === 0) setSyncMsg(`Sincronizando... ${totalFolders} carpetas, ${totalFiles} archivos`);
+            knownFolders.add(f.id);
+            if (totalFolders % 3 === 0) setSyncMsg(`Nuevos: ${totalFolders} carpetas, ${totalFiles} archivos...`);
             await syncFolder(f.id, path + "/" + f.name);
+          }
+        } else {
+          if (incremental && knownFiles.has(f.id)) {
+            skipped++;
           } else {
             const doc = { title: f.name, google_drive_file_id: f.id, google_drive_url: f.webViewLink, folder_path: path, parent_folder_drive_id: folderId, mime_type: f.mimeType, file_type: getFileExt(f.mimeType), category: guessCategoryFromPath(path), synced_from_drive: true, last_synced_at: new Date().toISOString() };
             const existing = await supaFetch("documents", { filters: `google_drive_file_id=eq.${f.id}` });
             if (existing && existing.length > 0) await supaUpdate("documents", existing[0].id, doc);
             else await supaInsert("documents", doc);
             totalFiles++;
+            knownFiles.add(f.id);
           }
         }
-      };
-      try {
-        await syncFolder(DRIVE_ROOT_FOLDER, "APMEW");
-        setSyncMsg(`✓ Sincronizado: ${totalFolders} carpetas, ${totalFiles} archivos`);
-        reload();
-      } catch (e) { console.error(e); setSyncMsg("Error al sincronizar: " + e.message); }
-      setTimeout(() => setSyncMsg(""), 5000);
+      }
     };
-    autoSync();
+    try {
+      await syncFolder(DRIVE_ROOT_FOLDER, "APMEW");
+      if (totalFolders === 0 && totalFiles === 0) {
+        setSyncMsg("✓ Todo al día — no hay cambios nuevos");
+      } else {
+        setSyncMsg(`✓ ${totalFolders} carpetas y ${totalFiles} archivos nuevos indexados`);
+        reload();
+      }
+    } catch (e) { console.error(e); setSyncMsg("Error: " + e.message); }
+    setSyncing(false);
+    setTimeout(() => setSyncMsg(""), 8000);
+  };
+
+  // Auto-sync once on first connect (incremental)
+  useEffect(() => {
+    if (!token || syncedRef.current) return;
+    syncedRef.current = true;
+    runSync(true);
   }, [token]);
 
   const navigateToFolder = (folderId, folderName) => {
@@ -148,6 +184,11 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
         <TabBtn id="drive" label="📁 Google Drive" />
         <TabBtn id="indexed" label="🗂️ Indexados" />
+        {token && <button onClick={() => runSync(false)} disabled={syncing} style={{
+          fontFamily: "DM Sans", fontSize: 12, color: syncing ? C.textDim : C.blue,
+          background: syncing ? C.surface2 : `${C.blue}15`, border: `1px solid ${syncing ? C.border : C.blue}40`,
+          borderRadius: 8, padding: "6px 14px", cursor: syncing ? "default" : "pointer", marginLeft: 4,
+        }}>{syncing ? "⏳ Sincronizando..." : "🔄 Re-sincronizar todo"}</button>}
         {syncMsg && <span style={{ fontFamily: "DM Sans", fontSize: 13, color: syncMsg.startsWith("✓") ? C.green : syncMsg.startsWith("Error") ? C.red : C.accent, marginLeft: 8 }}>{syncMsg}</span>}
       </div>
 
