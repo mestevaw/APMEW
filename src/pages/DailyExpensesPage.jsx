@@ -1,5 +1,5 @@
 // Archivo: src/pages/DailyExpensesPage.jsx
-// Versión: 4.0
+// Versión: 5.0
 // Fecha: 2026-02-22
 
 import { useState, useRef, useEffect } from "react";
@@ -57,11 +57,29 @@ const mapCapitalOne = (row) => {
 };
 
 const mapAmex = (row) => {
+  // AmEx headers: Date, Description, Card Member, Account #, Amount, Extended Details, ..., Category (col 13)
   const date = row["Date"] || row["Fecha"] || "";
-  const desc = row["Description"] || row["Descripcion"] || row["Descripción"] || "";
+  const desc = row["Description"] || row["Descripcion"] || "";
+  const member = row["Card Member"] || "";
   const amount = parseFloat(row["Amount"] || row["Monto"] || 0);
-  if (!date || amount === 0) return null;
-  return { expense_date: date.slice(0, 10), concept: desc, category: "otro", who: "Miguel", amount: Math.abs(amount), payment_method: "tarjeta", source: "AmEx" };
+  const category = row["Category"] || "";
+  if (!date || !amount) return null;
+
+  // Parse MM/DD/YYYY → YYYY-MM-DD
+  let dateIso = date;
+  if (date.includes("/")) {
+    const p = date.split("/");
+    dateIso = p[2].length === 2 ? `20${p[2]}-${p[0].padStart(2,"0")}-${p[1].padStart(2,"0")}` : `${p[2]}-${p[0].padStart(2,"0")}-${p[1].padStart(2,"0")}`;
+  }
+
+  // Category mapping
+  const catMap = { "Restaurant": "restaurantes", "Groceries": "supermercado", "General Retail": "hogar", "Internet Purchase": "hogar", "Mail Order": "hogar", "Fuel": "transporte", "Vehicle": "transporte", "Cable": "servicios", "Communications": "servicios", "Business Services": "servicios" };
+  let cat = "otro";
+  for (const [k, v] of Object.entries(catMap)) { if (category.toLowerCase().includes(k.toLowerCase())) { cat = v; break; } }
+
+  const who = member.toUpperCase().includes("HINOJOSA") ? "AnaP" : "Miguel";
+
+  return { expense_date: dateIso.slice(0, 10), concept: desc.slice(0, 100).trim(), category: cat, who, amount: Math.abs(amount), payment_method: "tarjeta", source: "AmEx" };
 };
 
 const exportToExcel = (data) => {
@@ -356,8 +374,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
           /* ═══ MOBILE: sticky header + 2-line rows ═══ */
           <div style={{ maxHeight: "60vh", overflow: "auto" }}>
             <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, padding: "8px 12px", borderBottom: `2px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>{sorted.length} gastos</span>
-              <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.accent }}>↕ {sortLabels[sortCol]} {sortDir === "asc" ? "▲" : "▼"}</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>{sorted.length} gastos · {fmtDate(new Date().toISOString().slice(0,10))}</span>
             </div>
             {sorted.map((e, i) => {
               const pay = isPayment(e);
