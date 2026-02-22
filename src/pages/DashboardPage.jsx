@@ -1,5 +1,5 @@
 // Archivo: src/pages/DashboardPage.jsx
-// Versión: 9.0
+// Versión: 10.0
 // Fecha: 2026-02-22
 
 import { useState, useEffect, useCallback } from "react";
@@ -50,6 +50,7 @@ const PROPERTIES = [
 ];
 
 const OWNER_COLORS = { "Mango Nest": "#4ADE80", "MNA Works": "#60A5FA", "Tortuga Home": "#F59E0B", "Argo Real": "#A78BFA", "Miguel y AnaP": "#C8A862" };
+const OWNER_SHORT = { "Mango Nest": "Mango", "MNA Works": "MNA", "Tortuga Home": "Tortuga", "Argo Real": "Argo", "Miguel y AnaP": "AnaPMEW" };
 
 // ─── Sorting helpers ───
 const getNumber = (addr) => { const m = addr.match(/^(\d+)/); return m ? parseInt(m[1]) : 99999; };
@@ -138,11 +139,14 @@ const PhotoGallery = ({ images, startIndex, onClose, mob }) => {
         </div>
 
         {/* Image */}
-        <img
-          src={getThumbnailUrl(img.google_drive_file_id || img.id)}
-          alt={img.title || img.name}
-          style={{ maxWidth: mob ? "90vw" : "80vw", maxHeight: mob ? "55vh" : "70vh", borderRadius: 8, objectFit: "contain" }}
-        />
+        <div style={{ width: mob ? "92vw" : "80vw", height: mob ? "55vh" : "70vh", borderRadius: 8, overflow: "hidden", background: "#000" }}>
+          <iframe
+            src={getPreviewUrl(img.google_drive_file_id || img.id)}
+            style={{ width: "100%", height: "100%", border: "none" }}
+            allow="autoplay"
+            sandbox="allow-same-origin allow-scripts allow-popups"
+          />
+        </div>
 
         {/* Navigation arrows */}
         <div style={{ display: "flex", alignItems: "center", gap: mob ? 24 : 40, marginTop: 16 }}>
@@ -281,14 +285,13 @@ const SupaExplorer = ({ rootFolderId, mob }) => {
                     <button key={img.id} onClick={() => openImage(img, idx)} style={{
                       background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8,
                       cursor: "pointer", overflow: "hidden", aspectRatio: "1", display: "flex",
-                      alignItems: "center", justifyContent: "center", padding: 0, transition: "border-color 0.2s",
+                      flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+                      padding: 4, transition: "border-color 0.2s",
                     }}
                       onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
                       onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-                      <img src={getThumbnailUrl(img.google_drive_file_id)} alt={img.title}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        onError={e => { e.target.style.display = "none"; e.target.parentNode.innerHTML = '<span style="font-size:24px">🖼️</span>'; }}
-                      />
+                      <span style={{ fontSize: 24 }}>📷</span>
+                      <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", width: "100%", whiteSpace: "nowrap" }}>{idx + 1}</span>
                     </button>
                   ))}
                 </div>
@@ -347,7 +350,7 @@ const PropertiesView = ({ mob, onSelectProperty, onBack }) => {
               padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === o ? color : C.border}`,
               background: filter === o ? `${color}18` : "transparent", cursor: "pointer",
               fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: filter === o ? color : C.textDim,
-            }}>{o} ({count})</button>
+            }}>{(OWNER_SHORT[o] || o)} ({count})</button>
           );
         })}
       </div>
@@ -378,7 +381,7 @@ const PropertiesView = ({ mob, onSelectProperty, onBack }) => {
               <div style={{ flex: 1 }}>
                 <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 500, color: C.text }}>{prop.address}</div>
               </div>
-              <Badge color={OWNER_COLORS[prop.owner] || C.textDim}>{prop.owner}</Badge>
+              <Badge color={OWNER_COLORS[prop.owner] || C.textDim}>{OWNER_SHORT[prop.owner] || prop.owner}</Badge>
             </button>
           ))}
         </div>
