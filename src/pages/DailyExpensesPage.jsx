@@ -1,5 +1,5 @@
 // Archivo: src/pages/DailyExpensesPage.jsx
-// Versión: 5.0
+// Versión: 6.0
 // Fecha: 2026-02-22
 
 import { useState, useRef, useEffect } from "react";
@@ -31,16 +31,31 @@ const isPayment = (e) => (e.category === "otro" || e.category === "Otro") && Num
 const displayConcept = (e) => isPayment(e) ? "Pago" : e.concept;
 const amountColor = (e) => isPayment(e) ? C.green : C.red;
 
-// ─── CSV parser ───
+// ─── Smart CSV parser (auto-detects header row) ───
 const parseCSV = (text) => {
   const lines = text.split("\n").filter(l => l.trim());
   if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map(h => h.trim().replace(/"/g, ""));
-  return lines.slice(1).map(line => {
+
+  // Find header row: look for line containing "Date" AND ("Description" OR "Amount")
+  let headerIdx = 0;
+  for (let i = 0; i < Math.min(15, lines.length); i++) {
+    const lower = lines[i].toLowerCase();
+    if (lower.includes("date") && (lower.includes("description") || lower.includes("amount"))) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  const headers = lines[headerIdx].split(",").map(h => h.trim().replace(/"/g, ""));
+  return lines.slice(headerIdx + 1).map(line => {
     const vals = line.match(/(".*?"|[^,]*)/g) || [];
     const obj = {};
     headers.forEach((h, i) => obj[h] = (vals[i] || "").replace(/^"|"$/g, "").trim());
     return obj;
+  }).filter(row => {
+    // Skip empty/metadata rows
+    const vals = Object.values(row).filter(v => v);
+    return vals.length >= 3;
   });
 };
 
@@ -181,14 +196,24 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
 
   const executeImport = async () => {
     if (!importData) return;
-    setImporting(true); let count = 0;
+    setImporting(true); let count = 0; let skipped = 0;
+
+    // Build dedup set from existing expenses
+    const existing = new Set();
+    for (const e of dailyExpenses) {
+      existing.add(`${e.expense_date}|${(e.concept || "").slice(0,50)}|${Number(e.amount).toFixed(2)}`);
+    }
+
     for (let i = 0; i < importData.length; i += 50) {
       for (const row of importData.slice(i, i + 50)) {
-        try { await supaInsert("daily_expenses", row); count++; } catch (e) { console.error(e); }
+        const key = `${row.expense_date}|${(row.concept || "").slice(0,50)}|${Number(row.amount).toFixed(2)}`;
+        if (existing.has(key)) { skipped++; continue; }
+        try { await supaInsert("daily_expenses", row); count++; existing.add(key); } catch (e) { console.error(e); }
       }
-      setImportMsg(`Importando... ${count}/${importData.length}`);
+      setImportMsg(`Importando... ${count} nuevas, ${skipped} duplicadas`);
     }
-    setImportMsg(`✓ ${count} importadas`); setImportData(null); setImporting(false); reload();
+    setImportMsg(`✓ ${count} importadas${skipped > 0 ? `, ${skipped} duplicadas omitidas` : ""}`);
+    setImportData(null); setImporting(false); reload();
   };
 
   // ─── Sort ───
