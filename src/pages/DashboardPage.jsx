@@ -1,5 +1,5 @@
 // Archivo: src/pages/DashboardPage.jsx
-// Versión: 8.0
+// Versión: 9.0
 // Fecha: 2026-02-22
 
 import { useState, useEffect, useCallback } from "react";
@@ -126,8 +126,8 @@ const PhotoGallery = ({ images, startIndex, onClose, mob }) => {
 
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 1000 }} />
-      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 1001, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 9999 }} />
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 10000, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0 20px" }}>
         {/* Header */}
         <div style={{ position: "absolute", top: 12, left: 16, right: 16, display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 2 }}>
           <span style={{ fontFamily: "DM Sans", fontSize: 14, color: "#fff", background: "rgba(0,0,0,0.5)", padding: "4px 12px", borderRadius: 8 }}>{img.title || img.name} — {idx + 1}/{images.length}</span>
@@ -141,7 +141,7 @@ const PhotoGallery = ({ images, startIndex, onClose, mob }) => {
         <img
           src={getThumbnailUrl(img.google_drive_file_id || img.id)}
           alt={img.title || img.name}
-          style={{ maxWidth: mob ? "92%" : "80%", maxHeight: "75vh", borderRadius: 8, objectFit: "contain" }}
+          style={{ maxWidth: mob ? "90vw" : "80vw", maxHeight: mob ? "55vh" : "70vh", borderRadius: 8, objectFit: "contain" }}
         />
 
         {/* Navigation arrows */}
@@ -219,8 +219,8 @@ const SupaExplorer = ({ rootFolderId, mob }) => {
       {/* File preview modal (non-image) */}
       {previewFile && (
         <>
-          <div onClick={() => setPreviewFile(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000 }} />
-          <div style={{ position: "fixed", top: mob ? "2%" : "5%", left: mob ? "2%" : "10%", right: mob ? "2%" : "10%", bottom: mob ? "2%" : "5%", zIndex: 1001, display: "flex", flexDirection: "column", background: C.surface, borderRadius: 16, border: `1px solid ${C.accent}40`, overflow: "hidden" }}>
+          <div onClick={() => setPreviewFile(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999 }} />
+          <div style={{ position: "fixed", top: mob ? "2%" : "5%", left: mob ? "2%" : "10%", right: mob ? "2%" : "10%", bottom: mob ? "2%" : "5%", zIndex: 10000, display: "flex", flexDirection: "column", background: C.surface, borderRadius: 16, border: `1px solid ${C.accent}40`, overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
               <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{previewFile.name}</span>
               <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
