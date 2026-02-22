@@ -1,8 +1,8 @@
 // Archivo: src/pages/DailyExpensesPage.jsx
-// Versión: 3.0
+// Versión: 4.0
 // Fecha: 2026-02-22
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { C, inputStyle } from "../lib/theme";
 import { fmt } from "../lib/helpers";
 import { I } from "../lib/icons";
@@ -13,23 +13,16 @@ import { Card, SectionTitle, Badge, Btn, Spinner } from "../components/UI";
 const fmtDate = (d) => {
   if (!d) return "—";
   const dt = new Date(d + "T12:00:00");
-  const day = dt.getDate();
   const months = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-  return `${day} ${months[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}`;
+  return `${dt.getDate()} ${months[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}`;
 };
 
 // ─── Card logos ───
 const CardLogo = ({ source }) => {
   const s = (source || "").toLowerCase();
-  if (s.includes("capital") || s.includes("visa")) return (
-    <span title="Capital One Visa" style={{ fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 700, color: "#1a1f71", background: "#fff", padding: "1px 5px", borderRadius: 3, border: "1px solid #1a1f71", lineHeight: "14px" }}>VISA</span>
-  );
-  if (s.includes("amex") || s.includes("american")) return (
-    <span title="American Express" style={{ fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 700, color: "#fff", background: "#006FCF", padding: "1px 5px", borderRadius: 3, lineHeight: "14px" }}>AMEX</span>
-  );
-  if (s.includes("master")) return (
-    <span title="Mastercard" style={{ fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 700, color: "#fff", background: "#EB001B", padding: "1px 5px", borderRadius: 3, lineHeight: "14px" }}>MC</span>
-  );
+  if (s.includes("capital") || s.includes("visa")) return <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 700, color: "#1a1f71", background: "#fff", padding: "1px 5px", borderRadius: 3, border: "1px solid #1a1f71", lineHeight: "14px" }}>VISA</span>;
+  if (s.includes("amex") || s.includes("american")) return <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 700, color: "#fff", background: "#006FCF", padding: "1px 5px", borderRadius: 3, lineHeight: "14px" }}>AMEX</span>;
+  if (s.includes("master")) return <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 700, color: "#fff", background: "#EB001B", padding: "1px 5px", borderRadius: 3, lineHeight: "14px" }}>MC</span>;
   return source ? <span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim }}>{source}</span> : null;
 };
 
@@ -38,7 +31,7 @@ const isPayment = (e) => (e.category === "otro" || e.category === "Otro") && Num
 const displayConcept = (e) => isPayment(e) ? "Pago" : e.concept;
 const amountColor = (e) => isPayment(e) ? C.green : C.red;
 
-// ─── CSV/Excel parser ───
+// ─── CSV parser ───
 const parseCSV = (text) => {
   const lines = text.split("\n").filter(l => l.trim());
   if (lines.length < 2) return [];
@@ -71,24 +64,64 @@ const mapAmex = (row) => {
   return { expense_date: date.slice(0, 10), concept: desc, category: "otro", who: "Miguel", amount: Math.abs(amount), payment_method: "tarjeta", source: "AmEx" };
 };
 
-// ─── Excel export ───
 const exportToExcel = (data) => {
   const BOM = "\uFEFF";
   const headers = "Fecha,Concepto,Categoría,Quién,Monto,Método,Tarjeta\n";
   const rows = data.map(e =>
     `${e.expense_date},"${(displayConcept(e)).replace(/"/g, '""')}",${e.category},${e.who},${Number(e.amount).toFixed(2)},${e.payment_method || ""},${e.source || ""}`
   ).join("\n");
-  const csv = BOM + headers + rows;
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob([BOM + headers + rows], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = `gastos_diarios_${new Date().toISOString().slice(0,10)}.csv`;
+  const a = document.createElement("a"); a.href = url; a.download = `gastos_diarios_${new Date().toISOString().slice(0,10)}.csv`;
   a.click(); URL.revokeObjectURL(url);
 };
 
+// ═══════════════════════════════════════════
+// DROPDOWN MENU component
+// ═══════════════════════════════════════════
+const DropMenu = ({ open, onClose, children, style }) => {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+  if (!open) return null;
+  return (
+    <div ref={ref} style={{
+      position: "absolute", right: 0, top: "100%", marginTop: 6, background: C.surface,
+      border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
+      minWidth: 220, zIndex: 100, overflow: "hidden", ...style,
+    }}>{children}</div>
+  );
+};
+
+const MenuItem = ({ onClick, children, active, sub }) => (
+  <button onClick={onClick} style={{
+    width: "100%", textAlign: "left", padding: sub ? "6px 20px 6px 32px" : "10px 16px",
+    background: active ? C.accentGlow : "transparent", border: "none", cursor: "pointer",
+    fontFamily: "DM Sans", fontSize: sub ? 12 : 13, fontWeight: active ? 600 : 400,
+    color: active ? C.accent : C.text, display: "flex", alignItems: "center", gap: 8,
+    transition: "background 0.15s",
+  }}
+    onMouseEnter={e => e.currentTarget.style.background = active ? C.accentGlow : C.surface2}
+    onMouseLeave={e => e.currentTarget.style.background = active ? C.accentGlow : "transparent"}
+  >{children}</button>
+);
+
+const MenuDivider = () => <div style={{ height: 1, background: C.border, margin: "4px 0" }} />;
+const MenuLabel = ({ children }) => <div style={{ padding: "8px 16px 4px", fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>{children}</div>;
+
+// ═══════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════
 export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuSection, setMenuSection] = useState(null); // "sort" | "excel" | "summary"
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const [importSource, setImportSource] = useState("capital_one");
   const [importData, setImportData] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -114,18 +147,15 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
     let rows = [];
     if (file.name.endsWith(".csv")) {
       const text = await file.text();
-      const parsed = parseCSV(text);
-      rows = parsed.map(r => importSource === "capital_one" ? mapCapitalOne(r) : mapAmex(r)).filter(Boolean);
+      rows = parseCSV(text).map(r => importSource === "capital_one" ? mapCapitalOne(r) : mapAmex(r)).filter(Boolean);
     } else if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
       try {
         const XLSX = await import("https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs");
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf);
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const csv = XLSX.utils.sheet_to_csv(ws);
-        const parsed = parseCSV(csv);
-        rows = parsed.map(r => importSource === "capital_one" ? mapCapitalOne(r) : mapAmex(r)).filter(Boolean);
-      } catch (err) { setImportMsg("Error leyendo Excel. Intenta exportar como CSV."); return; }
+        const csv = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]);
+        rows = parseCSV(csv).map(r => importSource === "capital_one" ? mapCapitalOne(r) : mapAmex(r)).filter(Boolean);
+      } catch { setImportMsg("Error leyendo Excel. Intenta CSV."); return; }
     }
     if (rows.length > 0) { setImportData(rows); setImportMsg(`${rows.length} transacciones listas`); }
     else setImportMsg("No se encontraron transacciones válidas");
@@ -133,68 +163,93 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
 
   const executeImport = async () => {
     if (!importData) return;
-    setImporting(true);
-    let count = 0;
+    setImporting(true); let count = 0;
     for (let i = 0; i < importData.length; i += 50) {
-      const batch = importData.slice(i, i + 50);
-      for (const row of batch) {
+      for (const row of importData.slice(i, i + 50)) {
         try { await supaInsert("daily_expenses", row); count++; } catch (e) { console.error(e); }
       }
       setImportMsg(`Importando... ${count}/${importData.length}`);
     }
-    setImportMsg(`✓ ${count} transacciones importadas`);
-    setImportData(null); setImporting(false); reload();
+    setImportMsg(`✓ ${count} importadas`); setImportData(null); setImporting(false); reload();
   };
 
   // ─── Sort ───
-  const toggleSort = (col) => {
+  const doSort = (col) => {
     if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
     else { setSortCol(col); setSortDir(col === "expense_date" ? "desc" : "asc"); }
+    setMenuOpen(false); setMenuSection(null);
   };
 
-  // ─── Filter + Sort ───
+  // ─── Filter + Sort data ───
   const allCats = [...new Set(dailyExpenses.map(e => e.category).filter(Boolean))].sort();
-  let filtered = filterCat === "all" ? dailyExpenses : dailyExpenses.filter(e => e.category === filterCat);
+  const filtered = filterCat === "all" ? dailyExpenses : dailyExpenses.filter(e => e.category === filterCat);
   const sorted = [...filtered].sort((a, b) => {
     let va = a[sortCol], vb = b[sortCol];
     if (sortCol === "amount") { va = Number(va) || 0; vb = Number(vb) || 0; }
     else { va = String(va || "").toLowerCase(); vb = String(vb || "").toLowerCase(); }
-    if (va < vb) return sortDir === "asc" ? -1 : 1;
-    if (va > vb) return sortDir === "asc" ? 1 : -1;
-    return 0;
+    return (va < vb ? -1 : va > vb ? 1 : 0) * (sortDir === "asc" ? 1 : -1);
   });
 
-  const SortHeader = ({ col, label, style }) => (
-    <button onClick={() => toggleSort(col)} style={{
-      background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans",
-      fontSize: 11, fontWeight: 600, color: sortCol === col ? C.accent : C.textDim,
-      textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 3,
-      padding: 0, whiteSpace: "nowrap", ...style,
-    }}>
-      {label}{sortCol === col && <span style={{ fontSize: 10 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}
-    </button>
-  );
+  const total = filtered.reduce((s, e) => s + Math.max(0, Number(e.amount) || 0), 0);
+  const payments = filtered.reduce((s, e) => s + Math.min(0, Number(e.amount) || 0), 0);
 
-  const total = filtered.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  const payments = filtered.reduce((s, e) => s + (Number(e.amount) < 0 ? Number(e.amount) : 0), 0);
+  // ─── Summary by category ───
+  const catSummary = {};
+  filtered.forEach(e => {
+    const cat = e.category || "otro";
+    if (!catSummary[cat]) catSummary[cat] = { count: 0, total: 0 };
+    catSummary[cat].count++;
+    catSummary[cat].total += Number(e.amount) || 0;
+  });
+  const catSumSorted = Object.entries(catSummary).sort((a, b) => b[1].total - a[1].total);
+
+  const sortLabels = { expense_date: "Fecha", concept: "Concepto", category: "Categoría", amount: "Monto", source: "Tarjeta", who: "Quién" };
 
   return (
     <div>
-      <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, marginBottom: 4 }}>Gastos del Día a Día</h1>
-      <p style={{ fontFamily: "DM Sans", fontSize: mob ? 12 : 14, color: C.textDim, marginBottom: 16 }}>
-        {filtered.length} registros · Gastos: <span style={{ color: C.red, fontFamily: "JetBrains Mono" }}>{fmt(total - payments)}</span>
-        {payments < 0 && <> · Pagos: <span style={{ color: C.green, fontFamily: "JetBrains Mono" }}>{fmt(payments)}</span></>}
-      </p>
+      {/* ═══ HEADER with hamburger menu ═══ */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 4 }}>
+        <div>
+          <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text }}>Gastos del Día a Día</h1>
+          <p style={{ fontFamily: "DM Sans", fontSize: mob ? 11 : 13, color: C.textDim, marginTop: 2 }}>
+            {filtered.length} registros · <span style={{ color: C.red, fontFamily: "JetBrains Mono" }}>{fmt(total)}</span>
+            {payments < 0 && <> · <span style={{ color: C.green, fontFamily: "JetBrains Mono" }}>{fmt(payments)}</span></>}
+          </p>
+        </div>
+        <div style={{ position: "relative" }}>
+          <button onClick={() => { setMenuOpen(!menuOpen); setMenuSection(null); }} style={{
+            background: menuOpen ? C.accentGlow : "none", border: `1px solid ${menuOpen ? C.accent : C.border}`,
+            cursor: "pointer", padding: "8px 10px", borderRadius: 8, color: menuOpen ? C.accent : C.text,
+            transition: "all 0.2s", display: "flex", alignItems: "center",
+          }}>
+            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
 
-      {/* Action buttons */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <Btn onClick={() => { setShowForm(!showForm); setShowImport(false); }}>{I.plus} Registrar</Btn>
-        <Btn onClick={() => { setShowImport(!showImport); setShowForm(false); }} outline>📥 Importar</Btn>
-        <Btn onClick={() => exportToExcel(sorted)} outline>📊 Exportar Excel</Btn>
+          <DropMenu open={menuOpen} onClose={() => { setMenuOpen(false); setMenuSection(null); }}>
+            {/* ORDENAR */}
+            <MenuLabel>Ordenar</MenuLabel>
+            {Object.entries(sortLabels).map(([col, label]) => (
+              <MenuItem key={col} onClick={() => doSort(col)} active={sortCol === col} sub>
+                {label} {sortCol === col && <span style={{ fontSize: 10, marginLeft: "auto" }}>{sortDir === "asc" ? "▲" : "▼"}</span>}
+              </MenuItem>
+            ))}
+            <MenuDivider />
+
+            {/* EXCEL */}
+            <MenuLabel>Excel</MenuLabel>
+            <MenuItem sub onClick={() => { setShowImport(true); setShowForm(false); setShowSummary(false); setMenuOpen(false); }}>📥 Importar</MenuItem>
+            <MenuItem sub onClick={() => { exportToExcel(sorted); setMenuOpen(false); }}>📊 Exportar</MenuItem>
+            <MenuItem sub onClick={() => { setShowForm(true); setShowImport(false); setShowSummary(false); setMenuOpen(false); }}>✏️ Registrar gasto</MenuItem>
+            <MenuDivider />
+
+            {/* RESUMEN */}
+            <MenuItem onClick={() => { setShowSummary(!showSummary); setShowForm(false); setShowImport(false); setMenuOpen(false); }}>📋 Resumen por categoría</MenuItem>
+          </DropMenu>
+        </div>
       </div>
 
-      {/* Category filters */}
-      <div style={{ display: "flex", gap: 5, marginBottom: 16, flexWrap: "wrap" }}>
+      {/* ═══ Category filter chips ═══ */}
+      <div style={{ display: "flex", gap: 5, marginBottom: 12, marginTop: 12, flexWrap: "wrap" }}>
         <button onClick={() => setFilterCat("all")} style={{
           padding: "4px 10px", borderRadius: 14, border: `1px solid ${filterCat === "all" ? C.accent : C.border}`,
           background: filterCat === "all" ? C.accentGlow : "transparent", cursor: "pointer",
@@ -209,9 +264,35 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
         ))}
       </div>
 
-      {/* Manual form */}
+      {/* ═══ SUMMARY panel ═══ */}
+      {showSummary && (
+        <Card style={{ marginBottom: 16 }}>
+          <SectionTitle>Resumen por Categoría</SectionTitle>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {catSumSorted.map(([cat, data]) => {
+              const pct = total > 0 ? (Math.max(0, data.total) / total * 100) : 0;
+              return (
+                <div key={cat} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px" }}>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, width: mob ? 90 : 120 }}>{cat}</span>
+                  <div style={{ flex: 1, height: 8, background: C.surface2, borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ width: `${pct}%`, height: "100%", background: data.total < 0 ? C.green : C.blue, borderRadius: 4, transition: "width 0.3s" }} />
+                  </div>
+                  <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: data.total < 0 ? C.green : C.red, textAlign: "right", minWidth: 80 }}>{fmt(data.total)}</span>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, minWidth: 30, textAlign: "right" }}>{data.count}</span>
+                </div>
+              );
+            })}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 4px 4px", borderTop: `1px solid ${C.border}`, marginTop: 4 }}>
+              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text }}>Total</span>
+              <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.red }}>{fmt(total + payments)}</span>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* ═══ Manual form ═══ */}
       {showForm && (
-        <Card style={{ marginBottom: 20, borderColor: C.accent }}>
+        <Card style={{ marginBottom: 16, borderColor: C.accent }}>
           <SectionTitle>Nuevo Gasto</SectionTitle>
           <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr" : "2fr 1fr", gap: 12, marginBottom: 12 }}>
             <input placeholder="Concepto" value={form.concept} onChange={e => setForm({ ...form, concept: e.target.value })} style={inputStyle} />
@@ -236,19 +317,19 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
         </Card>
       )}
 
-      {/* Import panel */}
+      {/* ═══ Import panel ═══ */}
       {showImport && (
-        <Card style={{ marginBottom: 20, borderColor: C.blue }}>
+        <Card style={{ marginBottom: 16, borderColor: C.blue }}>
           <SectionTitle>Importar desde CSV o Excel</SectionTitle>
           <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>Formato:</span>
-            {[["capital_one", "VISA", "#1a1f71", "#fff"], ["amex", "AMEX", "#fff", "#006FCF"]].map(([key, label, txtColor, bgColor]) => (
+            {[["capital_one", "VISA", "#1a1f71"], ["amex", "AMEX", "#006FCF"]].map(([key, label, color]) => (
               <button key={key} onClick={() => setImportSource(key)} style={{
                 padding: "6px 14px", borderRadius: 8, cursor: "pointer",
-                border: `1px solid ${importSource === key ? (key === "capital_one" ? "#1a1f71" : "#006FCF") : C.border}`,
-                background: importSource === key ? (key === "capital_one" ? "#1a1f7115" : "#006FCF15") : "transparent",
+                border: `1px solid ${importSource === key ? color : C.border}`,
+                background: importSource === key ? `${color}15` : "transparent",
               }}>
-                <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, fontWeight: 700, color: key === "amex" ? "#fff" : txtColor, background: key === "amex" ? bgColor : "#fff", padding: "2px 6px", borderRadius: 4, border: key === "capital_one" ? "1px solid #1a1f71" : "none" }}>{label}</span>
+                <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, fontWeight: 700, color: key === "amex" ? "#fff" : color, background: key === "amex" ? color : "#fff", padding: "2px 6px", borderRadius: 4, border: key === "capital_one" ? `1px solid ${color}` : "none" }}>{label}</span>
               </button>
             ))}
           </div>
@@ -273,26 +354,21 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
           </div>
         ) : mob ? (
           /* ═══ MOBILE: sticky header + 2-line rows ═══ */
-          <div style={{ maxHeight: "65vh", overflow: "auto" }}>
-            {/* Sticky header */}
-            <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, padding: "8px 12px", borderBottom: `2px solid ${C.border}`, display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {[["expense_date","Fecha"],["category","Cat"],["source","Tarjeta"],["amount","Monto"],["concept","Concepto"]].map(([col,label]) => (
-                <SortHeader key={col} col={col} label={label} />
-              ))}
+          <div style={{ maxHeight: "60vh", overflow: "auto" }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, padding: "8px 12px", borderBottom: `2px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>{sorted.length} gastos</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.accent }}>↕ {sortLabels[sortCol]} {sortDir === "asc" ? "▲" : "▼"}</span>
             </div>
-            {/* Rows */}
             {sorted.map((e, i) => {
               const pay = isPayment(e);
               return (
                 <div key={e.id || i} style={{ padding: "8px 12px", borderBottom: `1px solid ${C.border}` }}>
-                  {/* Line 1: fecha + categoría + tarjeta + monto */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
                     <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim, flexShrink: 0 }}>{fmtDate(e.expense_date)}</span>
                     <Badge color={C.blue} style={{ fontSize: 9 }}>{e.category}</Badge>
                     <CardLogo source={e.source} />
-                    <span style={{ marginLeft: "auto", fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: amountColor(e), flexShrink: 0 }}>{fmt(Math.abs(Number(e.amount)))}{pay && " ✓"}</span>
+                    <span style={{ marginLeft: "auto", fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: amountColor(e), flexShrink: 0 }}>{pay ? "+" : ""}{fmt(Math.abs(Number(e.amount)))}</span>
                   </div>
-                  {/* Line 2: concepto */}
                   <div style={{ fontFamily: "DM Sans", fontSize: 12, color: pay ? C.green : C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayConcept(e)}</div>
                 </div>
               );
@@ -301,16 +377,17 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
         ) : (
           /* ═══ DESKTOP: sticky header table ═══ */
           <div style={{ maxHeight: "70vh", overflow: "auto" }}>
-            {/* Sticky header */}
             <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, display: "grid", gridTemplateColumns: "90px 1fr 100px 70px 90px 60px", gap: 8, padding: "10px 14px", borderBottom: `2px solid ${C.border}` }}>
-              <SortHeader col="expense_date" label="Fecha" />
-              <SortHeader col="concept" label="Concepto" />
-              <SortHeader col="category" label="Categoría" />
-              <SortHeader col="who" label="Quién" />
-              <SortHeader col="amount" label="Monto" style={{ justifyContent: "flex-end" }} />
-              <SortHeader col="source" label="Tarjeta" />
+              {Object.entries(sortLabels).map(([col, label]) => (
+                <button key={col} onClick={() => doSort(col)} style={{
+                  background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans",
+                  fontSize: 11, fontWeight: 600, color: sortCol === col ? C.accent : C.textDim,
+                  textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 3,
+                  padding: 0, textAlign: col === "amount" ? "right" : "left",
+                  justifyContent: col === "amount" ? "flex-end" : "flex-start",
+                }}>{label}{sortCol === col && <span style={{ fontSize: 10 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
+              ))}
             </div>
-            {/* Rows */}
             {sorted.map((e, i) => {
               const pay = isPayment(e);
               return (
