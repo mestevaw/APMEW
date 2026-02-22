@@ -1,5 +1,5 @@
 // Archivo: src/App.jsx
-// Versión: 6.0
+// Versión: 8.0
 // Fecha: 2026-02-20
 
 import { useState, useEffect, useCallback } from "react";
@@ -104,7 +104,7 @@ export default function App() {
     if (loading) return <Loading />;
     switch (page) {
       case "dashboard":
-        return <DashboardPage key={dashKey} data={data} mob={mob} />;
+        return <DashboardPage key={dashKey} data={data} mob={mob} drive={drive} goToPage={(p) => { setPage(p); if (mob) setSidebarOpen(false); }} />;
 
       case "income":
         return <CrudPage title="Ingresos Actuales" subtitle="Últimos ingresos antes de retirarse" table="current_income" items={data.income} mob={mob} reload={loadData} totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
@@ -155,7 +155,7 @@ export default function App() {
         return <DocumentsPage documents={data.documents} mob={mob} reload={loadData} drive={drive} />;
 
       default:
-        return <DashboardPage key={dashKey} data={data} mob={mob} />;
+        return <DashboardPage key={dashKey} data={data} mob={mob} drive={drive} goToPage={(p) => { setPage(p); if (mob) setSidebarOpen(false); }} />;
     }
   };
 
