@@ -6,4 +6,4 @@ export const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdX
 export const GOOGLE_CLIENT_ID = "190984074535-01jfm3brrtn17qqeb258klt1mv0qqi0k.apps.googleusercontent.com";
 export const DRIVE_ROOT_FOLDER = "0B9ZOcVkjNKRIYndnQmlFaFJoWjQ";
 export const DRIVE_RESOURCE_KEY = "0-vYqYv5R5_d6msUcjKmoSOw";
-export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive";
