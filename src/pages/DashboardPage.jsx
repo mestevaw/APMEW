@@ -1,5 +1,5 @@
 // Archivo: src/pages/DashboardPage.jsx
-// Versión: 14.0
+// Versión: 15.0
 // Fecha: 2026-02-22
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -40,7 +40,7 @@ const PROPERTIES = [
   { address: "10 Moondance Hill", owner: "Mango Nest" },
   { address: "1526 Alaskan Wolf", owner: "Mango Nest" },
   { address: "5430 Spring Walk", owner: "Mango Nest" },
-  { address: "7039 Cozy Run", owner: "Argo Real" },
+  { address: "7039 Cozy Run", owner: "MNA Works" },
   { address: "14107 Purple Martin", owner: "MNA Works" },
   { address: "5403 Villa Marco", owner: "MNA Works" },
   { address: "11636 Midnight Rain", owner: "MNA Works" },
@@ -374,25 +374,137 @@ const HouseIcon = () => (
 // ═══════════════════════════════════════════
 // PROPERTIES VIEW (con sort por # o calle)
 // ═══════════════════════════════════════════
-const PropertiesView = ({ mob, onSelectProperty, onBack }) => {
+// ═══════════════════════════════════════════
+// DROPDOWN MENU (reusable)
+// ═══════════════════════════════════════════
+const DropMenu = ({ open, onClose, children, style }) => {
+  const menuRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+  if (!open) return null;
+  return (
+    <div ref={menuRef} style={{
+      position: "absolute", right: 0, top: "100%", marginTop: 6, background: C.surface,
+      border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
+      minWidth: 200, zIndex: 100, overflow: "hidden", ...style,
+    }}>{children}</div>
+  );
+};
+const MenuBtn = ({ onClick, children, active }) => (
+  <button onClick={onClick} style={{
+    width: "100%", textAlign: "left", padding: "10px 16px",
+    background: active ? C.accentGlow : "transparent", border: "none", cursor: "pointer",
+    fontFamily: "DM Sans", fontSize: 13, color: active ? C.accent : C.text, display: "flex", alignItems: "center", gap: 8,
+  }}
+    onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+    onMouseLeave={e => e.currentTarget.style.background = active ? C.accentGlow : "transparent"}
+  >{children}</button>
+);
+const MenuDivider = () => <div style={{ height: 1, background: C.border, margin: "4px 0" }} />;
+const MenuLabel = ({ children }) => <div style={{ padding: "8px 16px 4px", fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>{children}</div>;
+const HamburgerBtn = ({ open, onClick }) => (
+  <button onClick={onClick} style={{
+    background: open ? C.accentGlow : "none", border: `1px solid ${open ? C.accent : C.border}`,
+    cursor: "pointer", padding: "8px 10px", borderRadius: 8, color: open ? C.accent : C.text, display: "flex", alignItems: "center",
+  }}><svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+);
+
+// ═══════════════════════════════════════════
+// PROPERTIES VIEW (con sort y hamburger menu)
+// ═══════════════════════════════════════════
+const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [filter, setFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("number"); // "number" | "street"
+  const [sortBy, setSortBy] = useState("number");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [uploadTarget, setUploadTarget] = useState(null); // property for upload
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState("");
+  const fileInputRef = useRef(null);
+
   const owners = [...new Set(PROPERTIES.map(p => p.owner))];
   let filtered = filter === "all" ? [...PROPERTIES] : PROPERTIES.filter(p => p.owner === filter);
   if (sortBy === "number") filtered.sort((a, b) => getNumber(a.address) - getNumber(b.address));
   else filtered.sort((a, b) => getStreet(a.address).localeCompare(getStreet(b.address)));
 
+  const handleStartUpload = (prop) => {
+    setUploadTarget(prop);
+    setMenuOpen(false);
+    if (!drive?.token && drive?.signIn) { drive.signIn(); return; }
+    setTimeout(() => fileInputRef.current?.click(), 100);
+  };
+
+  const handleFilesSelected = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !drive?.token || !drive?.uploadPhotos || !uploadTarget) return;
+
+    // Find folder ID for this property
+    setUploading(true); setUploadMsg(`Buscando carpeta de ${uploadTarget.address}...`);
+    const folder = await findFolderByAddress(uploadTarget.address);
+    if (!folder) {
+      setUploadMsg("No se encontró la carpeta. Vincula manualmente primero.");
+      setUploading(false); return;
+    }
+
+    setUploadMsg(`Subiendo ${files.length} fotos...`);
+    try {
+      const { results } = await drive.uploadPhotos(
+        files, folder.google_drive_id, uploadTarget.address,
+        (i, total, name) => setUploadMsg(`Subiendo ${i}/${total}: ${name}`)
+      );
+      setUploadMsg(`✓ ${results.length} fotos subidas a ${uploadTarget.address}`);
+      setTimeout(() => setUploadMsg(""), 6000);
+    } catch (err) {
+      setUploadMsg(`Error: ${err.message}`);
+    }
+    setUploading(false); setUploadTarget(null);
+    e.target.value = "";
+  };
+
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+      <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFilesSelected} style={{ display: "none" }} />
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
         <span style={{ color: C.accent }}><HouseIcon /></span>
-        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent }}>Propiedades</h1>
+        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent, flex: 1 }}>Propiedades</h1>
         <Badge color={C.textDim}>{PROPERTIES.length}</Badge>
+        <div style={{ position: "relative" }}>
+          <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
+          <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
+            <MenuLabel>Ordenar</MenuLabel>
+            <MenuBtn onClick={() => { setSortBy("number"); setMenuOpen(false); }} active={sortBy === "number"}>
+              # Número {sortBy === "number" && "✓"}
+            </MenuBtn>
+            <MenuBtn onClick={() => { setSortBy("street"); setMenuOpen(false); }} active={sortBy === "street"}>
+              🏠 Calle {sortBy === "street" && "✓"}
+            </MenuBtn>
+            <MenuDivider />
+            <MenuLabel>Fotos</MenuLabel>
+            <MenuBtn onClick={() => {
+              if (!drive?.token && drive?.signIn) { drive.signIn(); setMenuOpen(false); return; }
+              setMenuOpen(false);
+            }}>
+              {drive?.token ? "✅ Drive conectado" : "🔗 Conectar Google Drive"}
+            </MenuBtn>
+          </DropMenu>
+        </div>
       </div>
 
+      {/* Upload status */}
+      {uploadMsg && (
+        <div style={{ padding: "8px 14px", marginBottom: 12, borderRadius: 8, background: uploadMsg.startsWith("✓") ? `${C.green}15` : `${C.accent}15`, border: `1px solid ${uploadMsg.startsWith("✓") ? C.green : C.accent}40` }}>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent }}>{uploadMsg}</span>
+        </div>
+      )}
+
       {/* Filter chips */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
         <button onClick={() => setFilter("all")} style={{
           padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === "all" ? C.accent : C.border}`,
           background: filter === "all" ? C.accentGlow : "transparent", cursor: "pointer",
@@ -411,34 +523,33 @@ const PropertiesView = ({ mob, onSelectProperty, onBack }) => {
         })}
       </div>
 
-      {/* Sort toggle */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-        <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, alignSelf: "center", marginRight: 4 }}>Ordenar:</span>
-        {[["number", "# Número"], ["street", "Calle"]].map(([key, label]) => (
-          <button key={key} onClick={() => setSortBy(key)} style={{
-            padding: "4px 12px", borderRadius: 6, border: `1px solid ${sortBy === key ? C.accent : C.border}`,
-            background: sortBy === key ? C.accentGlow : "transparent", cursor: "pointer",
-            fontFamily: "DM Sans", fontSize: 11, color: sortBy === key ? C.accent : C.textDim,
-          }}>{label}</button>
-        ))}
-      </div>
-
       <Card>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {filtered.map((prop, i) => (
-            <button key={i} onClick={() => onSelectProperty(prop)} style={{
-              display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
-              background: "transparent", border: "none", cursor: "pointer", borderRadius: 8,
-              width: "100%", textAlign: "left",
-            }}
-              onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ color: OWNER_COLORS[prop.owner] || C.textDim }}><HouseIcon /></span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 500, color: C.text }}>{prop.address}</div>
-              </div>
-              <Badge color={OWNER_COLORS[prop.owner] || C.textDim}>{OWNER_SHORT[prop.owner] || prop.owner}</Badge>
-            </button>
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <button onClick={() => onSelectProperty(prop)} style={{
+                display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+                background: "transparent", border: "none", cursor: "pointer", borderRadius: 8,
+                flex: 1, textAlign: "left",
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ color: OWNER_COLORS[prop.owner] || C.textDim }}><HouseIcon /></span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 500, color: C.text }}>{prop.address}</div>
+                </div>
+                <Badge color={OWNER_COLORS[prop.owner] || C.textDim}>{OWNER_SHORT[prop.owner] || prop.owner}</Badge>
+              </button>
+              {/* Upload button per property */}
+              <button onClick={() => handleStartUpload(prop)} disabled={uploading} title="Subir fotos" style={{
+                background: "none", border: "none", cursor: uploading ? "default" : "pointer",
+                padding: "8px", borderRadius: 6, color: C.textDim, fontSize: 16, flexShrink: 0, opacity: uploading ? 0.3 : 1,
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                📸
+              </button>
+            </div>
           ))}
         </div>
       </Card>
@@ -453,9 +564,6 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
   const [folderId, setFolderId] = useState(null);
   const [searching, setSearching] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState("");
-  const fileInputRef = useRef(null);
 
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null);
@@ -466,28 +574,9 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
     });
   }, [property.address]);
 
-  const handleUploadPhotos = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length || !drive?.token || !drive?.uploadPhotos || !folderId) return;
-    setUploading(true); setUploadMsg(`Preparando ${files.length} fotos...`);
-    try {
-      const { dateFolder, results } = await drive.uploadPhotos(
-        files, folderId, property.address,
-        (i, total, name) => setUploadMsg(`Subiendo ${i}/${total}: ${name}`)
-      );
-      setUploadMsg(`✓ ${results.length} fotos subidas`);
-      setTimeout(() => setUploadMsg(""), 5000);
-    } catch (err) {
-      console.error(err);
-      setUploadMsg(`Error: ${err.message}`);
-    }
-    setUploading(false);
-    e.target.value = "";
-  };
-
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
         <span style={{ color: OWNER_COLORS[property.owner] || C.accent }}><HouseIcon /></span>
         <div style={{ flex: 1 }}>
@@ -495,28 +584,6 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
           <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}</span>
         </div>
       </div>
-
-      {/* Photo upload button */}
-      {folderId && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-          <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleUploadPhotos} style={{ display: "none" }} />
-          {drive?.token ? (
-            <button onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "8px 16px",
-              background: uploading ? C.surface2 : `${C.green}15`, border: `1px solid ${uploading ? C.border : C.green}40`,
-              borderRadius: 8, cursor: uploading ? "default" : "pointer", fontFamily: "DM Sans", fontSize: 13, color: C.green,
-            }}>📸 {uploading ? "Subiendo..." : "Subir fotos a Inspección"}</button>
-          ) : drive?.signIn ? (
-            <button onClick={drive.signIn} style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "8px 16px",
-              background: `${C.blue}15`, border: `1px solid ${C.blue}40`,
-              borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 13, color: C.blue,
-            }}>🔗 Conectar Drive para subir fotos</button>
-          ) : null}
-          {uploadMsg && <span style={{ fontFamily: "DM Sans", fontSize: 12, color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent }}>{uploadMsg}</span>}
-        </div>
-      )}
-
       {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando...</p></Card>}
       {notFound && <Card style={{ textAlign: "center", padding: 30 }}><div style={{ fontSize: 36, marginBottom: 12 }}>📂</div><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta para esta propiedad</p><p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 4 }}>Verifica que exista en Google Drive y sincroniza desde Documentos</p></Card>}
       {folderId && <SupaExplorer rootFolderId={folderId} mob={mob} drive={drive} />}
@@ -565,7 +632,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   // ═══ SUBVIEWS ═══
   if (selectedPerson) return <PersonDetail person={selectedPerson} mob={mob} drive={drive} onBack={goBack} />;
   if (selectedProperty) return <PropertyDetail property={selectedProperty} mob={mob} drive={drive} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} />;
-  if (showProperties) return <PropertiesView mob={mob} onSelectProperty={(p) => { setSelectedProperty(p); setShowProperties(false); }} onBack={goBack} />;
+  if (showProperties) return <PropertiesView mob={mob} drive={drive} onSelectProperty={(p) => { setSelectedProperty(p); setShowProperties(false); }} onBack={goBack} />;
 
   // ═══ DASHBOARD ═══
   return (
