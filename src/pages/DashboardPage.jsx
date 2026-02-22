@@ -1,12 +1,12 @@
 // Archivo: src/pages/DashboardPage.jsx
-// Versión: 4.0
-// Fecha: 2026-02-20
+// Versión: 6.0
+// Fecha: 2026-02-22
 
 import { useState, useEffect } from "react";
 import { C } from "../lib/theme";
 import { fmt } from "../lib/helpers";
 import { I } from "../lib/icons";
-import { DRIVE_ROOT_FOLDER } from "../lib/config";
+import { supaFetch } from "../lib/supabase";
 import { Card, StatCard, SectionTitle, Badge, MiniBar, Btn, Spinner } from "../components/UI";
 
 // ─── Fotos de los hijos (thumbnails base64) ───
@@ -20,6 +20,42 @@ const KIDS = [
 const PROFILE_FOLDERS = {
   AnaP: "1LjQaL9mFUXRtZauUUTCJdiBvE25vG8jr",
   Miguel: "1BRArGXI25YRMTl_l69DDqV0mFgeN9LIm",
+};
+
+// ─── Propiedades ───
+const PROPERTIES = [
+  { address: "9519 Gillcross Way", owner: "Mango Nest" },
+  { address: "10123 Dixon Wood", owner: "MNA Works" },
+  { address: "10919 Soogan Trail", owner: "Tortuga Home" },
+  { address: "14331 Purple Martin", owner: "Tortuga Home" },
+  { address: "8719 Snow Goose", owner: "Tortuga Home" },
+  { address: "10731 Shaencrossing", owner: "Tortuga Home" },
+  { address: "9283 Ridge Breeze", owner: "Mango Nest" },
+  { address: "5802 Silent Meadow", owner: "Mango Nest" },
+  { address: "10603 Shaencrest", owner: "Tortuga Home" },
+  { address: "12118 Allegheny River", owner: "MNA Works" },
+  { address: "5275 Charolais", owner: "Mango Nest" },
+  { address: "6515 Hazy Glen", owner: "Tortuga Home" },
+  { address: "15151 Spring Mist", owner: "MNA Works" },
+  { address: "14231 Dusky Thrush", owner: "Tortuga Home" },
+  { address: "10 Moondance Hill", owner: "Mango Nest" },
+  { address: "1526 Alaskan Wolf", owner: "Mango Nest" },
+  { address: "5430 Spring Walk", owner: "Mango Nest" },
+  { address: "7039 Cozy Run", owner: "Argo Real" },
+  { address: "14107 Purple Martin", owner: "MNA Works" },
+  { address: "5403 Villa Marco", owner: "MNA Works" },
+  { address: "11636 Midnight Rain", owner: "MNA Works" },
+  { address: "9319 Caen", owner: "MNA Works" },
+  { address: "232 Argo Avenue", owner: "Miguel y AnaP" },
+  { address: "Ave Progreso 15, Depto C101", owner: "Miguel y AnaP" },
+];
+
+const OWNER_COLORS = {
+  "Mango Nest": "#4ADE80",
+  "MNA Works": "#60A5FA",
+  "Tortuga Home": "#F59E0B",
+  "Argo Real": "#A78BFA",
+  "Miguel y AnaP": "#C8A862",
 };
 
 // ─── Drive file helpers ───
@@ -47,7 +83,32 @@ const getFileExt = (mime) => {
 };
 const getPreviewUrl = (fileId) => `https://drive.google.com/file/d/${fileId}/preview`;
 
-// ─── Drive Explorer (embedded folder browser) ───
+// ─── Supabase folder lookup (busca en drive_folders por nombre) ───
+const findFolderByName = async (searchName) => {
+  // Busca carpeta cuyo nombre contenga la dirección (case insensitive)
+  const words = searchName.split(" ").filter(w => w.length > 2);
+  // Usar la primera palabra significativa (el número de la dirección)
+  const firstWord = searchName.match(/^\d+/) ? searchName.match(/^\d+/)[0] : words[0];
+  const results = await supaFetch("drive_folders", {
+    filters: `name=ilike.*${firstWord}*&folder_path=ilike.*PROPERTY*`,
+  });
+  if (results && results.length > 0) {
+    // Intentar match más específico
+    const best = results.find(r => {
+      const rName = r.name.toLowerCase();
+      const sName = searchName.toLowerCase();
+      // Checa si el nombre contiene al menos 2 palabras de la dirección
+      const matchCount = words.filter(w => rName.includes(w.toLowerCase())).length;
+      return matchCount >= 2 || rName.includes(firstWord);
+    });
+    return best || results[0];
+  }
+  return null;
+};
+
+// ═══════════════════════════════════════════
+// DRIVE EXPLORER (reusable embedded browser)
+// ═══════════════════════════════════════════
 const DriveExplorer = ({ rootFolderId, drive, mob }) => {
   const [currentFolder, setCurrentFolder] = useState(rootFolderId);
   const [breadcrumb, setBreadcrumb] = useState([{ id: rootFolderId, name: "Inicio" }]);
@@ -96,7 +157,6 @@ const DriveExplorer = ({ rootFolderId, drive, mob }) => {
 
   return (
     <div>
-      {/* Preview modal */}
       {previewFile && (
         <>
           <div onClick={() => setPreviewFile(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000 }} />
@@ -113,7 +173,6 @@ const DriveExplorer = ({ rootFolderId, drive, mob }) => {
         </>
       )}
 
-      {/* Breadcrumb */}
       {breadcrumb.length > 1 && (
         <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
           {breadcrumb.map((b, i) => (
@@ -125,7 +184,6 @@ const DriveExplorer = ({ rootFolderId, drive, mob }) => {
         </div>
       )}
 
-      {/* File list */}
       <Card>
         {loading ? (
           <div style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Cargando...</p></div>
@@ -153,7 +211,7 @@ const DriveExplorer = ({ rootFolderId, drive, mob }) => {
                 <Badge color={C.blue}>{getFileExt(f.mimeType) || "file"}</Badge>
               </button>
             ))}
-            {folders.length === 0 && docs.length === 0 && (
+            {folders.length === 0 && docs.length === 0 && !loading && (
               <div style={{ textAlign: "center", padding: 30 }}><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>Carpeta vacía</p></div>
             )}
           </div>
@@ -164,13 +222,137 @@ const DriveExplorer = ({ rootFolderId, drive, mob }) => {
   );
 };
 
+// ─── House icon ───
+const HouseIcon = () => (
+  <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+    <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+    <polyline points="9,22 9,12 15,12 15,22"/>
+  </svg>
+);
+
+// ═══════════════════════════════════════════
+// PROPERTIES VIEW
+// ═══════════════════════════════════════════
+const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
+  const [filter, setFilter] = useState("all");
+  const owners = [...new Set(PROPERTIES.map(p => p.owner))];
+  const filtered = filter === "all" ? PROPERTIES : PROPERTIES.filter(p => p.owner === filter);
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
+        <span style={{ color: C.accent }}><HouseIcon /></span>
+        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent }}>Propiedades</h1>
+        <Badge color={C.textDim}>{PROPERTIES.length}</Badge>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        <button onClick={() => setFilter("all")} style={{
+          padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === "all" ? C.accent : C.border}`,
+          background: filter === "all" ? C.accentGlow : "transparent", cursor: "pointer",
+          fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: filter === "all" ? C.accent : C.textDim,
+        }}>Todas ({PROPERTIES.length})</button>
+        {owners.map(o => {
+          const count = PROPERTIES.filter(p => p.owner === o).length;
+          const color = OWNER_COLORS[o] || C.textDim;
+          return (
+            <button key={o} onClick={() => setFilter(o)} style={{
+              padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === o ? color : C.border}`,
+              background: filter === o ? `${color}18` : "transparent", cursor: "pointer",
+              fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: filter === o ? color : C.textDim,
+            }}>{o} ({count})</button>
+          );
+        })}
+      </div>
+
+      <Card>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {filtered.map((prop, i) => (
+            <button key={i} onClick={() => onSelectProperty(prop)} style={{
+              display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+              background: "transparent", border: "none", cursor: "pointer", borderRadius: 8,
+              width: "100%", textAlign: "left",
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ color: OWNER_COLORS[prop.owner] || C.textDim }}><HouseIcon /></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 500, color: C.text }}>{prop.address}</div>
+              </div>
+              <Badge color={OWNER_COLORS[prop.owner] || C.textDim}>{prop.owner}</Badge>
+            </button>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════
+// PROPERTY DETAIL (Supabase lookup → Drive)
+// ═══════════════════════════════════════════
+const PropertyDetail = ({ property, mob, drive, onBack }) => {
+  const [folderId, setFolderId] = useState(null);
+  const [searching, setSearching] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    setSearching(true);
+    setNotFound(false);
+    setFolderId(null);
+    const lookup = async () => {
+      const folder = await findFolderByName(property.address);
+      if (folder) {
+        setFolderId(folder.google_drive_id);
+      } else {
+        setNotFound(true);
+      }
+      setSearching(false);
+    };
+    lookup();
+  }, [property.address]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
+        <span style={{ color: OWNER_COLORS[property.owner] || C.accent }}><HouseIcon /></span>
+        <div>
+          <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{property.address}</h1>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}</span>
+        </div>
+      </div>
+
+      {searching && (
+        <Card style={{ textAlign: "center", padding: 30 }}>
+          <Spinner />
+          <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando carpeta en Supabase...</p>
+        </Card>
+      )}
+
+      {notFound && (
+        <Card style={{ textAlign: "center", padding: 30 }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
+          <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta para esta propiedad</p>
+          <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 4 }}>Verifica que exista en Google Drive y vuelve a sincronizar</p>
+        </Card>
+      )}
+
+      {folderId && <DriveExplorer rootFolderId={folderId} drive={drive} mob={mob} />}
+    </div>
+  );
+};
+
 // ═══════════════════════════════════════════
 // MAIN DASHBOARD
 // ═══════════════════════════════════════════
 export const DashboardPage = ({ data, mob, drive }) => {
   const { profiles, income, retIncome, expenses, assets, debts, checklist } = data;
   const [showKids, setShowKids] = useState(false);
-  const [selectedPerson, setSelectedPerson] = useState(null); // { name, folderId, img? }
+  const [selectedPerson, setSelectedPerson] = useState(null);
+  const [showProperties, setShowProperties] = useState(false);
+  const [selectedProperty, setSelectedProperty] = useState(null);
 
   const totalA = assets.reduce((s, a) => s + Number(a.current_value || 0), 0);
   const totalD = debts.reduce((s, d) => s + Number(d.outstanding_balance || 0), 0);
@@ -186,16 +368,13 @@ export const DashboardPage = ({ data, mob, drive }) => {
 
   const handleProfileClick = (profile) => {
     const folderId = PROFILE_FOLDERS[profile?.name];
-    if (folderId) {
-      setSelectedPerson({ name: profile.name, folderId });
-      setShowKids(false);
-    }
+    if (folderId) { setSelectedPerson({ name: profile.name, folderId }); setShowKids(false); setShowProperties(false); setSelectedProperty(null); }
   };
-
   const handleKidClick = (kid) => {
-    setSelectedPerson({ name: kid.name, folderId: kid.folderId, img: kid.img });
-    setShowKids(false);
+    setSelectedPerson({ name: kid.name, folderId: kid.folderId, img: kid.img }); setShowKids(false); setShowProperties(false); setSelectedProperty(null);
   };
+  const handlePropertySelect = (prop) => { setSelectedProperty(prop); setShowProperties(false); };
+  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); };
 
   const ProfileBtn = ({ profile, delay }) => (
     <button onClick={() => handleProfileClick(profile)} style={{
@@ -217,7 +396,7 @@ export const DashboardPage = ({ data, mob, drive }) => {
   );
 
   const HeartBtn = () => (
-    <button onClick={() => setShowKids(!showKids)} style={{
+    <button onClick={() => { setShowKids(!showKids); setShowProperties(false); }} style={{
       background: "none", border: "none", cursor: "pointer", padding: mob ? 8 : 12,
       display: "flex", alignItems: "center", justifyContent: "center",
       transition: "transform 0.2s", flexShrink: 0,
@@ -231,18 +410,12 @@ export const DashboardPage = ({ data, mob, drive }) => {
     </button>
   );
 
-  // ═══════════════════════════════════════
-  // FOLDER VIEW (when a person is selected)
-  // ═══════════════════════════════════════
+  // ═══ PERSON FOLDER VIEW ═══
   if (selectedPerson) {
     return (
       <div>
-        {/* Selected person header */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-          <button onClick={() => setSelectedPerson(null)} style={{
-            background: "none", border: "none", cursor: "pointer", color: C.textDim,
-            display: "flex", alignItems: "center", padding: 4,
-          }}>{I.back}</button>
+          <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
           {selectedPerson.img && (
             <div style={{ width: 40, height: 40, borderRadius: 10, overflow: "hidden", border: `2px solid ${C.accent}60`, flexShrink: 0 }}>
               <img src={selectedPerson.img} alt={selectedPerson.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -250,28 +423,32 @@ export const DashboardPage = ({ data, mob, drive }) => {
           )}
           <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent }}>{selectedPerson.name}</h1>
         </div>
-
-        {/* Drive explorer */}
         <DriveExplorer rootFolderId={selectedPerson.folderId} drive={drive} mob={mob} />
       </div>
     );
   }
 
-  // ═══════════════════════════════════════
-  // NORMAL DASHBOARD VIEW
-  // ═══════════════════════════════════════
+  // ═══ PROPERTY DETAIL VIEW ═══
+  if (selectedProperty) {
+    return <PropertyDetail property={selectedProperty} mob={mob} drive={drive} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} />;
+  }
+
+  // ═══ PROPERTIES LIST VIEW ═══
+  if (showProperties) {
+    return <PropertiesView mob={mob} drive={drive} onSelectProperty={handlePropertySelect} onBack={goBack} />;
+  }
+
+  // ═══ NORMAL DASHBOARD VIEW ═══
   return (
     <div>
-      {/* Profiles row */}
       <div style={{ display: "flex", alignItems: "center", gap: mob ? 8 : 16, marginBottom: mob ? 8 : 12 }}>
         {p1 && <ProfileBtn profile={p1} delay={0} />}
         <HeartBtn />
         {p2 && <ProfileBtn profile={p2} delay={0.05} />}
       </div>
 
-      {/* Kids row (toggle) */}
       {showKids && (
-        <div style={{ display: "flex", justifyContent: "center", gap: mob ? 16 : 24, marginBottom: mob ? 12 : 16, padding: "16px 0", animation: "fadeIn 0.3s ease" }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: mob ? 16 : 24, padding: "12px 0", animation: "fadeIn 0.3s ease" }}>
           {KIDS.map((kid, i) => (
             <button key={i} onClick={() => handleKidClick(kid)} style={{
               background: "none", border: "none", cursor: "pointer", display: "flex",
@@ -280,11 +457,7 @@ export const DashboardPage = ({ data, mob, drive }) => {
               onMouseEnter={e => e.currentTarget.style.transform = "scale(1.05)"}
               onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
             >
-              <div style={{
-                width: mob ? 64 : 80, height: mob ? 64 : 80, borderRadius: 14,
-                overflow: "hidden", border: `2px solid ${C.accent}60`,
-                boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
-              }}>
+              <div style={{ width: mob ? 64 : 80, height: mob ? 64 : 80, borderRadius: 14, overflow: "hidden", border: `2px solid ${C.accent}60`, boxShadow: "0 4px 20px rgba(0,0,0,0.3)" }}>
                 <img src={kid.img} alt={kid.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
               </div>
               <span style={{ fontFamily: "DM Sans", fontSize: mob ? 12 : 13, fontWeight: 600, color: C.accent }}>{kid.name}</span>
@@ -293,7 +466,21 @@ export const DashboardPage = ({ data, mob, drive }) => {
         </div>
       )}
 
-      {/* Stat cards */}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: mob ? 12 : 16 }}>
+        <button onClick={() => { setShowProperties(true); setShowKids(false); }} style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
+          background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10,
+          cursor: "pointer", transition: "all 0.2s",
+        }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}
+        >
+          <span style={{ color: C.accent }}><HouseIcon /></span>
+          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Propiedades</span>
+          <Badge color={C.textDim}>{PROPERTIES.length}</Badge>
+        </button>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(auto-fit, minmax(200px, 1fr))", gap: mob ? 10 : 16, marginBottom: mob ? 16 : 28 }}>
         <StatCard label="PATRIMONIO NETO" value={fmt(nw)} sub={`Activos: ${fmt(totalA)}`} color={nw >= 0 ? C.green : C.red} icon={I.patrimony} delay={.1} mob={mob} />
         <StatCard label="INGRESOS ACTUALES" value={fmt(ti)} sub="Mensuales" color={C.blue} icon={I.income} delay={.15} mob={mob} />
@@ -301,7 +488,6 @@ export const DashboardPage = ({ data, mob, drive }) => {
         <StatCard label="INGRESOS RETIRO" value={fmt(tri)} sub="Mensuales proyectados" color={C.green} icon={I.income} delay={.25} mob={mob} />
       </div>
 
-      {/* Checklist summary */}
       <Card delay={.3} style={{ marginBottom: mob ? 16 : 28 }}>
         <SectionTitle icon={I.checklist}>Checklist Pre-Retiro</SectionTitle>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
@@ -322,7 +508,6 @@ export const DashboardPage = ({ data, mob, drive }) => {
         </div>
       </Card>
 
-      {/* Balance retiro */}
       <Card delay={.35}>
         <SectionTitle icon={I.projection}>Balance Retiro</SectionTitle>
         <div style={{ display: "flex", gap: mob ? 12 : 24, flexDirection: mob ? "column" : "row", alignItems: "center" }}>
