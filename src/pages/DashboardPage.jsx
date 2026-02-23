@@ -1,12 +1,12 @@
 // Archivo: src/pages/DashboardPage.jsx
-// Versión: 16.0
+// Versión: 18.0
 // Fecha: 2026-02-22
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { C } from "../lib/theme";
 import { fmt } from "../lib/helpers";
 import { I } from "../lib/icons";
-import { supaFetch } from "../lib/supabase";
+import { supaFetch, supaInsert, supaUpdate, supaDelete } from "../lib/supabase";
 import { Card, StatCard, SectionTitle, Badge, MiniBar, Spinner } from "../components/UI";
 
 // ─── Fotos de los hijos ───
@@ -53,10 +53,55 @@ const OWNER_COLORS = { "Mango Nest": "#4ADE80", "MNA Works": "#60A5FA", "Tortuga
 const OWNER_SHORT = { "Mango Nest": "Mango", "MNA Works": "MNA", "Tortuga Home": "Tortuga", "Argo Real": "Argo", "Miguel y AnaP": "AnaPMEW" };
 
 const CARS = [
-  { name: "Honda CRV", brand: "Honda", color: "#E11D48" },
-  { name: "Hyundai Tucson", brand: "Hyundai", color: "#0EA5E9" },
-  { name: "Mazda 6", brand: "Mazda", color: "#8B5CF6" },
+  { name: "Honda CRV", brand: "Honda", color: "#E11D48", folderId: "1bRNwYy_7oOBrpsfM6L3CXkNqJkDf9ez2" },
+  { name: "Hyundai Tucson", brand: "Hyundai", color: "#0EA5E9", folderId: "16xmawC5FseVanmCF7vRS_lmeJdwwo3KJ" },
+  { name: "Mazda 6", brand: "Mazda", color: "#8B5CF6", folderId: "1KoWVscaou96uzaB3w-92OmydVdtjEzf7" },
 ];
+
+const DEADLINE_TYPES = [
+  { key: "seguro", label: "Seguro", icon: "🛡️" },
+  { key: "verificacion", label: "Verificación", icon: "✅" },
+  { key: "servicio", label: "Servicio/Mantenimiento", icon: "🔧" },
+  { key: "utilidad", label: "Utilidad/Pago", icon: "💡" },
+  { key: "impuesto", label: "Impuesto", icon: "🏛️" },
+  { key: "renovacion", label: "Renovación", icon: "🔄" },
+  { key: "otro", label: "Otro", icon: "📌" },
+];
+
+const DEADLINE_CATEGORIES = [
+  { key: "coche", label: "Coches", icon: "🚗", color: "#0EA5E9" },
+  { key: "propiedad", label: "Propiedades", icon: "🏠", color: "#F59E0B" },
+  { key: "personal", label: "Personal", icon: "👤", color: "#A78BFA" },
+  { key: "negocio", label: "Negocio", icon: "💼", color: "#4ADE80" },
+];
+
+const RECURRENCE_OPTIONS = [
+  { key: null, label: "Una vez" },
+  { key: "mensual", label: "Mensual" },
+  { key: "trimestral", label: "Trimestral" },
+  { key: "semestral", label: "Semestral" },
+  { key: "anual", label: "Anual" },
+];
+
+const getDeadlineStatus = (dateStr) => {
+  if (!dateStr) return { color: "#6B7280", label: "Sin fecha", urgency: 0 };
+  const now = new Date();
+  const due = new Date(dateStr + "T00:00:00");
+  const days = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+  if (days < 0) return { color: "#EF4444", label: `Venció hace ${Math.abs(days)}d`, urgency: 3 };
+  if (days <= 30) return { color: "#F59E0B", label: `${days}d restantes`, urgency: 2 };
+  if (days <= 90) return { color: "#22C55E", label: `${days}d restantes`, urgency: 1 };
+  return { color: "#22C55E", label: `${days}d restantes`, urgency: 0 };
+};
+
+const fmtDate = (d) => {
+  if (!d) return "—";
+  const dt = new Date(d + "T00:00:00");
+  return dt.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
+};
+
+const getTypeInfo = (key) => DEADLINE_TYPES.find(t => t.key === key) || DEADLINE_TYPES[DEADLINE_TYPES.length - 1];
+const getCatInfo = (key) => DEADLINE_CATEGORIES.find(c => c.key === key) || DEADLINE_CATEGORIES[0];
 const CarIcon = () => <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M7 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM17 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M5 17H3v-6l2-5h10l2 5v6h-2M5 17h10M9 5l1-2h4l1 2"/></svg>;
 
 // ─── Sorting helpers ───
@@ -613,25 +658,266 @@ const PersonDetail = ({ person, mob, drive, onBack }) => (
 );
 
 // ═══════════════════════════════════════════
-// CARS VIEW
+// DEADLINES LIST (reusable component)
 // ═══════════════════════════════════════════
-const findCarFolder = async (carName) => {
-  const words = carName.split(/\s+/).filter(w => w.length > 2);
-  for (const word of words) {
-    const results = await supaFetch("drive_folders", { filters: `name=ilike.*${word}*` });
-    if (results && results.length > 0) {
-      const scored = results.map(r => ({ ...r, score: words.filter(w => r.name.toLowerCase().includes(w.toLowerCase())).length }));
-      scored.sort((a, b) => b.score - a.score);
-      if (scored[0].score >= 1) return scored[0];
-    }
-  }
-  return null;
+const dateStyle = { background: "#fff", color: "#111", borderColor: "#ccc", fontFamily: "DM Sans", fontSize: 13, padding: "6px 10px", borderRadius: 6, border: "1px solid #ccc" };
+
+const DeadlinesList = ({ deadlines, loading, onSave, onDelete, mob, filterCategory, filterEntity }) => {
+  const [editing, setEditing] = useState(null);
+  const [editDate, setEditDate] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editType, setEditType] = useState("seguro");
+  const [editCat, setEditCat] = useState(filterCategory || "coche");
+  const [editEntity, setEditEntity] = useState(filterEntity || "");
+  const [editRecurrence, setEditRecurrence] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [adding, setAdding] = useState(false);
+
+  let filtered = deadlines;
+  if (filterCategory) filtered = filtered.filter(d => d.category === filterCategory);
+  if (filterEntity) filtered = filtered.filter(d => d.entity_name === filterEntity);
+  filtered.sort((a, b) => {
+    const sa = getDeadlineStatus(a.due_date).urgency;
+    const sb = getDeadlineStatus(b.due_date).urgency;
+    if (sb !== sa) return sb - sa;
+    return (a.due_date || "9999").localeCompare(b.due_date || "9999");
+  });
+
+  const handleSave = async (dl) => {
+    setSaving(true);
+    await onSave(dl ? dl.id : null, {
+      category: dl ? dl.category : editCat,
+      entity_name: dl ? dl.entity_name : editEntity,
+      deadline_type: dl ? dl.deadline_type : editType,
+      due_date: editDate || null,
+      notes: editNotes || null,
+      recurrence: editRecurrence,
+    });
+    setEditing(null); setAdding(false); setSaving(false);
+  };
+
+  const startEdit = (dl) => {
+    setEditing(dl.id); setEditDate(dl.due_date || ""); setEditNotes(dl.notes || "");
+    setEditRecurrence(dl.recurrence || null);
+  };
+
+  const startAdd = () => {
+    setAdding(true); setEditing(null); setEditDate(""); setEditNotes("");
+    setEditType("seguro"); setEditCat(filterCategory || "coche"); setEditEntity(filterEntity || "");
+    setEditRecurrence(null);
+  };
+
+  if (loading) return <div style={{ textAlign: "center", padding: 16 }}><Spinner /></div>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {filtered.map(dl => {
+        const ti = getTypeInfo(dl.deadline_type);
+        const ci = getCatInfo(dl.category);
+        const status = getDeadlineStatus(dl.due_date);
+        const isEditing = editing === dl.id;
+        return (
+          <div key={dl.id} style={{ padding: "10px 14px", background: C.surface2, borderRadius: 10, border: `1px solid ${status.urgency >= 2 ? status.color + "60" : C.border}` }}>
+            {isEditing ? (
+              <div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 8 }}>{ti.icon} {dl.label || ti.label} — {dl.entity_name}</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                  <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={dateStyle} />
+                  <input type="text" value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notas" style={{ ...dateStyle, flex: 1, minWidth: 100 }} />
+                </div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                  {RECURRENCE_OPTIONS.map(r => (
+                    <button key={r.key || "none"} onClick={() => setEditRecurrence(r.key)} style={{
+                      padding: "3px 10px", borderRadius: 12, border: `1px solid ${editRecurrence === r.key ? C.accent : C.border}`,
+                      background: editRecurrence === r.key ? C.accentGlow : "transparent", cursor: "pointer",
+                      fontFamily: "DM Sans", fontSize: 10, color: editRecurrence === r.key ? C.accent : C.textDim,
+                    }}>{r.label}</button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => handleSave(dl)} disabled={saving} style={{ fontFamily: "DM Sans", fontSize: 12, padding: "5px 14px", borderRadius: 6, border: "none", background: C.accent, color: "#fff", cursor: "pointer" }}>{saving ? "..." : "Guardar"}</button>
+                  <button onClick={() => setEditing(null)} style={{ fontFamily: "DM Sans", fontSize: 12, padding: "5px 14px", borderRadius: 6, border: `1px solid ${C.border}`, background: "transparent", color: C.textDim, cursor: "pointer" }}>Cancelar</button>
+                  <button onClick={() => { onDelete(dl.id); setEditing(null); }} style={{ fontFamily: "DM Sans", fontSize: 12, padding: "5px 14px", borderRadius: 6, border: `1px solid #EF444440`, background: "transparent", color: "#EF4444", cursor: "pointer", marginLeft: "auto" }}>Borrar</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => startEdit(dl)} style={{ background: "none", border: "none", cursor: "pointer", width: "100%", textAlign: "left", padding: 0, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 18 }}>{ti.icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text }}>
+                    {dl.label || ti.label}
+                    {!filterEntity && <span style={{ color: C.textDim, fontWeight: 400 }}> · {dl.entity_name}</span>}
+                  </div>
+                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: status.color }}>
+                    {dl.due_date ? fmtDate(dl.due_date) : "Sin fecha"}
+                    {dl.recurrence && <span style={{ color: C.textMuted }}> · {dl.recurrence}</span>}
+                    {dl.notes ? ` · ${dl.notes}` : ""}
+                  </div>
+                </div>
+                {dl.due_date && <div style={{ width: 10, height: 10, borderRadius: "50%", background: status.color, flexShrink: 0 }} />}
+                {dl.due_date && <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: status.color, whiteSpace: "nowrap" }}>{status.label}</span>}
+              </button>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Add new */}
+      {adding ? (
+        <div style={{ padding: "12px 14px", background: C.surface2, borderRadius: 10, border: `1px solid ${C.accent}40` }}>
+          <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent, marginBottom: 10 }}>+ Nuevo vencimiento</div>
+          {!filterCategory && (
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+              {DEADLINE_CATEGORIES.map(c => (
+                <button key={c.key} onClick={() => setEditCat(c.key)} style={{
+                  padding: "3px 10px", borderRadius: 12, border: `1px solid ${editCat === c.key ? c.color : C.border}`,
+                  background: editCat === c.key ? c.color + "18" : "transparent", cursor: "pointer",
+                  fontFamily: "DM Sans", fontSize: 11, color: editCat === c.key ? c.color : C.textDim,
+                }}>{c.icon} {c.label}</button>
+              ))}
+            </div>
+          )}
+          {!filterEntity && (
+            <input type="text" value={editEntity} onChange={e => setEditEntity(e.target.value)} placeholder="Entidad (ej: Hyundai Tucson, 9519 Gillcross...)" style={{ ...dateStyle, width: "100%", marginBottom: 8, boxSizing: "border-box" }} />
+          )}
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+            {DEADLINE_TYPES.map(t => (
+              <button key={t.key} onClick={() => setEditType(t.key)} style={{
+                padding: "3px 10px", borderRadius: 12, border: `1px solid ${editType === t.key ? C.accent : C.border}`,
+                background: editType === t.key ? C.accentGlow : "transparent", cursor: "pointer",
+                fontFamily: "DM Sans", fontSize: 11, color: editType === t.key ? C.accent : C.textDim,
+              }}>{t.icon} {t.label}</button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={dateStyle} />
+            <input type="text" value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notas" style={{ ...dateStyle, flex: 1, minWidth: 100 }} />
+          </div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+            {RECURRENCE_OPTIONS.map(r => (
+              <button key={r.key || "none"} onClick={() => setEditRecurrence(r.key)} style={{
+                padding: "3px 10px", borderRadius: 12, border: `1px solid ${editRecurrence === r.key ? C.accent : C.border}`,
+                background: editRecurrence === r.key ? C.accentGlow : "transparent", cursor: "pointer",
+                fontFamily: "DM Sans", fontSize: 10, color: editRecurrence === r.key ? C.accent : C.textDim,
+              }}>{r.label}</button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => handleSave(null)} disabled={saving || !editEntity && !filterEntity} style={{ fontFamily: "DM Sans", fontSize: 12, padding: "5px 14px", borderRadius: 6, border: "none", background: C.accent, color: "#fff", cursor: "pointer", opacity: (!editEntity && !filterEntity) ? 0.5 : 1 }}>{saving ? "..." : "Crear"}</button>
+            <button onClick={() => setAdding(false)} style={{ fontFamily: "DM Sans", fontSize: 12, padding: "5px 14px", borderRadius: 6, border: `1px solid ${C.border}`, background: "transparent", color: C.textDim, cursor: "pointer" }}>Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={startAdd} style={{ padding: "10px 14px", background: "transparent", border: `1px dashed ${C.border}`, borderRadius: 10, cursor: "pointer", fontFamily: "DM Sans", fontSize: 13, color: C.textDim, width: "100%", textAlign: "center" }}>+ Agregar vencimiento</button>
+      )}
+
+      {filtered.length === 0 && !adding && (
+        <div style={{ textAlign: "center", padding: 16 }}>
+          <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>Sin vencimientos registrados</p>
+        </div>
+      )}
+    </div>
+  );
 };
 
+// ═══════════════════════════════════════════
+// DEADLINES VIEW (panel universal)
+// ═══════════════════════════════════════════
+const CalendarIcon = () => <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>;
+
+const DeadlinesView = ({ mob, onBack }) => {
+  const [deadlines, setDeadlines] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+
+  const loadAll = async () => {
+    setLoading(true);
+    const all = await supaFetch("deadlines", { order: "due_date" });
+    setDeadlines(all || []);
+    setLoading(false);
+  };
+  useEffect(() => { loadAll(); }, []);
+
+  const handleSave = async (id, data) => {
+    if (id) await supaUpdate("deadlines", id, data);
+    else await supaInsert("deadlines", data);
+    await loadAll();
+  };
+  const handleDelete = async (id) => { await supaDelete("deadlines", id); await loadAll(); };
+
+  const overdue = deadlines.filter(d => d.due_date && getDeadlineStatus(d.due_date).urgency >= 3).length;
+  const soon = deadlines.filter(d => d.due_date && getDeadlineStatus(d.due_date).urgency === 2).length;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
+        <span style={{ color: C.accent }}><CalendarIcon /></span>
+        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent, flex: 1 }}>Vencimientos</h1>
+        <Badge color={C.textDim}>{deadlines.length}</Badge>
+      </div>
+
+      {(overdue > 0 || soon > 0) && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          {overdue > 0 && <Badge color="#EF4444">🔴 {overdue} vencido{overdue > 1 ? "s" : ""}</Badge>}
+          {soon > 0 && <Badge color="#F59E0B">🟡 {soon} próximo{soon > 1 ? "s" : ""}</Badge>}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        <button onClick={() => setFilter("all")} style={{
+          padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === "all" ? C.accent : C.border}`,
+          background: filter === "all" ? C.accentGlow : "transparent", cursor: "pointer",
+          fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: filter === "all" ? C.accent : C.textDim,
+        }}>Todos ({deadlines.length})</button>
+        {DEADLINE_CATEGORIES.map(c => {
+          const count = deadlines.filter(d => d.category === c.key).length;
+          return (
+            <button key={c.key} onClick={() => setFilter(c.key)} style={{
+              padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === c.key ? c.color : C.border}`,
+              background: filter === c.key ? c.color + "18" : "transparent", cursor: "pointer",
+              fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: filter === c.key ? c.color : C.textDim,
+            }}>{c.icon} {c.label} ({count})</button>
+          );
+        })}
+      </div>
+
+      <Card>
+        <DeadlinesList
+          deadlines={deadlines}
+          loading={loading}
+          onSave={handleSave}
+          onDelete={handleDelete}
+          mob={mob}
+          filterCategory={filter === "all" ? null : filter}
+        />
+      </Card>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════
+// CARS VIEW
+// ═══════════════════════════════════════════
 const CarsView = ({ mob, drive, onBack }) => {
   const [selectedCar, setSelectedCar] = useState(null);
+  const [deadlines, setDeadlines] = useState([]);
 
-  if (selectedCar) return <CarDetail car={selectedCar} mob={mob} drive={drive} onBack={() => setSelectedCar(null)} />;
+  const loadDeadlines = () => supaFetch("deadlines", { filters: "category=eq.coche" }).then(d => setDeadlines(d || [])).catch(() => {});
+  useEffect(() => { loadDeadlines(); }, []);
+
+  const getWorstStatus = (carName) => {
+    const carDl = deadlines.filter(d => d.entity_name === carName);
+    if (carDl.length === 0) return null;
+    let worst = { urgency: -1 };
+    for (const dl of carDl) {
+      const st = getDeadlineStatus(dl.due_date);
+      if (st.urgency > worst.urgency) worst = st;
+    }
+    return worst.urgency >= 0 ? worst : null;
+  };
+
+  if (selectedCar) return <CarDetail car={selectedCar} mob={mob} drive={drive} onBack={() => { setSelectedCar(null); loadDeadlines(); }} />;
 
   return (
     <div>
@@ -643,20 +929,25 @@ const CarsView = ({ mob, drive, onBack }) => {
       </div>
       <Card>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {CARS.map((car, i) => (
-            <button key={i} onClick={() => setSelectedCar(car)} style={{
-              display: "flex", alignItems: "center", gap: 12, padding: "14px",
-              background: "transparent", border: "none", cursor: "pointer", borderRadius: 8, width: "100%", textAlign: "left",
-            }}
-              onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ color: car.color }}><CarIcon /></span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 500, color: C.text }}>{car.name}</div>
-              </div>
-              <Badge color={car.color}>{car.brand}</Badge>
-            </button>
-          ))}
+          {CARS.map((car, i) => {
+            const status = getWorstStatus(car.name);
+            return (
+              <button key={i} onClick={() => setSelectedCar(car)} style={{
+                display: "flex", alignItems: "center", gap: 12, padding: "14px",
+                background: "transparent", border: "none", cursor: "pointer", borderRadius: 8, width: "100%", textAlign: "left",
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ color: car.color }}><CarIcon /></span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 500, color: C.text }}>{car.name}</div>
+                  {status && <div style={{ fontFamily: "DM Sans", fontSize: 11, color: status.color, marginTop: 2 }}>{status.urgency >= 2 ? "⚠️ " : ""}{status.label}</div>}
+                </div>
+                {status && <div style={{ width: 8, height: 8, borderRadius: "50%", background: status.color, flexShrink: 0 }} />}
+                <Badge color={car.color}>{car.brand}</Badge>
+              </button>
+            );
+          })}
         </div>
       </Card>
     </div>
@@ -664,18 +955,24 @@ const CarsView = ({ mob, drive, onBack }) => {
 };
 
 const CarDetail = ({ car, mob, drive, onBack }) => {
-  const [folderId, setFolderId] = useState(null);
-  const [searching, setSearching] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const [deadlines, setDeadlines] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showDocs, setShowDocs] = useState(false);
 
-  useEffect(() => {
-    setSearching(true); setNotFound(false); setFolderId(null);
-    findCarFolder(car.name).then(folder => {
-      if (folder) setFolderId(folder.google_drive_id);
-      else setNotFound(true);
-      setSearching(false);
-    });
-  }, [car.name]);
+  const loadDeadlines = async () => {
+    setLoading(true);
+    const all = await supaFetch("deadlines", { filters: `category=eq.coche&entity_name=eq.${encodeURIComponent(car.name)}` });
+    setDeadlines(all || []);
+    setLoading(false);
+  };
+  useEffect(() => { loadDeadlines(); }, [car.name]);
+
+  const handleSave = async (id, data) => {
+    if (id) await supaUpdate("deadlines", id, data);
+    else await supaInsert("deadlines", { ...data, category: "coche", entity_name: car.name });
+    await loadDeadlines();
+  };
+  const handleDelete = async (id) => { await supaDelete("deadlines", id); await loadDeadlines(); };
 
   return (
     <div>
@@ -687,9 +984,21 @@ const CarDetail = ({ car, mob, drive, onBack }) => {
           <span style={{ fontFamily: "DM Sans", fontSize: 12, color: car.color }}>{car.brand}</span>
         </div>
       </div>
-      {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando carpeta...</p></Card>}
-      {notFound && <Card style={{ textAlign: "center", padding: 30 }}><div style={{ fontSize: 36, marginBottom: 12 }}>🚗</div><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta para este coche</p><p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 4 }}>Sincroniza desde Documentos</p></Card>}
-      {folderId && <SupaExplorer rootFolderId={folderId} mob={mob} drive={drive} />}
+
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 12 }}>📅 Vencimientos</div>
+        <DeadlinesList deadlines={deadlines} loading={loading} onSave={handleSave} onDelete={handleDelete} mob={mob} filterCategory="coche" filterEntity={car.name} />
+      </Card>
+
+      <button onClick={() => setShowDocs(!showDocs)} style={{
+        display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", marginBottom: 12,
+        background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10,
+        cursor: "pointer", width: "100%", fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.accent,
+      }}>
+        <span>{showDocs ? "▼" : "▶"}</span>
+        <span>📂 Documentos en Drive</span>
+      </button>
+      {showDocs && <SupaExplorer rootFolderId={car.folderId} mob={mob} />}
     </div>
   );
 };
@@ -704,6 +1013,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const [showProperties, setShowProperties] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [showCars, setShowCars] = useState(false);
+  const [showDeadlines, setShowDeadlines] = useState(false);
 
   const totalA = assets.reduce((s, a) => s + Number(a.current_value || 0), 0);
   const totalD = debts.reduce((s, d) => s + Number(d.outstanding_balance || 0), 0);
@@ -717,13 +1027,14 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const p1 = profiles.find(p => p.name === "Miguel") || profiles[0];
   const p2 = profiles.find(p => p.name === "AnaP") || profiles[1];
 
-  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); setShowCars(false); };
+  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); setShowCars(false); setShowDeadlines(false); };
 
   // ═══ SUBVIEWS ═══
   if (selectedPerson) return <PersonDetail person={selectedPerson} mob={mob} drive={drive} onBack={goBack} />;
   if (selectedProperty) return <PropertyDetail property={selectedProperty} mob={mob} drive={drive} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} />;
   if (showProperties) return <PropertiesView mob={mob} drive={drive} onSelectProperty={(p) => { setSelectedProperty(p); setShowProperties(false); }} onBack={goBack} />;
   if (showCars) return <CarsView mob={mob} drive={drive} onBack={goBack} />;
+  if (showDeadlines) return <DeadlinesView mob={mob} onBack={goBack} />;
 
   // ═══ DASHBOARD ═══
   return (
@@ -799,6 +1110,14 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
           <span style={{ color: "#0EA5E9" }}><CarIcon /></span>
           <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "#0EA5E9" }}>Coches</span>
           <Badge color={C.textDim}>{CARS.length}</Badge>
+        </button>
+        <button onClick={() => { setShowDeadlines(true); setShowProperties(false); setShowCars(false); setShowKids(false); }} style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
+          background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
+        }} onMouseEnter={e => { e.currentTarget.style.borderColor = "#F59E0B"; e.currentTarget.style.background = "#F59E0B15"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
+          <span style={{ color: "#F59E0B" }}><CalendarIcon /></span>
+          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "#F59E0B" }}>Vencimientos</span>
         </button>
         {goToPage && <button onClick={() => goToPage("daily")} style={{
           display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
