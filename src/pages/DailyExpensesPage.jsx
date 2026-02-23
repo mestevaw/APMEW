@@ -1,5 +1,5 @@
 // Archivo: src/pages/DailyExpensesPage.jsx
-// Versión: 9.0
+// Versión: 10.0
 // Fecha: 2026-02-22
 
 import { useState, useRef, useEffect } from "react";
@@ -163,12 +163,12 @@ const CloseBtn = ({ onClick }) => <button onClick={onClick} style={{ background:
 const dateStyle = { ...inputStyle, fontSize: 12, background: "#fff", color: "#111", borderColor: "#ccc" };
 
 // ─── Tags + subcategories ───
-const TAG_OPTIONS = ["Argo - Luz","Argo - Agua","Argo - Gas","Argo - Mant.","Progreso - Luz","Progreso - Agua","Mango Nest","MNA Works","Tortuga Home","Personal","Médico","Viaje","Educación"];
+const TAG_OPTIONS = ["Argo - Agua/Luz","Argo - Gas","Argo - Mant.","Progreso - Luz","Progreso - Agua","Mango Nest","MNA Works","Tortuga Home","Honda CRV","Hyundai Tucson","Mazda 6","Personal","Médico","Viaje","Educación"];
 const SUBCATEGORIES = {
   hogar: ["Suscripciones","Limpieza","Muebles","Electrónica","Ropa","Mascotas"],
   servicios: ["Internet","Teléfono","Streaming","Software","Seguros"],
   restaurantes: ["Café","Comida rápida","Formal","Delivery"],
-  transporte: ["Gasolina","Uber/Taxi","Estacionamiento","Mant. auto","Vuelos"],
+  transporte: ["Gasolina","Uber/Taxi","Estacionamiento","Mant. auto","Vuelos","Honda CRV","Hyundai Tucson","Mazda 6"],
   salud: ["Farmacia","Consulta","Dentista","Óptica","Gym"],
   entretenimiento: ["Cine","Libros","Juegos","Eventos","Música"],
   supermercado: ["HEB","Whole Foods","Costco","Otro"],
@@ -459,6 +459,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
                   <button key={sub} onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "subcategory", sub) : applySingle(editingExpense.id, "subcategory", sub)} disabled={applying} style={{ padding: "5px 12px", background: editingExpense.subcategory === sub ? `#A78BFA25` : C.surface2, border: `1px solid ${editingExpense.subcategory === sub ? "#A78BFA" : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text }}>{sub}</button>
                 ))}
               </div>
+              <input placeholder="Otra subcategoría..." onKeyDown={e => { if (e.key === "Enter" && e.target.value) { matchCount > 1 ? applyToMatching(editingExpense, "subcategory", e.target.value) : applySingle(editingExpense.id, "subcategory", e.target.value); }}} style={{ ...inputStyle, marginTop: 6, fontSize: 12 }} />
             </div>
             {/* Tag */}
             <div>
