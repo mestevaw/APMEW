@@ -1,5 +1,5 @@
 // Archivo: src/pages/DashboardPage.jsx
-// Versión: 15.0
+// Versión: 16.0
 // Fecha: 2026-02-22
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -51,6 +51,13 @@ const PROPERTIES = [
 
 const OWNER_COLORS = { "Mango Nest": "#4ADE80", "MNA Works": "#60A5FA", "Tortuga Home": "#F59E0B", "Argo Real": "#A78BFA", "Miguel y AnaP": "#C8A862" };
 const OWNER_SHORT = { "Mango Nest": "Mango", "MNA Works": "MNA", "Tortuga Home": "Tortuga", "Argo Real": "Argo", "Miguel y AnaP": "AnaPMEW" };
+
+const CARS = [
+  { name: "Honda CRV", brand: "Honda", color: "#E11D48" },
+  { name: "Hyundai Tucson", brand: "Hyundai", color: "#0EA5E9" },
+  { name: "Mazda 6", brand: "Mazda", color: "#8B5CF6" },
+];
+const CarIcon = () => <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M7 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM17 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M5 17H3v-6l2-5h10l2 5v6h-2M5 17h10M9 5l1-2h4l1 2"/></svg>;
 
 // ─── Sorting helpers ───
 const getNumber = (addr) => { const m = addr.match(/^(\d+)/); return m ? parseInt(m[1]) : 99999; };
@@ -595,6 +602,88 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
 // PERSON DETAIL
 // ═══════════════════════════════════════════
 const PersonDetail = ({ person, mob, drive, onBack }) => (
+
+// ═══════════════════════════════════════════
+// CARS VIEW
+// ═══════════════════════════════════════════
+const findCarFolder = async (carName) => {
+  const words = carName.split(/\s+/).filter(w => w.length > 2);
+  for (const word of words) {
+    const results = await supaFetch("drive_folders", { filters: `name=ilike.*${word}*` });
+    if (results && results.length > 0) {
+      const scored = results.map(r => ({ ...r, score: words.filter(w => r.name.toLowerCase().includes(w.toLowerCase())).length }));
+      scored.sort((a, b) => b.score - a.score);
+      if (scored[0].score >= 1) return scored[0];
+    }
+  }
+  return null;
+};
+
+const CarsView = ({ mob, drive, onBack }) => {
+  const [selectedCar, setSelectedCar] = useState(null);
+
+  if (selectedCar) return <CarDetail car={selectedCar} mob={mob} drive={drive} onBack={() => setSelectedCar(null)} />;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
+        <span style={{ color: C.accent }}><CarIcon /></span>
+        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent, flex: 1 }}>Coches</h1>
+        <Badge color={C.textDim}>{CARS.length}</Badge>
+      </div>
+      <Card>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {CARS.map((car, i) => (
+            <button key={i} onClick={() => setSelectedCar(car)} style={{
+              display: "flex", alignItems: "center", gap: 12, padding: "14px",
+              background: "transparent", border: "none", cursor: "pointer", borderRadius: 8, width: "100%", textAlign: "left",
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ color: car.color }}><CarIcon /></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 500, color: C.text }}>{car.name}</div>
+              </div>
+              <Badge color={car.color}>{car.brand}</Badge>
+            </button>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+const CarDetail = ({ car, mob, drive, onBack }) => {
+  const [folderId, setFolderId] = useState(null);
+  const [searching, setSearching] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    setSearching(true); setNotFound(false); setFolderId(null);
+    findCarFolder(car.name).then(folder => {
+      if (folder) setFolderId(folder.google_drive_id);
+      else setNotFound(true);
+      setSearching(false);
+    });
+  }, [car.name]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
+        <span style={{ color: car.color }}><CarIcon /></span>
+        <div style={{ flex: 1 }}>
+          <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{car.name}</h1>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: car.color }}>{car.brand}</span>
+        </div>
+      </div>
+      {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando carpeta...</p></Card>}
+      {notFound && <Card style={{ textAlign: "center", padding: 30 }}><div style={{ fontSize: 36, marginBottom: 12 }}>🚗</div><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta para este coche</p><p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 4 }}>Sincroniza desde Documentos</p></Card>}
+      {folderId && <SupaExplorer rootFolderId={folderId} mob={mob} drive={drive} />}
+    </div>
+  );
+};
   <div>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
       <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
@@ -614,6 +703,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [showProperties, setShowProperties] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState(null);
+  const [showCars, setShowCars] = useState(false);
 
   const totalA = assets.reduce((s, a) => s + Number(a.current_value || 0), 0);
   const totalD = debts.reduce((s, d) => s + Number(d.outstanding_balance || 0), 0);
@@ -627,12 +717,13 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const p1 = profiles.find(p => p.name === "Miguel") || profiles[0];
   const p2 = profiles.find(p => p.name === "AnaP") || profiles[1];
 
-  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); };
+  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); setShowCars(false); };
 
   // ═══ SUBVIEWS ═══
   if (selectedPerson) return <PersonDetail person={selectedPerson} mob={mob} drive={drive} onBack={goBack} />;
   if (selectedProperty) return <PropertyDetail property={selectedProperty} mob={mob} drive={drive} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} />;
   if (showProperties) return <PropertiesView mob={mob} drive={drive} onSelectProperty={(p) => { setSelectedProperty(p); setShowProperties(false); }} onBack={goBack} />;
+  if (showCars) return <CarsView mob={mob} drive={drive} onBack={goBack} />;
 
   // ═══ DASHBOARD ═══
   return (
@@ -691,7 +782,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
       )}
 
       <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: mob ? 12 : 16, flexWrap: "wrap" }}>
-        <button onClick={() => { setShowProperties(true); setShowKids(false); }} style={{
+        <button onClick={() => { setShowProperties(true); setShowKids(false); setShowCars(false); }} style={{
           display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
           background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
         }} onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
@@ -699,6 +790,15 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
           <span style={{ color: C.accent }}><HouseIcon /></span>
           <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Propiedades</span>
           <Badge color={C.textDim}>{PROPERTIES.length}</Badge>
+        </button>
+        <button onClick={() => { setShowCars(true); setShowProperties(false); setShowKids(false); }} style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
+          background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
+        }} onMouseEnter={e => { e.currentTarget.style.borderColor = "#0EA5E9"; e.currentTarget.style.background = "#0EA5E915"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
+          <span style={{ color: "#0EA5E9" }}><CarIcon /></span>
+          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "#0EA5E9" }}>Coches</span>
+          <Badge color={C.textDim}>{CARS.length}</Badge>
         </button>
         {goToPage && <button onClick={() => goToPage("daily")} style={{
           display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
