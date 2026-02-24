@@ -32,8 +32,8 @@ export const SectionTitle = ({ children, icon, action }) => (
 );
 
 // ─── Badge ───
-export const Badge = ({ children, color = C.accent }) => (
-  <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, fontWeight: 500, background: `${color}20`, color, padding: "3px 10px", borderRadius: 20, whiteSpace: "nowrap" }}>
+export const Badge = ({ children, color = C.accent, style }) => (
+  <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, fontWeight: 500, background: `${color}20`, color, padding: "3px 10px", borderRadius: 20, whiteSpace: "nowrap", ...style }}>
     {children}
   </span>
 );
