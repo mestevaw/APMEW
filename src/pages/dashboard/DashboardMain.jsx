@@ -31,17 +31,18 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const [grossRentsMonthly, setGrossRentsMonthly] = useState(0);
 
   useEffect(() => {
-    // Fetch latest year gross rents across all rental properties
-    const fetchRents = async () => {
-      const rentalAddrs = PROPERTIES.filter(p => !p.sold && !p.address.includes("Progreso") && !p.address.includes("Argo")).map(p => p.address);
-      let total = 0;
-      for (const addr of rentalAddrs) {
-        const rows = await supaFetch("property_expenses", { filters: `property_address=eq.${encodeURIComponent(addr)}&expense_type=eq.gross_rents`, order: "period_year.desc", limit: 1 });
-        if (rows && rows[0]) total += Number(rows[0].amount || 0);
-      }
-      setGrossRentsMonthly(Math.round(total / 12));
-    };
-    fetchRents();
+    // Single query: fetch ALL gross_rents, then pick latest year per property
+    supaFetch("property_expenses", { filters: "expense_type=eq.gross_rents", order: "period_year.desc" })
+      .then(rows => {
+        if (!rows) return;
+        const byAddr = {};
+        rows.forEach(r => {
+          if (!byAddr[r.property_address] || r.period_year > byAddr[r.property_address].period_year)
+            byAddr[r.property_address] = r;
+        });
+        const total = Object.values(byAddr).reduce((s, r) => s + Number(r.amount || 0), 0);
+        setGrossRentsMonthly(Math.round(total / 12));
+      });
   }, []);
 
   const ti = income.reduce((s, i) => s + Number(i.monthly_amount || 0), 0) + grossRentsMonthly;
