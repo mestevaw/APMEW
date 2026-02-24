@@ -706,6 +706,7 @@ const PropertyTaxes = ({ address, mob }) => {
 const PropertyExpenses = ({ address, mob }) => {
   const [propExp, setPropExp] = useState([]);
   const [dailyExp, setDailyExp] = useState([]);
+  const [taxData, setTaxData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [addType, setAddType] = useState("electricity");
@@ -750,7 +751,14 @@ const PropertyExpenses = ({ address, mob }) => {
     });
     setPropExp(pe || []);
 
-    // 2. Daily expenses with matching tags
+    // 2. Property taxes
+    const pt = await supaFetch("property_taxes", {
+      filters: `property_address=eq.${encodeURIComponent(address)}`,
+      order: "tax_year.desc",
+    });
+    setTaxData(pt || []);
+
+    // 3. Daily expenses with matching tags
     if (myTags.length > 0) {
       const tagFilter = myTags.map(t => `tag.eq.${encodeURIComponent(t)}`).join(",");
       const de = await supaFetch("daily_expenses", {
@@ -789,7 +797,14 @@ const PropertyExpenses = ({ address, mob }) => {
     ...e, source: "property", date: null,
   }));
 
-  const allExpenses = [...normalizedProp, ...normalizedDaily];
+  const normalizedTax = taxData.filter(t => t.property_tax != null).map(t => ({
+    id: `tax-${t.id}`, source: "tax", expense_type: "property_tax",
+    amount: Number(t.property_tax), period_month: 1, period_year: t.tax_year,
+    notes: `Property Tax ${t.tax_year}`, date: `${t.tax_year}-01-01`,
+    appraised_value: t.appraised_value,
+  }));
+
+  const allExpenses = [...normalizedProp, ...normalizedDaily, ...normalizedTax];
 
   const handleAdd = async () => {
     setSaving(true);
@@ -824,11 +839,12 @@ const PropertyExpenses = ({ address, mob }) => {
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {items.map((e, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: C.surface2, borderRadius: 6 }}>
-              <span style={{ fontSize: 10, color: e.source === "daily" ? "#A78BFA" : "#22C55E" }}>{e.source === "daily" ? "📋" : "📝"}</span>
+              <span style={{ fontSize: 10, color: e.source === "daily" ? "#A78BFA" : e.source === "tax" ? "#F59E0B" : "#22C55E" }}>{e.source === "daily" ? "📋" : e.source === "tax" ? "🏛️" : "📝"}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.notes || "—"}</div>
                 {e.date && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>{e.date}</div>}
                 {e.tag && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: "#A78BFA" }}>{e.tag}{e.subcategory ? ` · ${e.subcategory}` : ""}</div>}
+                {e.appraised_value && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.blue }}>Appraised: ${Number(e.appraised_value).toLocaleString()}</div>}
               </div>
               <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 500, color: C.text, whiteSpace: "nowrap" }}>{fmtMoney(e.amount)}</span>
               {e.source === "property" && <button onClick={() => handleDelete(e)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 12, padding: "2px 4px" }}>✕</button>}
@@ -937,9 +953,11 @@ const PropertyExpenses = ({ address, mob }) => {
         </div>
       )}
 
-      {dailyExp.length > 0 && (
+      {(dailyExp.length > 0 || taxData.length > 0) && (
         <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginBottom: 8, textAlign: "center" }}>
-          📋 Incluye {dailyExp.length} gastos de Gastos Diarios
+          {dailyExp.length > 0 && `📋 ${dailyExp.length} gastos diarios`}
+          {dailyExp.length > 0 && taxData.length > 0 && " · "}
+          {taxData.length > 0 && `🏛️ ${taxData.filter(t => t.property_tax).length} años de impuestos`}
         </div>
       )}
 
