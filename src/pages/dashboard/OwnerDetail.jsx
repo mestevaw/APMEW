@@ -20,16 +20,17 @@ const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
     const load = async () => {
       setLoading(true);
       const allItems = [];
-      for (const p of ownerProps) {
-        const [propExp, taxData] = await Promise.all([
-          supaFetch("property_expenses", { filters: `property_address=eq.${encodeURIComponent(p.address)}`, order: "period_year.desc" }),
-          supaFetch("property_taxes", { filters: `property_address=eq.${encodeURIComponent(p.address)}`, order: "tax_year.desc" }),
-        ]);
+      // Fetch all properties in parallel
+      const results = await Promise.all(ownerProps.map(p => Promise.all([
+        supaFetch("property_expenses", { filters: `property_address=eq.${encodeURIComponent(p.address)}`, order: "period_year.desc" }),
+        supaFetch("property_taxes", { filters: `property_address=eq.${encodeURIComponent(p.address)}`, order: "tax_year.desc" }),
+      ])));
+      results.forEach(([propExp, taxData]) => {
         (propExp || []).forEach(e => allItems.push({ ...e, amount: Number(e.amount || 0) }));
         (taxData || []).filter(t => t.property_tax != null).forEach(t => allItems.push({
           expense_type: "property_tax", amount: Number(t.property_tax), period_year: t.tax_year, period_month: 1,
         }));
-      }
+      });
       // Group by type + year
       const grouped = {};
       allItems.forEach(e => {
