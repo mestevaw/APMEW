@@ -16,7 +16,7 @@ import CarsView from "./CarsView";
 import DeadlinesView from "./DeadlinesView";
 
 export const DashboardPage = ({ data, mob, drive, goToPage }) => {
-  const { profiles, income, retIncome, expenses, assets, debts, checklist } = data;
+  const { profiles, income, retIncome, expenses, assets, debts, checklist, dailyExpenses } = data;
   const [showKids, setShowKids] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [showProperties, setShowProperties] = useState(false);
@@ -48,6 +48,15 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const ti = income.reduce((s, i) => s + Number(i.monthly_amount || 0), 0) + grossRentsMonthly;
   const tre = expenses.reduce((s, e) => s + Number(e.monthly_amount || 0), 0);
   const tri = retIncome.reduce((s, i) => s + Number(i.monthly_amount || 0), 0);
+
+  // Yearly daily expense totals (current year)
+  const currentYear = new Date().getFullYear();
+  const deThisYear = (dailyExpenses || []).filter(e => e.expense_date && e.expense_date.startsWith(String(currentYear)));
+  const yearlyExpenses = deThisYear.filter(e => Number(e.amount) > 0).reduce((s, e) => s + Number(e.amount || 0), 0);
+  const yearlyPayments = deThisYear.filter(e => Number(e.amount) < 0).reduce((s, e) => s + Math.abs(Number(e.amount || 0)), 0);
+  // Yearly income = gross rents (annual) + payment credits from daily
+  const yearlyIncome = grossRentsMonthly * 12 + yearlyPayments;
+
   const cd = checklist.filter(c => c.is_completed).length;
   const ct = checklist.length;
 
@@ -170,6 +179,8 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
         <StatCard label="INGRESOS ACTUALES" value={fmt(ti)} sub="Mensuales" color={C.blue} icon={I.income} delay={.15} mob={mob} />
         <StatCard label="GASTOS RETIRO" value={fmt(tre)} sub="Mensuales estimados" color={C.red} icon={I.expenses} delay={.2} mob={mob} />
         <StatCard label="INGRESOS RETIRO" value={fmt(tri)} sub="Mensuales proyectados" color={C.green} icon={I.income} delay={.25} mob={mob} />
+        <StatCard label={`ENTRADAS ${currentYear}`} value={fmt(yearlyIncome)} sub="Rentas + pagos" color="#4ADE80" icon={I.income} delay={.3} mob={mob} />
+        <StatCard label={`GASTOS ${currentYear}`} value={fmt(yearlyExpenses)} sub="Gastos diarios" color="#F59E0B" icon={I.expenses} delay={.35} mob={mob} />
       </div>
 
       <Card delay={.3} style={{ marginBottom: mob ? 16 : 28 }}>
