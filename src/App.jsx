@@ -1,6 +1,6 @@
 // Archivo: src/App.jsx
-// Versión: 9.0
-// Fecha: 2026-02-20
+// Versión: 10.0 — Optimizado con recargas selectivas
+// Fecha: 2026-02-24
 
 import { useState, useEffect, useCallback } from "react";
 
@@ -48,6 +48,7 @@ export default function App() {
     checklist: [], documents: [], dailyExpenses: [],
   });
 
+  // ─── Carga inicial: todo de una vez (solo al montar) ───
   const loadData = useCallback(async () => {
     try {
       const [profiles, assumptions, income, retIncome, expenses, expenseCategories, assets, debts, checklist, documents, dailyExpenses] = await Promise.all([
@@ -64,11 +65,29 @@ export default function App() {
         supaFetch("daily_expenses", { order: "expense_date.desc,created_at.desc", limit: 10000 }),
       ]);
       setData({ profiles, assumptions, income, retIncome, expenses, expenseCategories, assets, debts, checklist, documents, dailyExpenses });
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error("Error cargando datos:", err); }
     setLoading(false);
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ─── Recargas selectivas: solo bajan la tabla que cambió ───
+  const reloadTable = useCallback(async (key, table, options) => {
+    try {
+      const rows = await supaFetch(table, options);
+      setData(prev => ({ ...prev, [key]: rows }));
+    } catch (err) { console.error(`Error recargando ${table}:`, err); }
+  }, []);
+
+  const reloadChecklist = () => reloadTable("checklist", "checklist_items", { order: "sort_order" });
+  const reloadDailyExpenses = () => reloadTable("dailyExpenses", "daily_expenses", { order: "expense_date.desc,created_at.desc", limit: 10000 });
+  const reloadIncome = () => reloadTable("income", "current_income", { order: "sort_order" });
+  const reloadRetIncome = () => reloadTable("retIncome", "retirement_income", { order: "sort_order" });
+  const reloadExpenses = () => reloadTable("expenses", "retirement_expenses", { order: "sort_order" });
+  const reloadAssets = () => reloadTable("assets", "assets", { order: "sort_order" });
+  const reloadDebts = () => reloadTable("debts", "debts", { order: "sort_order" });
+  const reloadDocuments = () => reloadTable("documents", "documents", { order: "folder_path,title" });
+  const reloadPatrimony = async () => { await reloadAssets(); await reloadDebts(); };
 
   // ─── Actions ───
   const toggleChecklist = async (item) => {
@@ -76,12 +95,12 @@ export default function App() {
       is_completed: !item.is_completed,
       completed_date: !item.is_completed ? new Date().toISOString().split("T")[0] : null,
     });
-    loadData();
+    reloadChecklist();
   };
 
   const addDailyExpense = async (expense) => {
     await supaInsert("daily_expenses", expense);
-    loadData();
+    reloadDailyExpenses();
   };
 
   // ─── Navigation (sin Dashboard — se accede via APMEW logo) ───
@@ -107,7 +126,7 @@ export default function App() {
         return <DashboardPage key={dashKey} data={data} mob={mob} drive={drive} goToPage={(p) => { setPage(p); if (mob) setSidebarOpen(false); }} />;
 
       case "income":
-        return <CrudPage title="Ingresos Actuales" subtitle="Últimos ingresos antes de retirarse" table="current_income" items={data.income} mob={mob} reload={loadData} totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
+        return <CrudPage title="Ingresos Actuales" subtitle="Últimos ingresos antes de retirarse" table="current_income" items={data.income} mob={mob} reload={reloadIncome} totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
           columns={[
             { label: "Fuente", key: "source", bold: true },
             { label: "Monto Mensual", key: "monthly_amount", align: "right", mono: true, render: r => fmt(Number(r.monthly_amount)) },
@@ -121,7 +140,7 @@ export default function App() {
           defaults={{ source: "", monthly_amount: 0, notes: "" }} />;
 
       case "retIncome":
-        return <CrudPage title="Ingresos en Retiro" subtitle="Fuentes de ingreso una vez retirados" table="retirement_income" items={data.retIncome} mob={mob} reload={loadData} totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
+        return <CrudPage title="Ingresos en Retiro" subtitle="Fuentes de ingreso una vez retirados" table="retirement_income" items={data.retIncome} mob={mob} reload={reloadRetIncome} totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
           columns={[
             { label: "Fuente", key: "source", bold: true },
             { label: "Mensual", key: "monthly_amount", align: "right", mono: true, render: r => fmt(Number(r.monthly_amount)) },
@@ -137,10 +156,10 @@ export default function App() {
           defaults={{ source: "", monthly_amount: 0, annual_amount: 0, notes: "" }} />;
 
       case "expenses":
-        return <ExpensesPage expenses={data.expenses} categories={data.expenseCategories} mob={mob} reload={loadData} />;
+        return <ExpensesPage expenses={data.expenses} categories={data.expenseCategories} mob={mob} reload={reloadExpenses} />;
 
       case "patrimony":
-        return <PatrimonyPage assets={data.assets} debts={data.debts} mob={mob} reload={loadData} />;
+        return <PatrimonyPage assets={data.assets} debts={data.debts} mob={mob} reload={reloadPatrimony} />;
 
       case "projection":
         return <ProjectionPage profiles={data.profiles} assumptions={data.assumptions} mob={mob} />;
@@ -149,10 +168,10 @@ export default function App() {
         return <ChecklistPage checklist={data.checklist} onToggle={toggleChecklist} mob={mob} />;
 
       case "daily":
-        return <DailyExpensesPage dailyExpenses={data.dailyExpenses} onAdd={addDailyExpense} mob={mob} reload={loadData} />;
+        return <DailyExpensesPage dailyExpenses={data.dailyExpenses} onAdd={addDailyExpense} mob={mob} reload={reloadDailyExpenses} />;
 
       case "docs":
-        return <DocumentsPage documents={data.documents} mob={mob} reload={loadData} drive={drive} />;
+        return <DocumentsPage documents={data.documents} mob={mob} reload={reloadDocuments} drive={drive} />;
 
       default:
         return <DashboardPage key={dashKey} data={data} mob={mob} drive={drive} goToPage={(p) => { setPage(p); if (mob) setSidebarOpen(false); }} />;
