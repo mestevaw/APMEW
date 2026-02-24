@@ -288,14 +288,15 @@ const PropertyExpenses = ({ address, mob }) => {
   return (
     <Card style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>💰 Gastos de la Propiedad</div>
-        {isRental && availableYears.length > 0 ? (
-          <select value={displayYear} onChange={e => setSelectedYear(Number(e.target.value))} style={{ ...dateStyle, padding: "4px 8px", fontWeight: 600, color: C.accent, cursor: "pointer" }}>
-            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        ) : (
-          <Badge color={C.textDim}>{allExpenses.length} pagos</Badge>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>💰 Gastos de la Propiedad</span>
+          {isRental && availableYears.length > 0 && (
+            <select value={displayYear} onChange={e => setSelectedYear(Number(e.target.value))} style={{ ...dateStyle, padding: "3px 6px", fontWeight: 600, fontSize: 13, color: C.accent, cursor: "pointer", background: C.surface2 }}>
+              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          )}
+        </div>
+        {!isRental && <Badge color={C.textDim}>{allExpenses.length} pagos</Badge>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
