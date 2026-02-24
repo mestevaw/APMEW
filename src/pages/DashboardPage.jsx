@@ -124,7 +124,7 @@ const getPropExpenseTypes = (addr) => {
     { key: "insurance", label: "Insurance", icon: "🛡️" },
     { key: "legal_fees", label: "Legal Fees", icon: "⚖️" },
     { key: "repairs", label: "Repairs", icon: "🔨" },
-    { key: "property_tax", label: "Taxes", icon: "🏛️" },
+    { key: "property_tax", label: "Property Taxes", icon: "🏛️" },
     { key: "utilities", label: "Utilities", icon: "💡" },
     { key: "depreciation", label: "Depreciation", icon: "📉" },
     { key: "other_expenses", label: "Other", icon: "📋" },
@@ -657,6 +657,7 @@ const PropertyExpenses = ({ address, mob }) => {
   const [viewMonth, setViewMonth] = useState(null); // { month, year }
 
   const types = getPropExpenseTypes(address);
+  const personal = address.includes("Progreso") || address.includes("Argo");
 
   // Map tags → property address + expense type
   const TAG_MAP = {
@@ -796,11 +797,64 @@ const PropertyExpenses = ({ address, mob }) => {
     );
   }
 
-  // ── LEVEL 1: Type detail (months) ──
+  // ── LEVEL 1: Type detail ──
   if (viewType) {
     const items = allExpenses.filter(e => e.expense_type === viewType);
     const ti = types.find(t => t.key === viewType);
-    // Group by year+month
+    const isRental = !personal;
+
+    // Group by year
+    const byYear = {};
+    items.forEach(e => {
+      if (!byYear[e.period_year]) byYear[e.period_year] = { items: [], total: 0 };
+      byYear[e.period_year].items.push(e);
+      byYear[e.period_year].total += Number(e.amount || 0);
+    });
+    const years = Object.keys(byYear).map(Number).sort((a, b) => b - a);
+
+    // ── Rental properties: year-by-year comparison table ──
+    if (isRental) {
+      return (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <button onClick={() => setViewType(null)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.accent, padding: 0 }}>
+              ← {ti?.icon} {ti?.label}
+            </button>
+            <Badge color={C.textDim}>{years.length} años</Badge>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "DM Sans", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${C.border}` }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10 }}>AÑO</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10 }}>MONTO</th>
+                  <th style={{ textAlign: "center", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10 }}>Δ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {years.map((year, yi) => {
+                  const cur = byYear[year].total;
+                  const prevYear = years[yi + 1];
+                  const prev = prevYear ? byYear[prevYear].total : null;
+                  const pct = prev ? ((cur - prev) / prev * 100) : null;
+                  const isIncome = ti?.income;
+                  const pctColor = pct != null ? (isIncome ? (pct > 0 ? C.green : C.red) : (pct > 0 ? C.red : C.green)) : C.textMuted;
+                  return (
+                    <tr key={year} style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <td style={{ padding: "8px", fontWeight: 600, color: C.text }}>{year}</td>
+                      <td style={{ padding: "8px", textAlign: "right", fontFamily: "JetBrains Mono", fontWeight: 500, color: isIncome ? C.green : C.text }}>{fmtMoney(cur)}</td>
+                      <td style={{ padding: "8px", textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 10, color: pctColor }}>{pct != null ? `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%` : ""}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      );
+    }
+
+    // ── Personal properties: month-by-month detail ──
     const grouped = {};
     items.forEach(e => {
       const key = `${e.period_year}-${String(e.period_month).padStart(2, "0")}`;
@@ -809,7 +863,6 @@ const PropertyExpenses = ({ address, mob }) => {
       grouped[key].total += Number(e.amount || 0);
     });
     const months = Object.values(grouped).sort((a, b) => b.year - a.year || b.month - a.month);
-    const years = [...new Set(months.map(m => m.year))].sort((a, b) => b - a);
 
     return (
       <Card style={{ marginBottom: 16 }}>
@@ -822,11 +875,10 @@ const PropertyExpenses = ({ address, mob }) => {
         {years.map((year, yi) => {
           const ym = months.filter(m => m.year === year);
           const yearTotal = ym.reduce((s, m) => s + m.total, 0);
-          // % change vs previous year (for property_tax)
-          const prevYear = years[yi + 1]; // sorted desc, so next in array = previous year
+          const prevYear = years[yi + 1];
           const prevYm = prevYear ? months.filter(m => m.year === prevYear) : [];
           const prevTotal = prevYm.reduce((s, m) => s + m.total, 0);
-          const pctChange = (prevTotal > 0 && viewType === "property_tax") ? ((yearTotal - prevTotal) / prevTotal * 100) : null;
+          const pctChange = prevTotal > 0 ? ((yearTotal - prevTotal) / prevTotal * 100) : null;
           return (
             <div key={year} style={{ marginBottom: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>
@@ -875,6 +927,12 @@ const PropertyExpenses = ({ address, mob }) => {
           const total = items.reduce((s, e) => s + Number(e.amount || 0), 0);
           const count = items.length;
           const isIncome = t.income;
+          // For rental properties, show latest year only
+          const isRental = !personal;
+          const latestYear = isRental && count > 0 ? Math.max(...items.map(e => e.period_year)) : null;
+          const latestItems = latestYear ? items.filter(e => e.period_year === latestYear) : items;
+          const latestTotal = latestItems.reduce((s, e) => s + Number(e.amount || 0), 0);
+          const displayTotal = isRental ? latestTotal : total;
           return (
             <button key={t.key} onClick={() => count > 0 && setViewType(t.key)} style={{
               padding: "10px 12px", background: isIncome && count > 0 ? `${C.green}10` : C.surface2, borderRadius: 8,
@@ -885,26 +943,30 @@ const PropertyExpenses = ({ address, mob }) => {
               onMouseLeave={e => (e.currentTarget.style.borderColor = isIncome && count > 0 ? `${C.green}40` : C.border)}>
               <div style={{ fontFamily: "DM Sans", fontSize: 12, color: isIncome ? C.green : C.textDim }}>{t.icon} {t.label}</div>
               <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: count > 0 ? (isIncome ? C.green : C.text) : C.textMuted, marginTop: 4 }}>
-                {count > 0 ? fmtMoney(total) : "—"}
+                {count > 0 ? fmtMoney(displayTotal) : "—"}
               </div>
-              {count > 0 && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{count} {isIncome ? "años" : "pagos"}</div>}
+              {count > 0 && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{isRental && latestYear ? latestYear : `${count} pagos`}</div>}
             </button>
           );
         })}
       </div>
 
       {allExpenses.length > 0 && (() => {
-        const incomeTotal = allExpenses.filter(e => types.find(t => t.key === e.expense_type)?.income).reduce((s, e) => s + Number(e.amount || 0), 0);
-        const expenseTotal = totalAll - incomeTotal;
+        const isRental = !personal;
+        const latestYear = isRental ? Math.max(...allExpenses.map(e => e.period_year)) : null;
+        const displayExpenses = isRental ? allExpenses.filter(e => e.period_year === latestYear) : allExpenses;
+        const incomeTotal = displayExpenses.filter(e => types.find(t => t.key === e.expense_type)?.income).reduce((s, e) => s + Number(e.amount || 0), 0);
+        const displayTotal = displayExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+        const expenseTotal = displayTotal - incomeTotal;
         return (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: C.accentGlow, borderRadius: 8, marginBottom: incomeTotal > 0 ? 4 : 12 }}>
-              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>{incomeTotal > 0 ? "Gastos" : "Total"}</span>
-              <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>{fmtMoney(incomeTotal > 0 ? expenseTotal : totalAll)}</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>{incomeTotal > 0 ? "Gastos" : "Total"}{isRental && latestYear ? ` ${latestYear}` : ""}</span>
+              <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>{fmtMoney(incomeTotal > 0 ? expenseTotal : displayTotal)}</span>
             </div>
             {incomeTotal > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: `${C.green}12`, borderRadius: 8, marginBottom: 4 }}>
-                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.green }}>Net Income</span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.green }}>Net Income {latestYear || ""}</span>
                 <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: incomeTotal - expenseTotal > 0 ? C.green : C.red }}>{fmtMoney(incomeTotal - expenseTotal)}</span>
               </div>
             )}
