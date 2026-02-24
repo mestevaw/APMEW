@@ -4,10 +4,11 @@ const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` 
 const jsonHeaders = { ...headers, "Content-Type": "application/json" };
 
 export const supaFetch = async (table, options = {}) => {
-  const { select = "*", order, filters } = options;
+  const { select = "*", order, filters, limit } = options;
   let url = `${SUPABASE_URL}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
   if (order) url += `&order=${order}`;
   if (filters) url += `&${filters}`;
+  if (limit) url += `&limit=${limit}`;
   const res = await fetch(url, { headers });
   return res.json();
 };
