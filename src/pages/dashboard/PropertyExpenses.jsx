@@ -49,18 +49,18 @@ const PropertyExpenses = ({ address, mob }) => {
 
   const loadData = async () => {
     setLoading(true);
-    // 1. Structured property expenses
-    const pe = await supaFetch("property_expenses", {
-      filters: `property_address=eq.${encodeURIComponent(address)}`,
-      order: "period_year.desc,period_month.desc",
-    });
+    // Fetch property expenses and taxes in parallel
+    const [pe, pt] = await Promise.all([
+      supaFetch("property_expenses", {
+        filters: `property_address=eq.${encodeURIComponent(address)}`,
+        order: "period_year.desc,period_month.desc",
+      }),
+      supaFetch("property_taxes", {
+        filters: `property_address=eq.${encodeURIComponent(address)}`,
+        order: "tax_year.desc",
+      }),
+    ]);
     setPropExp(pe || []);
-
-    // 2. Property taxes
-    const pt = await supaFetch("property_taxes", {
-      filters: `property_address=eq.${encodeURIComponent(address)}`,
-      order: "tax_year.desc",
-    });
     setTaxData(pt || []);
 
     // 3. Daily expenses with matching tags
