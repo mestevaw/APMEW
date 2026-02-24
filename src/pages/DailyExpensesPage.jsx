@@ -32,13 +32,32 @@ const fmtDate = (d) => {
   return `${dt.getDate()} ${M[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}`;
 };
 
-// ─── Card logos ───
+// ─── Display helpers ───
+const CAT_DISPLAY = { hogar: "Casa", supermercado: "Súper", restaurantes: "Rest.", entretenimiento: "Entret.", servicios: "Serv.", transporte: "Transp.", salud: "Salud", otro: "Otro" };
+const displayCat = (cat) => CAT_DISPLAY[cat] || cat;
+const WHO_DISPLAY = { Miguel: "MEW", AnaP: "AP", Ambos: "Amb" };
+const displayWho = (who) => WHO_DISPLAY[who] || who;
+
+// ─── Card logos (SVG) ───
+const VisaLogo = () => (
+  <svg width="32" height="11" viewBox="0 0 1000 324" xmlns="http://www.w3.org/2000/svg">
+    <path d="M413.8 2.4L271.4 321.6h-93.2L116.7 52.1c-3.7-14.7-7-20.1-18.4-26.3C78.5 15.1 42 5 9.4 0l2.2-10.2h150c19.1 0 36.3 12.7 40.6 34.8l37.1 197.3L331.9 2.4h81.9zm323.6 215c.3-84.3-116.6-88.9-115.8-126.6.2-11.5 11.2-23.7 35.1-26.8 11.8-1.6 44.5-2.8 81.6 14.5l14.5-67.8C735.1 3.5 712.7-4 684.8-4c-77.2 0-131.5 41-131.9 99.7-.5 43.4 38.7 67.6 68.3 82 30.4 14.7 40.6 24.1 40.5 37.3-.2 20.1-24.3 29-46.7 29.4-39.2.6-62-10.6-80.1-19.1l-14.1 66.1c18.2 8.4 51.8 15.7 86.6 16.1 82 0 135.7-40.5 135.9-103.1zm203.8 104.2h72.4L946 2.4h-66.9c-15 0-27.7 8.8-33.3 22.2L708.2 321.6h82l16.3-45.1h100.2l9.5 45.1zM825 207.3l41.1-113.5 23.7 113.5H825zM523.6 2.4l-64.5 319.2h-78.1L445.5 2.4h78.1z" fill="#1a1f71"/>
+  </svg>
+);
+const AmexLogo = () => (
+  <svg width="28" height="11" viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg">
+    <rect width="48" height="16" rx="2" fill="#006FCF"/>
+    <text x="24" y="12" textAnchor="middle" fill="white" fontFamily="Arial" fontWeight="700" fontSize="9">AMEX</text>
+  </svg>
+);
 const CardLogo = ({ source }) => {
   const s = (source || "").toLowerCase();
-  if (s.includes("capital") || s.includes("visa")) return <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 700, color: "#1a1f71", background: "#fff", padding: "1px 5px", borderRadius: 3, border: "1px solid #1a1f71", lineHeight: "14px" }}>VISA</span>;
-  if (s.includes("amex") || s.includes("american")) return <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 700, color: "#fff", background: "#006FCF", padding: "1px 5px", borderRadius: 3, lineHeight: "14px" }}>AMEX</span>;
+  if (s.includes("capital") || s.includes("visa")) return <VisaLogo />;
+  if (s.includes("amex") || s.includes("american")) return <AmexLogo />;
   if (s.includes("master")) return <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 700, color: "#fff", background: "#EB001B", padding: "1px 5px", borderRadius: 3, lineHeight: "14px" }}>MC</span>;
-  return source ? <span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim }}>{source}</span> : null;
+  if (s.includes("efectivo")) return <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textMuted }}>💵</span>;
+  if (s.includes("transfer")) return <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textMuted }}>🏦</span>;
+  return source ? <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textMuted }}>{source.slice(0,6)}</span> : null;
 };
 
 const isPayment = (e) => (e.category === "otro" || e.category === "Otro") && Number(e.amount) < 0;
@@ -312,7 +331,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
   }
   const queryTotal = queryResults.reduce((s, e) => s + (Number(e.amount)||0), 0);
 
-  const sortLabels = { expense_date: "Fecha", concept: "Concepto", category: "Categoría", amount: "Monto", source: "Tarjeta", who: "Quién" };
+  const sortLabels = { expense_date: "Fecha", concept: "Concepto", category: "Cat.", amount: "Monto", source: "Tarj.", who: "Quién" };
   const matchCount = editingExpense ? dailyExpenses.filter(e => (e.concept||"").trim().toLowerCase() === (editingExpense.concept||"").trim().toLowerCase()).length : 0;
 
   return (
@@ -341,6 +360,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
             <MenuDivider />
             <MenuBtn onClick={() => openPanel("summary")}>📋 Resumen</MenuBtn>
             <MenuBtn onClick={() => openPanel("query")}>🔍 Consulta</MenuBtn>
+            <MenuBtn onClick={() => openPanel("comparison")}>🇺🇸🇲🇽 EUA vs México</MenuBtn>
           </DropMenu>
         </div>
       </div>
@@ -353,7 +373,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
       {/* Category chips */}
       <div style={{ display: "flex", gap: 5, marginBottom: 12, flexWrap: "wrap" }}>
         <button onClick={() => setFilterCat("all")} style={{ padding: "4px 10px", borderRadius: 14, border: `1px solid ${filterCat === "all" ? C.accent : C.border}`, background: filterCat === "all" ? C.accentGlow : "transparent", cursor: "pointer", fontFamily: "DM Sans", fontSize: 11, color: filterCat === "all" ? C.accent : C.textDim }}>Todas</button>
-        {allCats.map(cat => <button key={cat} onClick={() => setFilterCat(cat)} style={{ padding: "4px 10px", borderRadius: 14, border: `1px solid ${filterCat === cat ? C.blue : C.border}`, background: filterCat === cat ? `${C.blue}18` : "transparent", cursor: "pointer", fontFamily: "DM Sans", fontSize: 11, color: filterCat === cat ? C.blue : C.textDim }}>{cat}</button>)}
+        {allCats.map(cat => <button key={cat} onClick={() => setFilterCat(cat)} style={{ padding: "4px 10px", borderRadius: 14, border: `1px solid ${filterCat === cat ? C.blue : C.border}`, background: filterCat === cat ? `${C.blue}18` : "transparent", cursor: "pointer", fontFamily: "DM Sans", fontSize: 11, color: filterCat === cat ? C.blue : C.textDim }}>{displayCat(cat)}</button>)}
       </div>
 
       {/* ═══ SUMMARY ═══ */}
@@ -372,7 +392,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
             const pct = total > 0 ? (Math.max(0, data.total) / total * 100) : 0;
             return (
               <div key={cat} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px" }}>
-                <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, width: mob ? 90 : 120 }}>{cat}</span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, width: mob ? 90 : 120 }}>{displayCat(cat)}</span>
                 <div style={{ flex: 1, height: 8, background: C.surface2, borderRadius: 4, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: data.total < 0 ? C.green : C.blue, borderRadius: 4 }} /></div>
                 <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: data.total < 0 ? C.green : C.red, textAlign: "right", minWidth: 90 }}>{fmtMoney(data.total)}</span>
                 <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, minWidth: 30, textAlign: "right" }}>{data.count}</span>
@@ -420,6 +440,57 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
           )}
         </Card>
       )}
+
+      {/* ═══ COMPARISON US vs MX ═══ */}
+      {panel === "comparison" && (() => {
+        const all = dailyExpenses.filter(e => !isPayment(e));
+        const usItems = all.filter(e => (e.country || detectCountry(e)) === "US");
+        const mxItems = all.filter(e => (e.country || detectCountry(e)) === "MX");
+        const usTotal = usItems.reduce((s, e) => s + Number(e.amount || 0), 0);
+        const mxTotal = mxItems.reduce((s, e) => s + Number(e.amount || 0), 0);
+        const grandTotal = usTotal + mxTotal;
+        const catBk = (items) => { const m = {}; items.forEach(e => { const c = e.category || "otro"; m[c] = (m[c] || 0) + Number(e.amount || 0); }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+        const usCats = catBk(usItems);
+        const mxCats = catBk(mxItems);
+        const monthly = {};
+        all.forEach(e => { const ym = (e.expense_date || "").slice(0, 7); if (!ym) return; if (!monthly[ym]) monthly[ym] = { us: 0, mx: 0 }; monthly[ym][(e.country || detectCountry(e)) === "MX" ? "mx" : "us"] += Number(e.amount || 0); });
+        const mos = Object.entries(monthly).sort((a, b) => b[0].localeCompare(a[0]));
+        const pBar = (val, max, color) => <div style={{ flex: 1, height: 8, background: C.surface2, borderRadius: 4, overflow: "hidden" }}><div style={{ width: `${max > 0 ? (val / max * 100) : 0}%`, height: "100%", background: color, borderRadius: 4 }} /></div>;
+        return (
+          <Card style={{ marginBottom: 16, borderColor: "#F59E0B" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <SectionTitle style={{ margin: 0 }}>🇺🇸 EUA vs 🇲🇽 México</SectionTitle>
+              <CloseBtn onClick={() => setPanel(null)} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div style={{ padding: 14, background: "#1e3a5f20", borderRadius: 10, border: "1px solid #3B82F640" }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>🇺🇸 EUA</div>
+                <div style={{ fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 700, color: "#3B82F6", marginTop: 4 }}>{fmtMoney(usTotal)}</div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{usItems.length} gastos · {grandTotal > 0 ? (usTotal / grandTotal * 100).toFixed(0) : 0}%</div>
+              </div>
+              <div style={{ padding: 14, background: "#065f4620", borderRadius: 10, border: "1px solid #10B98140" }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>🇲🇽 México</div>
+                <div style={{ fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 700, color: "#10B981", marginTop: 4 }}>{fmtMoney(mxTotal)}</div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{mxItems.length} gastos · {grandTotal > 0 ? (mxTotal / grandTotal * 100).toFixed(0) : 0}%</div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>🇺🇸 Por categoría</div>
+                {usCats.map(([cat, t]) => <div key={cat} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0" }}><span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.text, width: 50 }}>{displayCat(cat)}</span>{pBar(t, usTotal, "#3B82F6")}<span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: C.textDim, minWidth: 60, textAlign: "right" }}>{fmtMoney(t)}</span></div>)}
+              </div>
+              <div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>🇲🇽 Por categoría</div>
+                {mxCats.length > 0 ? mxCats.map(([cat, t]) => <div key={cat} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0" }}><span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.text, width: 50 }}>{displayCat(cat)}</span>{pBar(t, mxTotal, "#10B981")}<span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: C.textDim, minWidth: 60, textAlign: "right" }}>{fmtMoney(t)}</span></div>) : <p style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted }}>Sin gastos MX</p>}
+              </div>
+            </div>
+            <div style={{ fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>Por mes</div>
+            <div style={{ maxHeight: 200, overflow: "auto" }}>
+              {mos.map(([ym, d]) => <div key={ym} style={{ display: "grid", gridTemplateColumns: "55px 1fr 70px 1fr 70px", gap: 4, padding: "4px 0", alignItems: "center" }}><span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: C.textDim }}>{ym}</span>{pBar(d.us, Math.max(d.us, d.mx), "#3B82F6")}<span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#3B82F6", textAlign: "right" }}>{fmtMoney(d.us)}</span>{pBar(d.mx, Math.max(d.us, d.mx), "#10B981")}<span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#10B981", textAlign: "right" }}>{fmtMoney(d.mx)}</span></div>)}
+            </div>
+          </Card>
+        );
+      })()}
 
       {/* ═══ FORM ═══ */}
       {panel === "form" && (
@@ -491,13 +562,20 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
                 ))}
                 <input placeholder="Tag personalizado..." onKeyDown={e => { if (e.key === "Enter" && e.target.value) { matchCount > 1 ? applyToMatching(editingExpense, "tag", e.target.value) : applySingle(editingExpense.id, "tag", e.target.value); }}} style={{ ...inputStyle, marginTop: 4 }} />
               </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
                 {editingExpense.tag && <Btn onClick={() => applySingle(editingExpense.id, "tag", null)} outline>Quitar tag</Btn>}
                 {editingExpense.subcategory && <Btn onClick={() => applySingle(editingExpense.id, "subcategory", null)} outline>Quitar sub</Btn>}
-                <button onClick={() => applySingle(editingExpense.id, "country", (editingExpense.country || "US") === "US" ? "MX" : "US")} style={{ padding: "5px 12px", background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
-                  <Flag country={editingExpense.country || detectCountry(editingExpense)} /> {(editingExpense.country || detectCountry(editingExpense)) === "MX" ? "→ 🇺🇸" : "→ 🇲🇽"}
-                </button>
               </div>
+            </div>
+            {/* Country */}
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+              <p style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>PAÍS <Flag country={editingExpense.country || detectCountry(editingExpense)} /></p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "country", "US") : applySingle(editingExpense.id, "country", "US")} style={{ padding: "7px 16px", background: (editingExpense.country || detectCountry(editingExpense)) === "US" ? `${C.accent}20` : C.surface2, border: `1px solid ${(editingExpense.country || detectCountry(editingExpense)) === "US" ? C.accent : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>🇺🇸 EUA</button>
+                <button onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "country", "MX") : applySingle(editingExpense.id, "country", "MX")} style={{ padding: "7px 16px", background: (editingExpense.country || detectCountry(editingExpense)) === "MX" ? `${C.accent}20` : C.surface2, border: `1px solid ${(editingExpense.country || detectCountry(editingExpense)) === "MX" ? C.accent : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>🇲🇽 México</button>
+              </div>
+              {matchCount > 1 && <p style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 4 }}>Se aplica a los {matchCount} gastos con este concepto</p>}
+            </div>
             </div>
             {applying && <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent, marginTop: 8 }}>Aplicando a {matchCount} registros...</p>}
           </div>
@@ -518,7 +596,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
                   <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
                     <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim, flexShrink: 0 }}>{fmtDate(e.expense_date)}</span>
                     <Flag country={e.country || detectCountry(e)} />
-                    <Badge color={C.blue} style={{ fontSize: 9 }}>{e.category}</Badge>
+                    <Badge color={C.blue} style={{ fontSize: 9 }}>{displayCat(e.category)}</Badge>
                     {e.subcategory && <Badge color="#A78BFA" style={{ fontSize: 8 }}>{e.subcategory}</Badge>}
                     <CardLogo source={e.source} />
                     {e.tag && <Badge color="#10B981" style={{ fontSize: 8 }}>{e.tag}</Badge>}
@@ -531,26 +609,29 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
           </div>
         ) : (
           <div style={{ maxHeight: "65vh", overflow: "auto" }}>
-            <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, display: "grid", gridTemplateColumns: "82px 1fr 90px 55px 80px 24px 50px 70px", gap: 4, padding: "10px 12px", borderBottom: `2px solid ${C.border}` }}>
-              {Object.entries(sortLabels).map(([col, label]) => (
-                <button key={col} onClick={() => doSort(col)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === col ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0, justifyContent: col === "amount" ? "flex-end" : "flex-start" }}>{label}{sortCol === col && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
-              ))}
-              <span style={{ fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: C.textDim, textAlign: "center" }}>🌎</span>
-              <span style={{ fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: C.textDim, textTransform: "uppercase" }}>Info</span>
+            <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, display: "grid", gridTemplateColumns: "75px 1fr 55px 85px 24px 34px 30px 70px", gap: 4, padding: "10px 12px", borderBottom: `2px solid ${C.border}`, alignItems: "center" }}>
+              <button onClick={() => doSort("expense_date")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "expense_date" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0 }}>Fecha{sortCol === "expense_date" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
+              <button onClick={() => doSort("concept")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "concept" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0 }}>Concepto{sortCol === "concept" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
+              <button onClick={() => doSort("category")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "category" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0 }}>Cat.{sortCol === "category" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
+              <button onClick={() => doSort("amount")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "amount" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0, justifyContent: "flex-end" }}>Monto{sortCol === "amount" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
+              <span style={{ fontSize: 10, textAlign: "center" }}>🌎</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim, textAlign: "center" }}>💳</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim, textAlign: "center" }}>👤</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim }}>Info</span>
             </div>
             {sorted.map((e, i) => {
               const pay = isPayment(e);
               return (
-                <div key={e.id||i} style={{ display: "grid", gridTemplateColumns: "82px 1fr 90px 55px 80px 24px 50px 70px", gap: 4, padding: "6px 12px", alignItems: "center", cursor: "pointer" }}
+                <div key={e.id||i} style={{ display: "grid", gridTemplateColumns: "75px 1fr 55px 85px 24px 34px 30px 70px", gap: 4, padding: "6px 12px", alignItems: "center", cursor: "pointer" }}
                   onClick={() => e.id && setEditingExpense(e)}
                   onMouseEnter={ev => ev.currentTarget.style.background = C.surface2} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>
                   <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim }}>{fmtDate(e.expense_date)}</span>
                   <span style={{ fontFamily: "DM Sans", fontSize: 12, color: pay ? C.green : C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: pay ? 600 : 400 }}>{displayConcept(e)}</span>
-                  <Badge color={C.blue}>{e.category}</Badge>
-                  <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>{e.who}</span>
+                  <Badge color={C.blue} style={{ fontSize: 9 }}>{displayCat(e.category)}</Badge>
                   <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: amountColor(e), textAlign: "right" }}>{pay ? "+" : ""}{fmtMoney(Math.abs(Number(e.amount)))}</span>
                   <Flag country={e.country || detectCountry(e)} />
                   <CardLogo source={e.source} />
+                  <span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim, textAlign: "center" }}>{displayWho(e.who)}</span>
                   <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
                     {e.subcategory && <Badge color="#A78BFA" style={{ fontSize: 8 }}>{e.subcategory}</Badge>}
                     {e.tag && <Badge color="#10B981" style={{ fontSize: 8 }}>{e.tag}</Badge>}
