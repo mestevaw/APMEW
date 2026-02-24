@@ -109,13 +109,25 @@ const getCatInfo = (key) => DEADLINE_CATEGORIES.find(c => c.key === key) || DEAD
 const getPropExpenseTypes = (addr) => {
   const mx = addr.includes("Progreso");
   const personal = mx || addr.includes("Argo");
-  return [
+  if (personal) return [
     { key: "electricity", label: mx ? "Luz" : "Electricity", icon: "💡" },
     { key: "water", label: mx ? "Agua" : "Water", icon: "💧" },
     { key: "gas", label: "Gas", icon: "🔥" },
     { key: "property_tax", label: mx ? "Predial" : "Property Tax", icon: "🏛️" },
     { key: "insurance", label: mx ? "Seguro" : "Insurance", icon: "🛡️" },
-    { key: "hoa", label: personal ? "Mantenimiento" : "HOA", icon: "🏘️" },
+    { key: "hoa", label: "Mantenimiento", icon: "🏘️" },
+  ];
+  // US rental properties (Form 8825 categories)
+  return [
+    { key: "gross_rents", label: "Gross Rents", icon: "💰", income: true },
+    { key: "maintenance", label: "Maintenance", icon: "🔧" },
+    { key: "insurance", label: "Insurance", icon: "🛡️" },
+    { key: "legal_fees", label: "Legal Fees", icon: "⚖️" },
+    { key: "repairs", label: "Repairs", icon: "🔨" },
+    { key: "property_tax", label: "Taxes", icon: "🏛️" },
+    { key: "utilities", label: "Utilities", icon: "💡" },
+    { key: "depreciation", label: "Depreciation", icon: "📉" },
+    { key: "other_expenses", label: "Other", icon: "📋" },
   ];
 };
 
@@ -635,7 +647,7 @@ const PropertyExpenses = ({ address, mob }) => {
   const [taxData, setTaxData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
-  const [addType, setAddType] = useState("electricity");
+  const [addType, setAddType] = useState(null);
   const [addMonth, setAddMonth] = useState(new Date().getMonth() + 1);
   const [addYear, setAddYear] = useState(new Date().getFullYear());
   const [addAmount, setAddAmount] = useState("");
@@ -862,30 +874,43 @@ const PropertyExpenses = ({ address, mob }) => {
           const items = allExpenses.filter(e => e.expense_type === t.key);
           const total = items.reduce((s, e) => s + Number(e.amount || 0), 0);
           const count = items.length;
+          const isIncome = t.income;
           return (
             <button key={t.key} onClick={() => count > 0 && setViewType(t.key)} style={{
-              padding: "10px 12px", background: C.surface2, borderRadius: 8,
-              border: `1px solid ${C.border}`, cursor: count > 0 ? "pointer" : "default",
+              padding: "10px 12px", background: isIncome && count > 0 ? `${C.green}10` : C.surface2, borderRadius: 8,
+              border: `1px solid ${isIncome && count > 0 ? `${C.green}40` : C.border}`, cursor: count > 0 ? "pointer" : "default",
               textAlign: "left", opacity: count > 0 ? 1 : 0.5, transition: "border-color 0.2s",
             }}
-              onMouseEnter={e => count > 0 && (e.currentTarget.style.borderColor = C.accent)}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}>
-              <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>{t.icon} {t.label}</div>
-              <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: count > 0 ? C.text : C.textMuted, marginTop: 4 }}>
+              onMouseEnter={e => count > 0 && (e.currentTarget.style.borderColor = isIncome ? C.green : C.accent)}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = isIncome && count > 0 ? `${C.green}40` : C.border)}>
+              <div style={{ fontFamily: "DM Sans", fontSize: 12, color: isIncome ? C.green : C.textDim }}>{t.icon} {t.label}</div>
+              <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: count > 0 ? (isIncome ? C.green : C.text) : C.textMuted, marginTop: 4 }}>
                 {count > 0 ? fmtMoney(total) : "—"}
               </div>
-              {count > 0 && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{count} pagos</div>}
+              {count > 0 && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{count} {isIncome ? "años" : "pagos"}</div>}
             </button>
           );
         })}
       </div>
 
-      {allExpenses.length > 0 && (
-        <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: C.accentGlow, borderRadius: 8, marginBottom: 12 }}>
-          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Total</span>
-          <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>{fmtMoney(totalAll)}</span>
-        </div>
-      )}
+      {allExpenses.length > 0 && (() => {
+        const incomeTotal = allExpenses.filter(e => types.find(t => t.key === e.expense_type)?.income).reduce((s, e) => s + Number(e.amount || 0), 0);
+        const expenseTotal = totalAll - incomeTotal;
+        return (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: C.accentGlow, borderRadius: 8, marginBottom: incomeTotal > 0 ? 4 : 12 }}>
+              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>{incomeTotal > 0 ? "Gastos" : "Total"}</span>
+              <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>{fmtMoney(incomeTotal > 0 ? expenseTotal : totalAll)}</span>
+            </div>
+            {incomeTotal > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: `${C.green}12`, borderRadius: 8, marginBottom: 4 }}>
+                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.green }}>Net Income</span>
+                <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: incomeTotal - expenseTotal > 0 ? C.green : C.red }}>{fmtMoney(incomeTotal - expenseTotal)}</span>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {(dailyExp.length > 0 || taxData.length > 0) && (
         <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginBottom: 8, textAlign: "center" }}>
@@ -921,7 +946,7 @@ const PropertyExpenses = ({ address, mob }) => {
           </div>
         </div>
       ) : (
-        <button onClick={() => setAdding(true)} style={{ padding: "8px 14px", background: "transparent", border: `1px dashed ${C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.textDim, width: "100%", textAlign: "center" }}>+ Agregar gasto</button>
+        <button onClick={() => { setAdding(true); setAddType(types[0]?.key); }} style={{ padding: "8px 14px", background: "transparent", border: `1px dashed ${C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.textDim, width: "100%", textAlign: "center" }}>+ Agregar gasto</button>
       )}
     </Card>
   );
