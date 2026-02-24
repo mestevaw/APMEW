@@ -163,7 +163,7 @@ const CloseBtn = ({ onClick }) => <button onClick={onClick} style={{ background:
 const dateStyle = { ...inputStyle, fontSize: 12, background: "#fff", color: "#111", borderColor: "#ccc" };
 
 // ─── Tags + subcategories ───
-const TAG_OPTIONS = ["Argo - Agua/Luz","Argo - Gas","Argo - Mant.","Progreso - Luz","Progreso - Agua","Mango Nest","MNA Works","Tortuga Home","Honda CRV","Hyundai Tucson","Mazda 6","Personal","Médico","Viaje","Educación"];
+const TAG_OPTIONS = ["Argo - Agua/Gas","Argo - Luz","Argo - Mant.","Progreso - Luz","Progreso - Agua","Mango Nest","MNA Works","Tortuga Home","Honda CRV","Hyundai Tucson","Mazda 6","Personal","Médico","Viaje","Educación"];
 const SUBCATEGORIES = {
   hogar: ["Suscripciones","Limpieza","Muebles","Electrónica","Ropa","Mascotas"],
   servicios: ["Internet","Teléfono","Streaming","Software","Seguros"],
