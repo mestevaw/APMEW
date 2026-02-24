@@ -655,6 +655,7 @@ const PropertyExpenses = ({ address, mob }) => {
   const [saving, setSaving] = useState(false);
   const [viewType, setViewType] = useState(null);
   const [viewMonth, setViewMonth] = useState(null); // { month, year }
+  const [selectedYear, setSelectedYear] = useState(null); // null = auto-latest
 
   const types = getPropExpenseTypes(address);
   const personal = address.includes("Progreso") || address.includes("Argo");
@@ -914,59 +915,64 @@ const PropertyExpenses = ({ address, mob }) => {
   }
 
   // ── LEVEL 0: Summary ──
+  const isRental = !personal;
+  const availableYears = [...new Set(allExpenses.map(e => e.period_year))].sort((a, b) => b - a);
+  const displayYear = isRental ? (selectedYear || availableYears[0] || new Date().getFullYear()) : null;
+  const dateStyle = { fontFamily: "DM Sans", fontSize: 12, background: C.surface2, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6 };
+
   return (
     <Card style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>💰 Gastos de la Propiedad</div>
-        <Badge color={C.textDim}>{allExpenses.length} pagos</Badge>
+        {isRental && availableYears.length > 0 ? (
+          <select value={displayYear} onChange={e => setSelectedYear(Number(e.target.value))} style={{ ...dateStyle, padding: "4px 8px", fontWeight: 600, color: C.accent, cursor: "pointer" }}>
+            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        ) : (
+          <Badge color={C.textDim}>{allExpenses.length} pagos</Badge>
+        )}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
         {types.map(t => {
           const items = allExpenses.filter(e => e.expense_type === t.key);
-          const total = items.reduce((s, e) => s + Number(e.amount || 0), 0);
           const count = items.length;
           const isIncome = t.income;
-          // For rental properties, show latest year only
-          const isRental = !personal;
-          const latestYear = isRental && count > 0 ? Math.max(...items.map(e => e.period_year)) : null;
-          const latestItems = latestYear ? items.filter(e => e.period_year === latestYear) : items;
-          const latestTotal = latestItems.reduce((s, e) => s + Number(e.amount || 0), 0);
-          const displayTotal = isRental ? latestTotal : total;
+          const yearItems = isRental ? items.filter(e => e.period_year === displayYear) : items;
+          const displayTotal = yearItems.reduce((s, e) => s + Number(e.amount || 0), 0);
+          const hasData = yearItems.length > 0;
           return (
             <button key={t.key} onClick={() => count > 0 && setViewType(t.key)} style={{
-              padding: "10px 12px", background: isIncome && count > 0 ? `${C.green}10` : C.surface2, borderRadius: 8,
-              border: `1px solid ${isIncome && count > 0 ? `${C.green}40` : C.border}`, cursor: count > 0 ? "pointer" : "default",
-              textAlign: "left", opacity: count > 0 ? 1 : 0.5, transition: "border-color 0.2s",
+              padding: "10px 12px", background: isIncome && hasData ? `${C.green}10` : C.surface2, borderRadius: 8,
+              border: `1px solid ${isIncome && hasData ? `${C.green}40` : C.border}`, cursor: count > 0 ? "pointer" : "default",
+              textAlign: "left", opacity: hasData ? 1 : 0.5, transition: "border-color 0.2s",
             }}
               onMouseEnter={e => count > 0 && (e.currentTarget.style.borderColor = isIncome ? C.green : C.accent)}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = isIncome && count > 0 ? `${C.green}40` : C.border)}>
+              onMouseLeave={e => (e.currentTarget.style.borderColor = isIncome && hasData ? `${C.green}40` : C.border)}>
               <div style={{ fontFamily: "DM Sans", fontSize: 12, color: isIncome ? C.green : C.textDim }}>{t.icon} {t.label}</div>
-              <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: count > 0 ? (isIncome ? C.green : C.text) : C.textMuted, marginTop: 4 }}>
-                {count > 0 ? fmtMoney(displayTotal) : "—"}
+              <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: hasData ? (isIncome ? C.green : C.text) : C.textMuted, marginTop: 4 }}>
+                {hasData ? fmtMoney(displayTotal) : "—"}
               </div>
-              {count > 0 && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{isRental && latestYear ? latestYear : `${count} pagos`}</div>}
+              {hasData && !isRental && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{yearItems.length} pagos</div>}
             </button>
           );
         })}
       </div>
 
       {allExpenses.length > 0 && (() => {
-        const isRental = !personal;
-        const latestYear = isRental ? Math.max(...allExpenses.map(e => e.period_year)) : null;
-        const displayExpenses = isRental ? allExpenses.filter(e => e.period_year === latestYear) : allExpenses;
-        const incomeTotal = displayExpenses.filter(e => types.find(t => t.key === e.expense_type)?.income).reduce((s, e) => s + Number(e.amount || 0), 0);
-        const displayTotal = displayExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+        const yearExp = isRental ? allExpenses.filter(e => e.period_year === displayYear) : allExpenses;
+        const incomeTotal = yearExp.filter(e => types.find(t => t.key === e.expense_type)?.income).reduce((s, e) => s + Number(e.amount || 0), 0);
+        const displayTotal = yearExp.reduce((s, e) => s + Number(e.amount || 0), 0);
         const expenseTotal = displayTotal - incomeTotal;
         return (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: C.accentGlow, borderRadius: 8, marginBottom: incomeTotal > 0 ? 4 : 12 }}>
-              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>{incomeTotal > 0 ? "Gastos" : "Total"}{isRental && latestYear ? ` ${latestYear}` : ""}</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>{incomeTotal > 0 ? "Gastos" : "Total"}</span>
               <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>{fmtMoney(incomeTotal > 0 ? expenseTotal : displayTotal)}</span>
             </div>
             {incomeTotal > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: `${C.green}12`, borderRadius: 8, marginBottom: 4 }}>
-                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.green }}>Net Income {latestYear || ""}</span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.green }}>Net Income</span>
                 <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: incomeTotal - expenseTotal > 0 ? C.green : C.red }}>{fmtMoney(incomeTotal - expenseTotal)}</span>
               </div>
             )}
@@ -1025,17 +1031,23 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [inspPanel, setInspPanel] = useState(false); // inspection panel open
+  const [inspPanel, setInspPanel] = useState(false);
+  const [tenant, setTenant] = useState(null);
   const uploadRef = useRef(null);
-  const [refreshKey, setRefreshKey] = useState(0); // to refresh SupaExplorer after upload
+  const [refreshKey, setRefreshKey] = useState(0);
+  const personal = property.address.includes("Progreso") || property.address.includes("Argo"); // to refresh SupaExplorer after upload
 
   useEffect(() => {
-    setSearching(true); setNotFound(false); setFolderId(null);
+    setSearching(true); setNotFound(false); setFolderId(null); setTenant(null);
     findFolderByAddress(property.address).then(folder => {
       if (folder) setFolderId(folder.google_drive_id);
       else setNotFound(true);
       setSearching(false);
     });
+    if (!personal) {
+      supaFetch("tenants", { filters: `property_address=eq.${encodeURIComponent(property.address)}`, limit: 1 })
+        .then(rows => { if (rows && rows[0]) setTenant(rows[0]); });
+    }
   }, [property.address]);
 
   const handleCameraClick = () => {
@@ -1175,6 +1187,42 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         </Card>
       )}
 
+      {/* Tenant Info */}
+      {tenant && !personal && (() => {
+        const leaseTo = tenant.lease_to ? new Date(tenant.lease_to) : null;
+        const now = new Date();
+        const mtm = tenant.month_to_month || !leaseTo;
+        const expired = leaseTo && leaseTo < now;
+        const soonDays = leaseTo ? Math.ceil((leaseTo - now) / 86400000) : null;
+        const soon = soonDays != null && soonDays > 0 && soonDays <= 90;
+        const statusColor = expired ? C.red : soon ? "#F59E0B" : mtm ? C.blue : C.green;
+        const statusText = expired ? "Vencido" : mtm ? "Mes a mes" : soon ? `Vence en ${soonDays}d` : `Hasta ${leaseTo.toLocaleDateString("es-MX", { month: "short", year: "numeric" })}`;
+        return (
+          <Card style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>👤 Inquilino</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${statusColor}18`, color: statusColor, fontWeight: 600 }}>{statusText}</span>
+            </div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 600, color: C.text }}>{tenant.tenant_name}</div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginTop: 2 }}>
+                  {tenant.bd_ba && `${tenant.bd_ba}`}{tenant.sqft ? ` · ${tenant.sqft.toLocaleString()} sqft` : ""}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontFamily: "JetBrains Mono", fontSize: 16, fontWeight: 700, color: C.green }}>{fmtMoney(tenant.monthly_rent)}</div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim }}>/mes</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 12, marginTop: 8, fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>
+              <span>Desde: {new Date(tenant.lease_from).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}</span>
+              {Number(tenant.deposit) > 0 && <span>Depósito: {fmtMoney(tenant.deposit)}</span>}
+            </div>
+          </Card>
+        );
+      })()}
+
       {/* Property Expenses */}
       <PropertyExpenses address={property.address} mob={mob} />
 
@@ -1206,6 +1254,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
 const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
   const [expByType, setExpByType] = useState({});
   const [loading, setLoading] = useState(true);
+  const [ownerYear, setOwnerYear] = useState(null);
   const ownerProps = PROPERTIES.filter(p => p.owner === ownerName);
   const types = getPropExpenseTypes(ownerProps[0]?.address || "");
   const personal = ownerProps[0]?.address.includes("Progreso") || ownerProps[0]?.address.includes("Argo");
@@ -1239,8 +1288,9 @@ const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
   }, [ownerName]);
 
   const years = [...new Set(Object.values(expByType).flatMap(y => Object.keys(y)))].map(Number).sort((a, b) => b - a);
-  const latestYear = years[0];
+  const displayYear = ownerYear || years[0] || new Date().getFullYear();
   const isRental = !personal;
+  const selectStyle = { fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, background: C.surface2, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", cursor: "pointer" };
 
   return (
     <div>
@@ -1256,15 +1306,19 @@ const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
       {loading ? <Card style={{ textAlign: "center", padding: 30 }}><Spinner /></Card> : (
         <Card style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>📊 Resumen {latestYear || ""}</div>
-            <Badge color={C.textDim}>{years.length} años</Badge>
+            <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>📊 Resumen</div>
+            {years.length > 0 && (
+              <select value={displayYear} onChange={e => setOwnerYear(Number(e.target.value))} style={selectStyle}>
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            )}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
             {types.map(t => {
               const yearData = expByType[t.key] || {};
-              const latestVal = latestYear ? (yearData[latestYear] || 0) : 0;
-              const hasData = Object.keys(yearData).length > 0;
+              const val = yearData[displayYear] || 0;
+              const hasData = val > 0;
               const isIncome = t.income;
               return (
                 <div key={t.key} style={{
@@ -1274,26 +1328,25 @@ const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
                 }}>
                   <div style={{ fontFamily: "DM Sans", fontSize: 12, color: isIncome ? C.green : C.textDim }}>{t.icon} {t.label}</div>
                   <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: hasData ? (isIncome ? C.green : C.text) : C.textMuted, marginTop: 4 }}>
-                    {hasData ? fmtMoney(isRental ? latestVal : Object.values(yearData).reduce((s, v) => s + v, 0)) : "—"}
+                    {hasData ? fmtMoney(val) : "—"}
                   </div>
-                  {hasData && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{isRental && latestYear ? latestYear : `${years.length} años`}</div>}
                 </div>
               );
             })}
           </div>
 
-          {latestYear && (() => {
-            const incomeTotal = types.filter(t => t.income).reduce((s, t) => s + ((expByType[t.key] || {})[latestYear] || 0), 0);
-            const expTotal = types.filter(t => !t.income).reduce((s, t) => s + ((expByType[t.key] || {})[latestYear] || 0), 0);
+          {(() => {
+            const incomeTotal = types.filter(t => t.income).reduce((s, t) => s + ((expByType[t.key] || {})[displayYear] || 0), 0);
+            const expTotal = types.filter(t => !t.income).reduce((s, t) => s + ((expByType[t.key] || {})[displayYear] || 0), 0);
             return (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: C.accentGlow, borderRadius: 8, marginBottom: incomeTotal > 0 ? 4 : 8 }}>
-                  <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Gastos {latestYear}</span>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Gastos</span>
                   <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>{fmtMoney(expTotal)}</span>
                 </div>
                 {incomeTotal > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: `${C.green}12`, borderRadius: 8, marginBottom: 8 }}>
-                    <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.green }}>Net Income {latestYear}</span>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.green }}>Net Income</span>
                     <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: incomeTotal - expTotal > 0 ? C.green : C.red }}>{fmtMoney(incomeTotal - expTotal)}</span>
                   </div>
                 )}
@@ -1308,7 +1361,7 @@ const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
         <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 12 }}>🏠 Propiedades</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {ownerProps.filter(p => !p.sold).map(p => {
-            const rents = (expByType["gross_rents"] || {})[latestYear] ? "—" : "";
+            const rents = (expByType["gross_rents"] || {})[displayYear] ? "—" : "";
             return (
               <button key={p.address} onClick={() => onSelectProperty(p)} style={{
                 display: "flex", alignItems: "center", gap: 8, padding: "10px 12px",
