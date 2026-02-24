@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
 import { supaFetch, supaInsert, supaUpdate, supaDelete } from "../../lib/supabase";
-import { Card, Spinner } from "../../components/UI";
+import { Card, Badge, Spinner } from "../../components/UI";
 import { CARS } from "./constants";
 import { getDeadlineStatus } from "./helpers";
 import { CarIcon } from "./icons";
