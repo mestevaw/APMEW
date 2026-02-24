@@ -24,17 +24,20 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const [showCars, setShowCars] = useState(false);
   const [showDeadlines, setShowDeadlines] = useState(false);
   const [selectedOwner, setSelectedOwner] = useState(null);
+  const [statYear, setStatYear] = useState(new Date().getFullYear());
+  const [showYearlyDetail, setShowYearlyDetail] = useState(null);
 
   const totalA = assets.reduce((s, a) => s + Number(a.current_value || 0), 0);
   const totalD = debts.reduce((s, d) => s + Number(d.outstanding_balance || 0), 0);
   const nw = totalA - totalD;
   const [grossRentsMonthly, setGrossRentsMonthly] = useState(0);
+  const [allGrossRents, setAllGrossRents] = useState([]);
 
   useEffect(() => {
-    // Single query: fetch ALL gross_rents, then pick latest year per property
     supaFetch("property_expenses", { filters: "expense_type=eq.gross_rents", order: "period_year.desc" })
       .then(rows => {
         if (!rows) return;
+        setAllGrossRents(rows);
         const byAddr = {};
         rows.forEach(r => {
           if (!byAddr[r.property_address] || r.period_year > byAddr[r.property_address].period_year)
@@ -49,13 +52,19 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const tre = expenses.reduce((s, e) => s + Number(e.monthly_amount || 0), 0);
   const tri = retIncome.reduce((s, i) => s + Number(i.monthly_amount || 0), 0);
 
-  // Yearly daily expense totals (current year)
-  const currentYear = new Date().getFullYear();
-  const deThisYear = (dailyExpenses || []).filter(e => e.expense_date && e.expense_date.startsWith(String(currentYear)));
-  const yearlyExpenses = deThisYear.filter(e => Number(e.amount) > 0).reduce((s, e) => s + Number(e.amount || 0), 0);
-  const yearlyPayments = deThisYear.filter(e => Number(e.amount) < 0).reduce((s, e) => s + Math.abs(Number(e.amount || 0)), 0);
-  // Yearly income = gross rents (annual) + payment credits from daily
-  const yearlyIncome = grossRentsMonthly * 12 + yearlyPayments;
+  // Yearly totals based on selected statYear
+  const deByYear = (dailyExpenses || []).filter(e => e.expense_date && e.expense_date.startsWith(String(statYear)));
+  const yearlyExpenses = deByYear.filter(e => Number(e.amount) > 0).reduce((s, e) => s + Number(e.amount || 0), 0);
+  const yearlyPayments = deByYear.filter(e => Number(e.amount) < 0).reduce((s, e) => s + Math.abs(Number(e.amount || 0)), 0);
+  const rentsForYear = allGrossRents.filter(r => r.period_year === statYear).reduce((s, r) => s + Number(r.amount || 0), 0);
+  const yearlyIncome = rentsForYear + yearlyPayments;
+
+  // Available years from daily expenses + gross rents
+  const availStatYears = [...new Set([
+    ...(dailyExpenses || []).map(e => e.expense_date ? parseInt(e.expense_date.slice(0, 4)) : null).filter(Boolean),
+    ...allGrossRents.map(r => r.period_year),
+  ])].sort((a, b) => b - a);
+  if (availStatYears.length === 0) availStatYears.push(new Date().getFullYear());
 
   const cd = checklist.filter(c => c.is_completed).length;
   const ct = checklist.length;
@@ -63,7 +72,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const p1 = profiles.find(p => p.name === "Miguel") || profiles[0];
   const p2 = profiles.find(p => p.name === "AnaP") || profiles[1];
 
-  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); setShowCars(false); setShowDeadlines(false); setSelectedOwner(null); };
+  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); setShowCars(false); setShowDeadlines(false); setSelectedOwner(null); setShowYearlyDetail(null); };
 
   // ═══ SUBVIEWS ═══
   if (selectedPerson) return <PersonDetail person={selectedPerson} mob={mob} drive={drive} onBack={goBack} />;
@@ -72,6 +81,80 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   if (showProperties) return <PropertiesView mob={mob} drive={drive} onSelectProperty={(p) => { setSelectedProperty(p); setShowProperties(false); }} onBack={goBack} />;
   if (showCars) return <CarsView mob={mob} drive={drive} onBack={goBack} />;
   if (showDeadlines) return <DeadlinesView mob={mob} onBack={goBack} />;
+
+  // ═══ YEARLY DETAIL VIEW ═══
+  if (showYearlyDetail) {
+    const isIncome = showYearlyDetail === "income";
+    const yearDE = (dailyExpenses || []).filter(e => e.expense_date && e.expense_date.startsWith(String(statYear)));
+    // Income sources
+    const rentRows = allGrossRents.filter(r => r.period_year === statYear);
+    const paymentRows = yearDE.filter(e => Number(e.amount) < 0).map(e => ({ ...e, amount: Math.abs(Number(e.amount)) }));
+    // Expense sources
+    const expenseRows = yearDE.filter(e => Number(e.amount) > 0);
+    const items = isIncome ? [...rentRows.map(r => ({ type: "rent", addr: r.property_address, amount: Number(r.amount || 0) })), ...paymentRows.map(e => ({ type: "payment", concept: e.concept, date: e.expense_date, amount: e.amount }))]
+      : expenseRows;
+    const totalAmt = isIncome ? yearlyIncome : yearlyExpenses;
+
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <button onClick={() => setShowYearlyDetail(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
+          <div style={{ flex: 1 }}>
+            <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{isIncome ? "Entradas" : "Gastos"} {statYear}</h1>
+            <span style={{ fontFamily: "JetBrains Mono", fontSize: 14, color: isIncome ? "#4ADE80" : "#F59E0B" }}>{fmtMoney(totalAmt)}</span>
+          </div>
+          <select value={statYear} onChange={e => setStatYear(Number(e.target.value))} style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, background: C.surface2, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", cursor: "pointer" }}>
+            {availStatYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+
+        {isIncome ? (
+          <Card>
+            {rentRows.length > 0 && <>
+              <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>💰 GROSS RENTS</div>
+              {rentRows.map((r, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text }}>{r.property_address}</span>
+                  <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, color: "#4ADE80" }}>{fmtMoney(Number(r.amount))}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 0", marginBottom: 12 }}>
+                <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: C.accent }}>Subtotal: {fmtMoney(rentRows.reduce((s, r) => s + Number(r.amount || 0), 0))}</span>
+              </div>
+            </>}
+            {paymentRows.length > 0 && <>
+              <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>💳 PAGOS / CRÉDITOS</div>
+              {paymentRows.slice(0, 50).map((e, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <div><span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text }}>{e.concept}</span><span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginLeft: 8 }}>{e.expense_date}</span></div>
+                  <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: "#4ADE80" }}>{fmtMoney(e.amount)}</span>
+                </div>
+              ))}
+              {paymentRows.length > 50 && <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, padding: 8 }}>+{paymentRows.length - 50} más</div>}
+            </>}
+            {rentRows.length === 0 && paymentRows.length === 0 && <div style={{ textAlign: "center", padding: 30, color: C.textDim }}>Sin entradas en {statYear}</div>}
+          </Card>
+        ) : (
+          <Card>
+            <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>📋 GASTOS DIARIOS ({expenseRows.length})</div>
+            <div style={{ maxHeight: "60vh", overflow: "auto" }}>
+              {expenseRows.slice(0, 100).map((e, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{e.concept}</span>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>{e.expense_date}{e.tag ? ` · ${e.tag}` : ""}</span>
+                  </div>
+                  <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: C.red, flexShrink: 0, marginLeft: 8 }}>{fmtMoney(Number(e.amount))}</span>
+                </div>
+              ))}
+              {expenseRows.length > 100 && <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, padding: 8, textAlign: "center" }}>+{expenseRows.length - 100} más</div>}
+            </div>
+            {expenseRows.length === 0 && <div style={{ textAlign: "center", padding: 30, color: C.textDim }}>Sin gastos en {statYear}</div>}
+          </Card>
+        )}
+      </div>
+    );
+  }
 
   // ═══ DASHBOARD ═══
   return (
@@ -179,9 +262,16 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
         <StatCard label="INGRESOS ACTUALES" value={fmt(ti)} sub="Mensuales" color={C.blue} icon={I.income} delay={.15} mob={mob} />
         <StatCard label="GASTOS RETIRO" value={fmt(tre)} sub="Mensuales estimados" color={C.red} icon={I.expenses} delay={.2} mob={mob} />
         <StatCard label="INGRESOS RETIRO" value={fmt(tri)} sub="Mensuales proyectados" color={C.green} icon={I.income} delay={.25} mob={mob} />
-        <StatCard label={`ENTRADAS ${currentYear}`} value={fmt(yearlyIncome)} sub="Rentas + pagos" color="#4ADE80" icon={I.income} delay={.3} mob={mob} />
-        <StatCard label={`GASTOS ${currentYear}`} value={fmt(yearlyExpenses)} sub="Gastos diarios" color="#F59E0B" icon={I.expenses} delay={.35} mob={mob} />
+        <StatCard label={`ENTRADAS ${statYear}`} value={fmtMoney(yearlyIncome)} sub="Rentas + pagos ▸" color="#4ADE80" icon={I.income} delay={.3} mob={mob} onClick={() => setShowYearlyDetail("income")} />
+        <StatCard label={`GASTOS ${statYear}`} value={fmtMoney(yearlyExpenses)} sub="Gastos diarios ▸" color="#F59E0B" icon={I.expenses} delay={.35} mob={mob} onClick={() => setShowYearlyDetail("expenses")} />
       </div>
+      {availStatYears.length > 1 && (
+        <div style={{ display: "flex", justifyContent: "center", marginTop: -12, marginBottom: 16 }}>
+          <select value={statYear} onChange={e => setStatYear(Number(e.target.value))} style={{ fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, background: C.surface2, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>
+            {availStatYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+      )}
 
       <Card delay={.3} style={{ marginBottom: mob ? 16 : 28 }}>
         <SectionTitle icon={I.checklist}>Checklist Pre-Retiro</SectionTitle>
