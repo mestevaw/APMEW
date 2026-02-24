@@ -115,10 +115,8 @@ export const useGoogleDrive = () => {
   const uploadPhotos = async (files, propertyFolderId, propertyName, onProgress) => {
     if (!token) throw new Error("No token");
 
-    // 1. Find or create INSPECCION folder
+    // 1. Find or create INSPECCION folder (name contains is case-insensitive in Drive API)
     let inspeccionFolder = await findSubfolder(propertyFolderId, "INSPECCION");
-    if (!inspeccionFolder) inspeccionFolder = await findSubfolder(propertyFolderId, "Inspeccion");
-    if (!inspeccionFolder) inspeccionFolder = await findSubfolder(propertyFolderId, "inspeccion");
     if (!inspeccionFolder) {
       inspeccionFolder = await createFolder("INSPECCION", propertyFolderId);
     }
