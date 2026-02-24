@@ -5,8 +5,9 @@ import { I } from "../../lib/icons";
 import { supaFetch } from "../../lib/supabase";
 import { Card, Badge, Spinner } from "../../components/UI";
 import { PROPERTIES, OWNER_COLORS, OWNER_SHORT } from "./constants";
-import { fmtMoney, getNumber, getStreet } from "./helpers";
+import { fmtMoney, getNumber, getStreet, findFolderByAddress } from "./helpers";
 import { HouseIcon } from "./icons";
+import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuComponents";
 
 const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [filter, setFilter] = useState("all");
