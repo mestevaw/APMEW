@@ -576,7 +576,6 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
               </div>
               {matchCount > 1 && <p style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 4 }}>Se aplica a los {matchCount} gastos con este concepto</p>}
             </div>
-            </div>
             {applying && <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent, marginTop: 8 }}>Aplicando a {matchCount} registros...</p>}
           </div>
         </>
