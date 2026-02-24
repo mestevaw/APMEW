@@ -2,8 +2,8 @@ import { C, inputStyle } from "../lib/theme";
 import { I } from "../lib/icons";
 
 // ─── Card ───
-export const Card = ({ children, style, delay = 0 }) => (
-  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: "18px 16px", animation: `fadeIn 0.5s ease ${delay}s both`, ...style }}>
+export const Card = ({ children, style, delay = 0, onClick }) => (
+  <div onClick={onClick} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: "18px 16px", animation: `fadeIn 0.5s ease ${delay}s both`, ...style }}>
     {children}
   </div>
 );
