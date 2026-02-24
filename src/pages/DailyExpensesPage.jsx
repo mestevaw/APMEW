@@ -241,6 +241,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
   const [filterCat, setFilterCat] = useState("all");
   const [search, setSearch] = useState("");
   const [filterYear, setFilterYear] = useState("all");
+  const [filterMonth, setFilterMonth] = useState("all");
   const [qPlace, setQPlace] = useState("");
   const [qConcept, setQConcept] = useState("");
   const [qFrom, setQFrom] = useState("");
@@ -320,8 +321,11 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
 
   // ─── Filter + Search ───
   const availableYears = [...new Set(dailyExpenses.map(e => e.expense_date ? e.expense_date.slice(0, 4) : null).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+  const MONTH_NAMES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+  const availableMonths = filterYear === "all" ? [] : [...new Set(dailyExpenses.filter(e => e.expense_date && e.expense_date.startsWith(filterYear)).map(e => e.expense_date.slice(5, 7)))].sort((a, b) => b.localeCompare(a));
   const allCats = [...new Set(dailyExpenses.map(e => e.category).filter(Boolean))].sort();
   let filtered = filterYear === "all" ? dailyExpenses : dailyExpenses.filter(e => e.expense_date && e.expense_date.startsWith(filterYear));
+  if (filterMonth !== "all") filtered = filtered.filter(e => e.expense_date && e.expense_date.slice(5, 7) === filterMonth);
   filtered = filterCat === "all" ? filtered : filtered.filter(e => e.category === filterCat);
   if (search) { const q = search.toLowerCase(); filtered = filtered.filter(e => (e.concept||"").toLowerCase().includes(q) || (e.category||"").toLowerCase().includes(q) || (e.source||"").toLowerCase().includes(q) || (e.tag||"").toLowerCase().includes(q) || (e.who||"").toLowerCase().includes(q) || (e.subcategory||"").toLowerCase().includes(q) || (q === "mx" && (e.country || detectCountry(e)) === "MX") || (q === "us" && (e.country || detectCountry(e)) === "US") || (q === "mexico" && (e.country || detectCountry(e)) === "MX") || (q === "méxico" && (e.country || detectCountry(e)) === "MX")); }
 
@@ -393,12 +397,18 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
         </div>
       </div>
 
-      {/* SEARCH + YEAR FILTER */}
+      {/* SEARCH + YEAR/MONTH FILTER */}
       <div style={{ display: "flex", gap: 8, marginTop: 10, marginBottom: 10, alignItems: "center" }}>
         <input placeholder="🔍 Buscar concepto, categoría, tarjeta, tag..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, flex: 1, fontSize: 13, padding: "8px 14px" }} />
-        <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, background: C.surface2, color: filterYear === "all" ? C.textDim : C.accent, border: `1px solid ${filterYear === "all" ? C.border : C.accent}`, borderRadius: 8, padding: "8px 10px", cursor: "pointer", minWidth: 80 }}>
+        <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, whiteSpace: "nowrap" }}>Año:</span>
+        <select value={filterYear} onChange={e => { setFilterYear(e.target.value); setFilterMonth("all"); }} style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, background: C.surface2, color: filterYear === "all" ? C.textDim : C.accent, border: `1px solid ${filterYear === "all" ? C.border : C.accent}`, borderRadius: 8, padding: "8px 10px", cursor: "pointer", minWidth: 72 }}>
           <option value="all">Todos</option>
           {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, whiteSpace: "nowrap" }}>Mes:</span>
+        <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} disabled={filterYear === "all"} style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, background: C.surface2, color: filterMonth === "all" ? C.textDim : C.accent, border: `1px solid ${filterMonth === "all" ? C.border : C.accent}`, borderRadius: 8, padding: "8px 10px", cursor: filterYear === "all" ? "not-allowed" : "pointer", opacity: filterYear === "all" ? 0.4 : 1, minWidth: 72 }}>
+          <option value="all">Todos</option>
+          {availableMonths.map(m => <option key={m} value={m}>{MONTH_NAMES[parseInt(m) - 1]}</option>)}
         </select>
       </div>
 
