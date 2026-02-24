@@ -5,7 +5,8 @@
 import { useState, useRef, useEffect } from "react";
 import { C, inputStyle } from "../lib/theme";
 import { I } from "../lib/icons";
-import { supaInsert, supaUpdate } from "../lib/supabase";
+import { fmtMoney, fmtDateShort } from "../lib/helpers";
+import { supaInsert, supaUpdate, supaBatchInsert, supaBatchUpdate } from "../lib/supabase";
 import { Card, SectionTitle, Badge, Btn, Spinner } from "../components/UI";
 
 // ─── Load SheetJS ───
@@ -18,19 +19,8 @@ const loadXLSX = () => new Promise((resolve, reject) => {
   document.head.appendChild(s);
 });
 
-// ─── Format money WITH cents: $1,234.56 ───
-const fmtMoney = (n) => {
-  const num = Number(n) || 0;
-  return "$" + Math.abs(num).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
-
-// ─── Date ───
-const fmtDate = (d) => {
-  if (!d) return "—";
-  const dt = new Date(d + "T12:00:00");
-  const M = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-  return `${dt.getDate()} ${M[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}`;
-};
+// ─── Date (delegamos al helper fmtDateShort) ───
+const fmtDate = fmtDateShort;
 
 // ─── Display helpers ───
 const CAT_DISPLAY = { hogar: "Casa", supermercado: "Súper", restaurantes: "Rest.", entretenimiento: "Entret.", servicios: "Serv.", transporte: "Transp.", salud: "Salud", otro: "Otro" };
@@ -116,9 +106,22 @@ const parseCSVToObjects = (text) => {
     const lower = lines[i].toLowerCase();
     if (lower.includes("date") && (lower.includes("description") || lower.includes("amount"))) { hIdx = i; break; }
   }
-  const headers = lines[hIdx].split(",").map(h => h.trim().replace(/"/g, ""));
+  // Parser que respeta comillas (campos con comas internas)
+  const parseLine = (line) => {
+    const fields = [];
+    let current = "", inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQuotes = !inQuotes; continue; }
+      if (ch === ',' && !inQuotes) { fields.push(current.trim()); current = ""; continue; }
+      current += ch;
+    }
+    fields.push(current.trim());
+    return fields;
+  };
+  const headers = parseLine(lines[hIdx]);
   return lines.slice(hIdx + 1).filter(l => l.trim()).map(line => {
-    const vals = line.split(",").map(v => v.trim().replace(/^"|"$/g, ""));
+    const vals = parseLine(line);
     const obj = {};
     headers.forEach((h, i) => obj[h] = vals[i] || "");
     return obj;
@@ -276,22 +279,34 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
     setImporting(true); let count = 0, skipped = 0;
     const existing = new Set();
     for (const e of dailyExpenses) existing.add(`${e.expense_date}|${(e.concept||"").slice(0,40).toLowerCase()}|${Number(e.amount).toFixed(2)}`);
+    
+    // Filtrar duplicados primero, luego insertar en bloques de 50
+    const newRows = [];
     for (const row of importData) {
       const key = `${row.expense_date}|${(row.concept||"").slice(0,40).toLowerCase()}|${Number(row.amount).toFixed(2)}`;
       if (existing.has(key)) { skipped++; continue; }
-      try { await supaInsert("daily_expenses", row); count++; existing.add(key); } catch (e) { console.error(e); }
-      if ((count + skipped) % 20 === 0) setImportMsg(`Procesando... ${count} nuevas, ${skipped} existentes`);
+      newRows.push(row);
+      existing.add(key);
     }
+    
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < newRows.length; i += BATCH_SIZE) {
+      const batch = newRows.slice(i, i + BATCH_SIZE);
+      try { await supaBatchInsert("daily_expenses", batch); count += batch.length; } catch (e) { console.error("Batch insert error:", e); }
+      setImportMsg(`Procesando... ${count} nuevas, ${skipped} existentes`);
+    }
+    
     setImportMsg(`✓ ${count} importadas${skipped > 0 ? `, ${skipped} ya existían` : ""}`);
     setImportData(null); setImporting(false); if (count > 0) reload();
   };
 
-  // ─── Tag / subcategory (apply to ALL matching) ───
+  // ─── Tag / subcategory (apply to ALL matching via batch update) ───
   const applyToMatching = async (expense, field, value) => {
     setApplying(true);
-    const cpt = (expense.concept||"").trim().toLowerCase();
-    const matches = dailyExpenses.filter(e => (e.concept||"").trim().toLowerCase() === cpt);
-    for (const m of matches) { try { await supaUpdate("daily_expenses", m.id, { [field]: value }); } catch {} }
+    const cpt = (expense.concept||"").trim();
+    try {
+      await supaBatchUpdate("daily_expenses", `concept=eq.${encodeURIComponent(cpt)}`, { [field]: value });
+    } catch (e) { console.error("Batch update error:", e); }
     setApplying(false); setEditingExpense(null); reload();
   };
   const applySingle = async (id, field, value) => {
