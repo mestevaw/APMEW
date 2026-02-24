@@ -1,5 +1,9 @@
+// ═══════════════════════════════════════════
+// Archivo: src/components/FilePreviewModal.jsx
+// ═══════════════════════════════════════════
 // Componente compartido: modal de vista previa de archivos de Google Drive
 // Usado en DocumentsPage y SupaExplorer
+
 import { C } from "../lib/theme";
 import { I } from "../lib/icons";
 import { getPreviewUrl } from "../lib/helpers";
