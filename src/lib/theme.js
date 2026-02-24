@@ -9,7 +9,6 @@ export const C = {
 };
 
 export const baseStyles = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: ${C.bg}; overflow-x: hidden; }
   ::-webkit-scrollbar { width: 6px; }
