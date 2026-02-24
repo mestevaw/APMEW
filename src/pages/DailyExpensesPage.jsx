@@ -63,6 +63,16 @@ const CardLogo = ({ source }) => {
 const isPayment = (e) => (e.category === "otro" || e.category === "Otro") && Number(e.amount) < 0;
 const displayConcept = (e) => isPayment(e) ? "Pago" : e.concept;
 
+const shortCardLabel = (source) => {
+  const s = (source || "").toLowerCase();
+  if (s.includes("capital") || s.includes("visa")) return "Visa";
+  if (s.includes("amex") || s.includes("american")) return "Amex";
+  if (s.includes("master")) return "MC";
+  if (s.includes("efectivo")) return "Cash";
+  if (s.includes("transfer")) return "Transf";
+  return source ? source.slice(0, 5) : "—";
+};
+
 // ─── Country detection ───
 const Flag = ({ country }) => <span style={{ fontSize: 13, lineHeight: 1, cursor: "default" }} title={country === "MX" ? "México" : "EUA"}>{country === "MX" ? "🇲🇽" : "🇺🇸"}</span>;
 
@@ -593,49 +603,51 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
               return (
                 <div key={e.id||i} style={{ padding: "8px 12px", borderBottom: `1px solid ${C.border}` }} onClick={() => e.id && setEditingExpense(e)}>
                   <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
-                    <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim, flexShrink: 0 }}>{fmtDate(e.expense_date)}</span>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 12, color: pay ? C.green : C.text, fontWeight: pay ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{displayConcept(e)}</span>
                     <Flag country={e.country || detectCountry(e)} />
-                    <Badge color={C.blue} style={{ fontSize: 9 }}>{displayCat(e.category)}</Badge>
-                    {e.subcategory && <Badge color="#A78BFA" style={{ fontSize: 8 }}>{e.subcategory}</Badge>}
-                    <CardLogo source={e.source} />
-                    {e.tag && <Badge color="#10B981" style={{ fontSize: 8 }}>{e.tag}</Badge>}
-                    <span style={{ marginLeft: "auto", fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: amountColor(e), flexShrink: 0 }}>{pay ? "+" : ""}{fmtMoney(Math.abs(Number(e.amount)))}</span>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim, flexShrink: 0 }}>{shortCardLabel(e.source)}</span>
+                    <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: amountColor(e), flexShrink: 0 }}>{pay ? "+" : ""}{fmtMoney(Math.abs(Number(e.amount)))}</span>
                   </div>
-                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: pay ? C.green : C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayConcept(e)}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "DM Sans", fontSize: 10, color: C.textDim }}>
+                    <span>{fmtDate(e.expense_date)}</span>
+                    <Badge color={C.blue} style={{ fontSize: 8 }}>{displayCat(e.category)}</Badge>
+                    {e.subcategory && <Badge color="#A78BFA" style={{ fontSize: 8 }}>{e.subcategory}</Badge>}
+                    {e.tag && <Badge color="#10B981" style={{ fontSize: 8 }}>{e.tag}</Badge>}
+                  </div>
                 </div>
               );
             })}
           </div>
         ) : (
           <div style={{ maxHeight: "65vh", overflow: "auto" }}>
-            <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, display: "grid", gridTemplateColumns: "75px 1fr 55px 85px 24px 34px 30px 70px", gap: 4, padding: "10px 12px", borderBottom: `2px solid ${C.border}`, alignItems: "center" }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, display: "grid", gridTemplateColumns: "70px minmax(0,1fr) 50px 22px 34px 28px 80px 70px", gap: 4, padding: "10px 12px", borderBottom: `2px solid ${C.border}`, alignItems: "center" }}>
               <button onClick={() => doSort("expense_date")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "expense_date" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0 }}>Fecha{sortCol === "expense_date" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
               <button onClick={() => doSort("concept")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "concept" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0 }}>Concepto{sortCol === "concept" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
               <button onClick={() => doSort("category")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "category" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0 }}>Cat.{sortCol === "category" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
-              <button onClick={() => doSort("amount")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "amount" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0, justifyContent: "flex-end" }}>Monto{sortCol === "amount" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
               <span style={{ fontSize: 10, textAlign: "center" }}>🌎</span>
               <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim, textAlign: "center" }}>💳</span>
               <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim, textAlign: "center" }}>👤</span>
               <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim }}>Info</span>
+              <button onClick={() => doSort("amount")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "amount" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0, justifyContent: "flex-end" }}>Monto{sortCol === "amount" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
             </div>
             {sorted.map((e, i) => {
               const pay = isPayment(e);
               return (
-                <div key={e.id||i} style={{ display: "grid", gridTemplateColumns: "75px 1fr 55px 85px 24px 34px 30px 70px", gap: 4, padding: "6px 12px", alignItems: "center", cursor: "pointer" }}
+                <div key={e.id||i} style={{ display: "grid", gridTemplateColumns: "70px minmax(0,1fr) 50px 22px 34px 28px 80px 70px", gap: 4, padding: "6px 12px", alignItems: "center", cursor: "pointer" }}
                   onClick={() => e.id && setEditingExpense(e)}
                   onMouseEnter={ev => ev.currentTarget.style.background = C.surface2} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>
                   <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim }}>{fmtDate(e.expense_date)}</span>
-                  <span style={{ fontFamily: "DM Sans", fontSize: 12, color: pay ? C.green : C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: pay ? 600 : 400 }}>{displayConcept(e)}</span>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 12, color: pay ? C.green : C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: pay ? 600 : 400 }}>{(displayConcept(e) || "").slice(0, 40)}</span>
                   <Badge color={C.blue} style={{ fontSize: 9 }}>{displayCat(e.category)}</Badge>
-                  <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: amountColor(e), textAlign: "right" }}>{pay ? "+" : ""}{fmtMoney(Math.abs(Number(e.amount)))}</span>
                   <Flag country={e.country || detectCountry(e)} />
-                  <CardLogo source={e.source} />
+                  <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim, textAlign: "center" }}>{shortCardLabel(e.source)}</span>
                   <span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim, textAlign: "center" }}>{displayWho(e.who)}</span>
                   <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
                     {e.subcategory && <Badge color="#A78BFA" style={{ fontSize: 8 }}>{e.subcategory}</Badge>}
                     {e.tag && <Badge color="#10B981" style={{ fontSize: 8 }}>{e.tag}</Badge>}
                     {!e.subcategory && !e.tag && <span style={{ color: C.textMuted, fontSize: 10 }}>—</span>}
                   </div>
+                  <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: amountColor(e), textAlign: "right" }}>{pay ? "+" : ""}{fmtMoney(Math.abs(Number(e.amount)))}</span>
                 </div>
               );
             })}
