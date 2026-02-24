@@ -105,13 +105,14 @@ const getCatInfo = (key) => DEADLINE_CATEGORIES.find(c => c.key === key) || DEAD
 
 const getPropExpenseTypes = (addr) => {
   const mx = addr.includes("Progreso");
+  const personal = mx || addr.includes("Argo");
   return [
     { key: "electricity", label: mx ? "Luz" : "Electricity", icon: "💡" },
     { key: "water", label: mx ? "Agua" : "Water", icon: "💧" },
     { key: "gas", label: "Gas", icon: "🔥" },
     { key: "property_tax", label: mx ? "Predial" : "Property Tax", icon: "🏛️" },
     { key: "insurance", label: mx ? "Seguro" : "Insurance", icon: "🛡️" },
-    { key: "hoa", label: mx ? "Mantenimiento" : "HOA", icon: "🏘️" },
+    { key: "hoa", label: personal ? "Mantenimiento" : "HOA", icon: "🏘️" },
   ];
 };
 
