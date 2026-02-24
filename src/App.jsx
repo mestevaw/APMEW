@@ -182,7 +182,7 @@ export default function App() {
 
       {/* Sidebar */}
       <nav style={{
-        width: mob ? 260 : 240, background: C.surface,
+        width: mob ? 260 : 190, background: C.surface,
         borderRight: `1px solid ${C.border}`,
         padding: mob ? "68px 12px 20px" : "20px 12px",
         display: "flex", flexDirection: "column",
@@ -221,7 +221,7 @@ export default function App() {
       </nav>
 
       {/* Main content */}
-      <main style={{ marginLeft: mob ? 0 : 240, flex: 1, padding: mob ? "72px 16px 24px" : "32px 40px", maxWidth: 1200, width: "100%" }}>
+      <main style={{ marginLeft: mob ? 0 : 190, flex: 1, padding: mob ? "72px 16px 24px" : "32px 40px", maxWidth: 1200, width: "100%" }}>
         {renderPage()}
       </main>
     </div>
