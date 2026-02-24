@@ -9,8 +9,8 @@ export const Card = ({ children, style, delay = 0 }) => (
 );
 
 // ─── StatCard ───
-export const StatCard = ({ label, value, sub, color = C.accent, icon, delay = 0, mob }) => (
-  <Card delay={delay} style={{ display: "flex", flexDirection: "column", gap: 6, padding: mob ? "14px 12px" : "22px 24px" }}>
+export const StatCard = ({ label, value, sub, color = C.accent, icon, delay = 0, mob, onClick }) => (
+  <Card delay={delay} style={{ display: "flex", flexDirection: "column", gap: 6, padding: mob ? "14px 12px" : "22px 24px", cursor: onClick ? "pointer" : "default" }} onClick={onClick}>
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
       <span style={{ fontFamily: "DM Sans", fontSize: mob ? 11 : 13, color: C.textDim, fontWeight: 500, letterSpacing: .5 }}>{label}</span>
       {icon && !mob && <span style={{ color, opacity: .6 }}>{icon}</span>}
