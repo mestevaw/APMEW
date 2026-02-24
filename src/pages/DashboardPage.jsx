@@ -1017,7 +1017,7 @@ const PropertyExpenses = ({ address, mob }) => {
 // ═══════════════════════════════════════════
 // PROPERTY DETAIL
 // ═══════════════════════════════════════════
-const PropertyDetail = ({ property, mob, drive, onBack }) => {
+const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   const [folderId, setFolderId] = useState(null);
   const [searching, setSearching] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -1104,7 +1104,10 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
         </button>
         <div style={{ flex: 1, cursor: "pointer" }} onClick={onBack}>
           <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{property.address}</h1>
-          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}{property.sold ? " · Vendida" : ""}</span>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>
+            <button onClick={(e) => { e.stopPropagation(); onOwnerClick?.(property.owner); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim, textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}>{property.owner}</button>
+            {property.sold ? " · Vendida" : ""}
+          </span>
         </div>
         {folderId && (
           <div style={{ position: "relative" }}>
@@ -1193,6 +1196,151 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
           {showDocs && <SupaExplorer key={refreshKey} rootFolderId={folderId} mob={mob} drive={drive} />}
         </>
       )}
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════
+// OWNER DETAIL (aggregated view per LLC)
+// ═══════════════════════════════════════════
+const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
+  const [expByType, setExpByType] = useState({});
+  const [loading, setLoading] = useState(true);
+  const ownerProps = PROPERTIES.filter(p => p.owner === ownerName);
+  const types = getPropExpenseTypes(ownerProps[0]?.address || "");
+  const personal = ownerProps[0]?.address.includes("Progreso") || ownerProps[0]?.address.includes("Argo");
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      const allItems = [];
+      for (const p of ownerProps) {
+        const [propExp, taxData] = await Promise.all([
+          supaFetch("property_expenses", { filters: `property_address=eq.${encodeURIComponent(p.address)}`, order: "period_year.desc" }),
+          supaFetch("property_taxes", { filters: `property_address=eq.${encodeURIComponent(p.address)}`, order: "tax_year.desc" }),
+        ]);
+        (propExp || []).forEach(e => allItems.push({ ...e, amount: Number(e.amount || 0) }));
+        (taxData || []).filter(t => t.property_tax != null).forEach(t => allItems.push({
+          expense_type: "property_tax", amount: Number(t.property_tax), period_year: t.tax_year, period_month: 1,
+        }));
+      }
+      // Group by type + year
+      const grouped = {};
+      allItems.forEach(e => {
+        const key = e.expense_type;
+        if (!grouped[key]) grouped[key] = {};
+        if (!grouped[key][e.period_year]) grouped[key][e.period_year] = 0;
+        grouped[key][e.period_year] += e.amount;
+      });
+      setExpByType(grouped);
+      setLoading(false);
+    };
+    load();
+  }, [ownerName]);
+
+  const years = [...new Set(Object.values(expByType).flatMap(y => Object.keys(y)))].map(Number).sort((a, b) => b - a);
+  const latestYear = years[0];
+  const isRental = !personal;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
+        <span style={{ color: OWNER_COLORS[ownerName] || C.accent, fontSize: 20 }}>🏢</span>
+        <div style={{ flex: 1 }}>
+          <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{ownerName}</h1>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>{ownerProps.filter(p => !p.sold).length} propiedades activas{ownerProps.filter(p => p.sold).length > 0 ? ` · ${ownerProps.filter(p => p.sold).length} vendidas` : ""}</span>
+        </div>
+      </div>
+
+      {loading ? <Card style={{ textAlign: "center", padding: 30 }}><Spinner /></Card> : (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>📊 Resumen {latestYear || ""}</div>
+            <Badge color={C.textDim}>{years.length} años</Badge>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+            {types.map(t => {
+              const yearData = expByType[t.key] || {};
+              const latestVal = latestYear ? (yearData[latestYear] || 0) : 0;
+              const hasData = Object.keys(yearData).length > 0;
+              const isIncome = t.income;
+              return (
+                <div key={t.key} style={{
+                  padding: "10px 12px", background: isIncome && hasData ? `${C.green}10` : C.surface2, borderRadius: 8,
+                  border: `1px solid ${isIncome && hasData ? `${C.green}40` : C.border}`,
+                  textAlign: "left", opacity: hasData ? 1 : 0.5,
+                }}>
+                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: isIncome ? C.green : C.textDim }}>{t.icon} {t.label}</div>
+                  <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: hasData ? (isIncome ? C.green : C.text) : C.textMuted, marginTop: 4 }}>
+                    {hasData ? fmtMoney(isRental ? latestVal : Object.values(yearData).reduce((s, v) => s + v, 0)) : "—"}
+                  </div>
+                  {hasData && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{isRental && latestYear ? latestYear : `${years.length} años`}</div>}
+                </div>
+              );
+            })}
+          </div>
+
+          {latestYear && (() => {
+            const incomeTotal = types.filter(t => t.income).reduce((s, t) => s + ((expByType[t.key] || {})[latestYear] || 0), 0);
+            const expTotal = types.filter(t => !t.income).reduce((s, t) => s + ((expByType[t.key] || {})[latestYear] || 0), 0);
+            return (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: C.accentGlow, borderRadius: 8, marginBottom: incomeTotal > 0 ? 4 : 8 }}>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Gastos {latestYear}</span>
+                  <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>{fmtMoney(expTotal)}</span>
+                </div>
+                {incomeTotal > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: `${C.green}12`, borderRadius: 8, marginBottom: 8 }}>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.green }}>Net Income {latestYear}</span>
+                    <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: incomeTotal - expTotal > 0 ? C.green : C.red }}>{fmtMoney(incomeTotal - expTotal)}</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </Card>
+      )}
+
+      {/* Property list */}
+      <Card>
+        <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 12 }}>🏠 Propiedades</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {ownerProps.filter(p => !p.sold).map(p => {
+            const rents = (expByType["gross_rents"] || {})[latestYear] ? "—" : "";
+            return (
+              <button key={p.address} onClick={() => onSelectProperty(p)} style={{
+                display: "flex", alignItems: "center", gap: 8, padding: "10px 12px",
+                background: C.surface2, borderRadius: 8, border: "none", cursor: "pointer", width: "100%", textAlign: "left",
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = C.accentGlow}
+                onMouseLeave={e => e.currentTarget.style.background = C.surface2}>
+                <span style={{ color: OWNER_COLORS[p.owner] || C.accent }}><HouseIcon /></span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text, flex: 1 }}>{p.address}</span>
+                <span style={{ color: C.textMuted, fontSize: 12 }}>▸</span>
+              </button>
+            );
+          })}
+          {ownerProps.filter(p => p.sold).length > 0 && (
+            <>
+              <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 8, marginBottom: 4 }}>VENDIDAS</div>
+              {ownerProps.filter(p => p.sold).map(p => (
+                <button key={p.address} onClick={() => onSelectProperty(p)} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "10px 12px",
+                  background: C.surface2, borderRadius: 8, border: "none", cursor: "pointer", width: "100%", textAlign: "left", opacity: 0.6,
+                }}
+                  onMouseEnter={e => e.currentTarget.style.background = C.accentGlow}
+                  onMouseLeave={e => e.currentTarget.style.background = C.surface2}>
+                  <span style={{ color: C.textDim }}><HouseIcon /></span>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 400, color: C.textDim, flex: 1 }}>{p.address}</span>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>▸</span>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      </Card>
     </div>
   );
 };
@@ -1568,11 +1716,28 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [showCars, setShowCars] = useState(false);
   const [showDeadlines, setShowDeadlines] = useState(false);
+  const [selectedOwner, setSelectedOwner] = useState(null);
 
   const totalA = assets.reduce((s, a) => s + Number(a.current_value || 0), 0);
   const totalD = debts.reduce((s, d) => s + Number(d.outstanding_balance || 0), 0);
   const nw = totalA - totalD;
-  const ti = income.reduce((s, i) => s + Number(i.monthly_amount || 0), 0);
+  const [grossRentsMonthly, setGrossRentsMonthly] = useState(0);
+
+  useEffect(() => {
+    // Fetch latest year gross rents across all rental properties
+    const fetchRents = async () => {
+      const rentalAddrs = PROPERTIES.filter(p => !p.sold && !p.address.includes("Progreso") && !p.address.includes("Argo")).map(p => p.address);
+      let total = 0;
+      for (const addr of rentalAddrs) {
+        const rows = await supaFetch("property_expenses", { filters: `property_address=eq.${encodeURIComponent(addr)}&expense_type=eq.gross_rents`, order: "period_year.desc", limit: 1 });
+        if (rows && rows[0]) total += Number(rows[0].amount || 0);
+      }
+      setGrossRentsMonthly(Math.round(total / 12));
+    };
+    fetchRents();
+  }, []);
+
+  const ti = income.reduce((s, i) => s + Number(i.monthly_amount || 0), 0) + grossRentsMonthly;
   const tre = expenses.reduce((s, e) => s + Number(e.monthly_amount || 0), 0);
   const tri = retIncome.reduce((s, i) => s + Number(i.monthly_amount || 0), 0);
   const cd = checklist.filter(c => c.is_completed).length;
@@ -1581,11 +1746,12 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const p1 = profiles.find(p => p.name === "Miguel") || profiles[0];
   const p2 = profiles.find(p => p.name === "AnaP") || profiles[1];
 
-  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); setShowCars(false); setShowDeadlines(false); };
+  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); setShowCars(false); setShowDeadlines(false); setSelectedOwner(null); };
 
   // ═══ SUBVIEWS ═══
   if (selectedPerson) return <PersonDetail person={selectedPerson} mob={mob} drive={drive} onBack={goBack} />;
-  if (selectedProperty) return <PropertyDetail property={selectedProperty} mob={mob} drive={drive} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} />;
+  if (selectedOwner) return <OwnerDetail ownerName={selectedOwner} mob={mob} onBack={() => setSelectedOwner(null)} onSelectProperty={(p) => { setSelectedOwner(null); setSelectedProperty(p); }} />;
+  if (selectedProperty) return <PropertyDetail property={selectedProperty} mob={mob} drive={drive} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} onOwnerClick={(owner) => { setSelectedOwner(owner); }} />;
   if (showProperties) return <PropertiesView mob={mob} drive={drive} onSelectProperty={(p) => { setSelectedProperty(p); setShowProperties(false); }} onBack={goBack} />;
   if (showCars) return <CarsView mob={mob} drive={drive} onBack={goBack} />;
   if (showDeadlines) return <DeadlinesView mob={mob} onBack={goBack} />;
