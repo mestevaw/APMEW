@@ -632,7 +632,8 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
 // PROPERTY EXPENSES
 // ═══════════════════════════════════════════
 const PropertyExpenses = ({ address, mob }) => {
-  const [expenses, setExpenses] = useState([]);
+  const [propExp, setPropExp] = useState([]);
+  const [dailyExp, setDailyExp] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [addType, setAddType] = useState("electricity");
@@ -641,133 +642,233 @@ const PropertyExpenses = ({ address, mob }) => {
   const [addAmount, setAddAmount] = useState("");
   const [addNotes, setAddNotes] = useState("");
   const [saving, setSaving] = useState(false);
-  const [viewType, setViewType] = useState(null); // null = summary, or expense type key
+  const [viewType, setViewType] = useState(null);
+  const [viewMonth, setViewMonth] = useState(null); // { month, year }
 
   const types = getPropExpenseTypes(address);
 
-  const loadExpenses = async () => {
+  // Map tags → property address + expense type
+  const TAG_MAP = {
+    "Argo - Agua/Gas": { addr: "232 Argo Avenue", types: ["water", "gas"] },
+    "Argo - Luz": { addr: "232 Argo Avenue", types: ["electricity"] },
+    "Argo - Mant.": { addr: "232 Argo Avenue", types: ["hoa"] },
+    "Progreso - Luz": { addr: "Ave Progreso 15, Depto C101", types: ["electricity"] },
+    "Progreso - Agua": { addr: "Ave Progreso 15, Depto C101", types: ["water"] },
+  };
+
+  // Find tags for this property
+  const myTags = Object.entries(TAG_MAP).filter(([, v]) => v.addr === address).map(([tag]) => tag);
+  // Also match by owner for US properties
+  const ownerTags = ["Mango Nest", "MNA Works", "Tortuga Home"];
+
+  const tagToType = (tag) => {
+    const m = TAG_MAP[tag];
+    if (m) return m.types[0]; // primary type
+    return "hoa"; // owner-based tags → generic
+  };
+
+  const loadData = async () => {
     setLoading(true);
-    const data = await supaFetch("property_expenses", {
+    // 1. Structured property expenses
+    const pe = await supaFetch("property_expenses", {
       filters: `property_address=eq.${encodeURIComponent(address)}`,
       order: "period_year.desc,period_month.desc",
     });
-    setExpenses(data || []);
+    setPropExp(pe || []);
+
+    // 2. Daily expenses with matching tags
+    if (myTags.length > 0) {
+      const tagFilter = myTags.map(t => `tag.eq.${encodeURIComponent(t)}`).join(",");
+      const de = await supaFetch("daily_expenses", {
+        filters: `or=(${tagFilter})`,
+        order: "expense_date.desc",
+      });
+      setDailyExp(de || []);
+    } else {
+      // For US properties, match by owner tag
+      const prop = PROPERTIES.find(p => p.address === address);
+      if (prop && ownerTags.includes(prop.owner)) {
+        const de = await supaFetch("daily_expenses", {
+          filters: `tag=eq.${encodeURIComponent(prop.owner)}`,
+          order: "expense_date.desc",
+        });
+        setDailyExp(de || []);
+      } else {
+        setDailyExp([]);
+      }
+    }
     setLoading(false);
   };
-  useEffect(() => { loadExpenses(); }, [address]);
+  useEffect(() => { loadData(); }, [address]);
+
+  // Normalize daily_expenses into same shape
+  const normalizedDaily = dailyExp.map(e => {
+    const d = new Date(e.expense_date + "T00:00:00");
+    return {
+      id: e.id, source: "daily", expense_type: tagToType(e.tag),
+      amount: Number(e.amount), period_month: d.getMonth() + 1, period_year: d.getFullYear(),
+      notes: e.concept, date: e.expense_date, tag: e.tag, subcategory: e.subcategory,
+    };
+  });
+
+  const normalizedProp = propExp.map(e => ({
+    ...e, source: "property", date: null,
+  }));
+
+  const allExpenses = [...normalizedProp, ...normalizedDaily];
 
   const handleAdd = async () => {
     setSaving(true);
     await supaInsert("property_expenses", {
-      property_address: address,
-      expense_type: addType,
-      amount: parseFloat(addAmount) || 0,
-      period_month: addMonth,
-      period_year: addYear,
-      notes: addNotes || null,
-      paid: true,
+      property_address: address, expense_type: addType,
+      amount: parseFloat(addAmount) || 0, period_month: addMonth,
+      period_year: addYear, notes: addNotes || null, paid: true,
     });
-    await loadExpenses();
+    await loadData();
     setAdding(false); setSaving(false); setAddAmount(""); setAddNotes("");
   };
 
-  const handleDelete = async (id) => {
-    await supaDelete("property_expenses", id);
-    await loadExpenses();
+  const handleDelete = async (item) => {
+    if (item.source === "property") await supaDelete("property_expenses", item.id);
+    // Don't delete daily_expenses from here
+    await loadData();
   };
 
   if (loading) return <Card><div style={{ textAlign: "center", padding: 20 }}><Spinner /></div></Card>;
 
-  // Summary: totals per type
-  const typeTotals = types.map(t => {
-    const items = expenses.filter(e => e.expense_type === t.key);
-    const total = items.reduce((s, e) => s + Number(e.amount || 0), 0);
-    const count = items.length;
-    const last = items[0]; // already sorted desc
-    return { ...t, total, count, last };
-  }).filter(t => t.count > 0 || viewType === null);
+  const totalAll = allExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
 
-  // Detail view for a specific type
-  const detailItems = viewType ? expenses.filter(e => e.expense_type === viewType) : [];
-
-  // Years present in data
-  const years = [...new Set(expenses.map(e => e.period_year))].sort((a, b) => b - a);
-
-  return (
-    <Card style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>
-          {viewType ? (
-            <button onClick={() => setViewType(null)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.accent, padding: 0 }}>
-              ← {types.find(t => t.key === viewType)?.icon} {types.find(t => t.key === viewType)?.label}
-            </button>
-          ) : "💰 Gastos de la Propiedad"}
-        </div>
-        <Badge color={C.textDim}>{expenses.length} pagos</Badge>
-      </div>
-
-      {!viewType ? (
-        <>
-          {/* Summary cards per type */}
-          <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-            {types.map(t => {
-              const items = expenses.filter(e => e.expense_type === t.key);
-              const total = items.reduce((s, e) => s + Number(e.amount || 0), 0);
-              const count = items.length;
-              return (
-                <button key={t.key} onClick={() => count > 0 && setViewType(t.key)} style={{
-                  padding: "10px 12px", background: C.surface2, borderRadius: 8,
-                  border: `1px solid ${C.border}`, cursor: count > 0 ? "pointer" : "default",
-                  textAlign: "left", opacity: count > 0 ? 1 : 0.5, transition: "border-color 0.2s",
-                }}
-                  onMouseEnter={e => count > 0 && (e.currentTarget.style.borderColor = C.accent)}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}>
-                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>{t.icon} {t.label}</div>
-                  <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: count > 0 ? C.text : C.textMuted, marginTop: 4 }}>
-                    {count > 0 ? fmtMoney(total) : "—"}
-                  </div>
-                  {count > 0 && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{count} pagos</div>}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Grand total */}
-          {expenses.length > 0 && (
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: C.accentGlow, borderRadius: 8, marginBottom: 12 }}>
-              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Total</span>
-              <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>{fmtMoney(expenses.reduce((s, e) => s + Number(e.amount || 0), 0))}</span>
+  // ── LEVEL 2: Month detail ──
+  if (viewType && viewMonth) {
+    const items = allExpenses.filter(e => e.expense_type === viewType && e.period_month === viewMonth.month && e.period_year === viewMonth.year);
+    const ti = types.find(t => t.key === viewType);
+    return (
+      <Card style={{ marginBottom: 16 }}>
+        <button onClick={() => setViewMonth(null)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.accent, padding: 0, marginBottom: 12 }}>
+          ← {ti?.icon} {ti?.label} · {MONTHS_SHORT[viewMonth.month - 1]} {viewMonth.year}
+        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {items.map((e, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: C.surface2, borderRadius: 6 }}>
+              <span style={{ fontSize: 10, color: e.source === "daily" ? "#A78BFA" : "#22C55E" }}>{e.source === "daily" ? "📋" : "📝"}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.notes || "—"}</div>
+                {e.date && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>{e.date}</div>}
+                {e.tag && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: "#A78BFA" }}>{e.tag}{e.subcategory ? ` · ${e.subcategory}` : ""}</div>}
+              </div>
+              <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 500, color: C.text, whiteSpace: "nowrap" }}>{fmtMoney(e.amount)}</span>
+              {e.source === "property" && <button onClick={() => handleDelete(e)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 12, padding: "2px 4px" }}>✕</button>}
             </div>
-          )}
-        </>
-      ) : (
-        <>
-          {/* Detail: list by year/month */}
-          {years.filter(y => detailItems.some(e => e.period_year === y)).map(year => (
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 10px" }}>
+          <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, fontWeight: 600, color: C.accent }}>Total: {fmtMoney(items.reduce((s, e) => s + Number(e.amount || 0), 0))}</span>
+        </div>
+      </Card>
+    );
+  }
+
+  // ── LEVEL 1: Type detail (months) ──
+  if (viewType) {
+    const items = allExpenses.filter(e => e.expense_type === viewType);
+    const ti = types.find(t => t.key === viewType);
+    // Group by year+month
+    const grouped = {};
+    items.forEach(e => {
+      const key = `${e.period_year}-${String(e.period_month).padStart(2, "0")}`;
+      if (!grouped[key]) grouped[key] = { year: e.period_year, month: e.period_month, items: [], total: 0 };
+      grouped[key].items.push(e);
+      grouped[key].total += Number(e.amount || 0);
+    });
+    const months = Object.values(grouped).sort((a, b) => b.year - a.year || b.month - a.month);
+    const years = [...new Set(months.map(m => m.year))].sort((a, b) => b - a);
+
+    return (
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <button onClick={() => setViewType(null)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.accent, padding: 0 }}>
+            ← {ti?.icon} {ti?.label}
+          </button>
+          <Badge color={C.textDim}>{items.length} pagos</Badge>
+        </div>
+        {years.map(year => {
+          const ym = months.filter(m => m.year === year);
+          const yearTotal = ym.reduce((s, m) => s + m.total, 0);
+          return (
             <div key={year} style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>{year}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {detailItems.filter(e => e.period_year === year).map(e => (
-                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: C.surface2, borderRadius: 6 }}>
-                    <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, width: 30 }}>{MONTHS_SHORT[e.period_month - 1]}</span>
-                    <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, color: C.text, flex: 1 }}>{fmtMoney(e.amount)}</span>
-                    {e.notes && <span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>{e.notes}</span>}
-                    {e.paid && <span style={{ fontSize: 10, color: "#22C55E" }}>✓</span>}
-                    <button onClick={() => handleDelete(e.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 12, padding: "2px 4px" }}>✕</button>
-                  </div>
+                {ym.map(m => (
+                  <button key={`${m.year}-${m.month}`} onClick={() => setViewMonth({ month: m.month, year: m.year })} style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
+                    background: C.surface2, borderRadius: 6, border: "none", cursor: "pointer", width: "100%", textAlign: "left",
+                  }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.accentGlow}
+                    onMouseLeave={e => e.currentTarget.style.background = C.surface2}>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, width: 30 }}>{MONTHS_SHORT[m.month - 1]}</span>
+                    <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, color: C.text, flex: 1 }}>{fmtMoney(m.total)}</span>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>{m.items.length} item{m.items.length > 1 ? "s" : ""}</span>
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>▸</span>
+                  </button>
                 ))}
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 10px" }}>
-                <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: C.accent }}>
-                  Subtotal: {fmtMoney(detailItems.filter(e => e.period_year === year).reduce((s, e) => s + Number(e.amount || 0), 0))}
-                </span>
+                <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: C.accent }}>Subtotal: {fmtMoney(yearTotal)}</span>
               </div>
             </div>
-          ))}
-        </>
+          );
+        })}
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 10px", borderTop: `1px solid ${C.border}`, marginTop: 4 }}>
+          <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>Total: {fmtMoney(items.reduce((s, e) => s + Number(e.amount || 0), 0))}</span>
+        </div>
+      </Card>
+    );
+  }
+
+  // ── LEVEL 0: Summary ──
+  return (
+    <Card style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>💰 Gastos de la Propiedad</div>
+        <Badge color={C.textDim}>{allExpenses.length} pagos</Badge>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+        {types.map(t => {
+          const items = allExpenses.filter(e => e.expense_type === t.key);
+          const total = items.reduce((s, e) => s + Number(e.amount || 0), 0);
+          const count = items.length;
+          return (
+            <button key={t.key} onClick={() => count > 0 && setViewType(t.key)} style={{
+              padding: "10px 12px", background: C.surface2, borderRadius: 8,
+              border: `1px solid ${C.border}`, cursor: count > 0 ? "pointer" : "default",
+              textAlign: "left", opacity: count > 0 ? 1 : 0.5, transition: "border-color 0.2s",
+            }}
+              onMouseEnter={e => count > 0 && (e.currentTarget.style.borderColor = C.accent)}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}>
+              <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>{t.icon} {t.label}</div>
+              <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: count > 0 ? C.text : C.textMuted, marginTop: 4 }}>
+                {count > 0 ? fmtMoney(total) : "—"}
+              </div>
+              {count > 0 && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{count} pagos</div>}
+            </button>
+          );
+        })}
+      </div>
+
+      {allExpenses.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: C.accentGlow, borderRadius: 8, marginBottom: 12 }}>
+          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Total</span>
+          <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>{fmtMoney(totalAll)}</span>
+        </div>
       )}
 
-      {/* Add expense */}
+      {dailyExp.length > 0 && (
+        <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginBottom: 8, textAlign: "center" }}>
+          📋 Incluye {dailyExp.length} gastos de Gastos Diarios
+        </div>
+      )}
+
       {adding ? (
         <div style={{ padding: "12px", background: C.surface2, borderRadius: 10, border: `1px solid ${C.accent}40` }}>
           <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent, marginBottom: 10 }}>+ Nuevo gasto</div>
