@@ -43,6 +43,22 @@ const CardLogo = ({ source }) => {
 
 const isPayment = (e) => (e.category === "otro" || e.category === "Otro") && Number(e.amount) < 0;
 const displayConcept = (e) => isPayment(e) ? "Pago" : e.concept;
+
+// ─── Country detection ───
+const Flag = ({ country }) => <span style={{ fontSize: 13, lineHeight: 1, cursor: "default" }} title={country === "MX" ? "México" : "EUA"}>{country === "MX" ? "🇲🇽" : "🇺🇸"}</span>;
+
+const MX_TAGS = ["Progreso - Luz", "Progreso - Agua", "Progreso - Mant."];
+const MX_CONCEPTS = ["predial", "telmex", "cfe ", "izzi", "oxxo", "walmart mx", "soriana", "coppel", "liverpool"];
+
+const detectCountry = (row) => {
+  if (row.country && row.country !== "US" && row.country !== "MX") return "US";
+  if (row.country) return row.country;
+  if (row.tag && MX_TAGS.includes(row.tag)) return "MX";
+  const c = (row.concept || "").toLowerCase();
+  if (MX_CONCEPTS.some(w => c.includes(w))) return "MX";
+  if (row.source === "Efectivo" && row.tag && row.tag.includes("Progreso")) return "MX";
+  return "US";
+};
 const amountColor = (e) => isPayment(e) ? C.green : C.red;
 
 // ═══════════════════════════════════════════
@@ -119,7 +135,9 @@ const mapCapitalOne = (row) => {
   const credit = parseFloat(row["Credit"]) || 0;
   const amount = debit > 0 ? debit : (credit > 0 ? -credit : 0);
   if (!date || amount === 0) return null;
-  return { expense_date: date.slice(0, 10), concept: desc.slice(0, 100), category: cat, who: "Miguel", amount, payment_method: "tarjeta", source: "Capital One Visa" };
+  const row = { expense_date: date.slice(0, 10), concept: desc.slice(0, 100), category: cat, who: "Miguel", amount, payment_method: "tarjeta", source: "Capital One Visa" };
+  row.country = detectCountry(row);
+  return row;
 };
 
 const AMEX_CATS = { "Restaurant": "restaurantes", "Groceries": "supermercado", "General Retail": "hogar", "Internet Purchase": "hogar", "Mail Order": "hogar", "Fuel": "transporte", "Vehicle": "transporte", "Cable": "servicios", "Communications": "servicios", "Business Services": "servicios" };
@@ -136,13 +154,15 @@ const mapAmex = (row) => {
   let cat = "otro";
   for (const [k, v] of Object.entries(AMEX_CATS)) { if (category.toLowerCase().includes(k.toLowerCase())) { cat = v; break; } }
   const who = member.toUpperCase().includes("HINOJOSA") ? "AnaP" : "Miguel";
-  return { expense_date: dateIso.slice(0, 10), concept: desc.slice(0, 100).trim(), category: cat, who, amount: Math.abs(amount), payment_method: "tarjeta", source: "AmEx" };
+  const row = { expense_date: dateIso.slice(0, 10), concept: desc.slice(0, 100).trim(), category: cat, who, amount: Math.abs(amount), payment_method: "tarjeta", source: "AmEx" };
+  row.country = detectCountry(row);
+  return row;
 };
 
 const exportToExcel = (data) => {
   const BOM = "\uFEFF";
-  const h = "Fecha,Concepto,Categoría,Quién,Monto,Tarjeta,Tag,Subcategoría\n";
-  const rows = data.map(e => `${e.expense_date},"${(displayConcept(e)).replace(/"/g,'""')}",${e.category},${e.who},${Number(e.amount).toFixed(2)},${e.source||""},${e.tag||""},${e.subcategory||""}`).join("\n");
+  const h = "Fecha,Concepto,Categoría,Quién,Monto,Tarjeta,Tag,Subcategoría,País\n";
+  const rows = data.map(e => `${e.expense_date},"${(displayConcept(e)).replace(/"/g,'""')}",${e.category},${e.who},${Number(e.amount).toFixed(2)},${e.source||""},${e.tag||""},${e.subcategory||""},${e.country||detectCountry(e)}`).join("\n");
   const blob = new Blob([BOM + h + rows], { type: "text/csv;charset=utf-8;" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `gastos_${new Date().toISOString().slice(0,10)}.csv`; a.click();
 };
@@ -183,7 +203,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
   const [importData, setImportData] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState("");
-  const [form, setForm] = useState({ concept: "", amount: "", category: "supermercado", who: "Miguel", payment_method: "tarjeta", source: "" });
+  const [form, setForm] = useState({ concept: "", amount: "", category: "supermercado", who: "Miguel", payment_method: "tarjeta", source: "", country: "US" });
   const [sortCol, setSortCol] = useState("expense_date");
   const [sortDir, setSortDir] = useState("desc");
   const [filterCat, setFilterCat] = useState("all");
@@ -203,7 +223,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
   const handleSubmit = async () => {
     if (!form.concept || !form.amount) return;
     await onAdd({ ...form, amount: Number(form.amount), expense_date: new Date().toISOString().split("T")[0] });
-    setForm({ concept: "", amount: "", category: "supermercado", who: "Miguel", payment_method: "tarjeta", source: "" });
+    setForm({ concept: "", amount: "", category: "supermercado", who: "Miguel", payment_method: "tarjeta", source: "", country: "US" });
     setPanel(null);
   };
 
@@ -256,7 +276,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
   // ─── Filter + Search ───
   const allCats = [...new Set(dailyExpenses.map(e => e.category).filter(Boolean))].sort();
   let filtered = filterCat === "all" ? dailyExpenses : dailyExpenses.filter(e => e.category === filterCat);
-  if (search) { const q = search.toLowerCase(); filtered = filtered.filter(e => (e.concept||"").toLowerCase().includes(q) || (e.category||"").toLowerCase().includes(q) || (e.source||"").toLowerCase().includes(q) || (e.tag||"").toLowerCase().includes(q) || (e.who||"").toLowerCase().includes(q) || (e.subcategory||"").toLowerCase().includes(q)); }
+  if (search) { const q = search.toLowerCase(); filtered = filtered.filter(e => (e.concept||"").toLowerCase().includes(q) || (e.category||"").toLowerCase().includes(q) || (e.source||"").toLowerCase().includes(q) || (e.tag||"").toLowerCase().includes(q) || (e.who||"").toLowerCase().includes(q) || (e.subcategory||"").toLowerCase().includes(q) || (q === "mx" && (e.country || detectCountry(e)) === "MX") || (q === "us" && (e.country || detectCountry(e)) === "US") || (q === "mexico" && (e.country || detectCountry(e)) === "MX") || (q === "méxico" && (e.country || detectCountry(e)) === "MX")); }
 
   // ═══ KEY CHANGE: Summary date filters apply to the main list too ═══
   if (panel === "summary") {
@@ -412,11 +432,12 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
             <input placeholder="Concepto" value={form.concept} onChange={e => setForm({...form, concept: e.target.value})} style={inputStyle} />
             <input placeholder="Monto" type="number" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} style={{...inputStyle, fontFamily: "JetBrains Mono"}} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "1fr 1fr 1fr 1fr auto", gap: 12, marginBottom: 16 }}>
             <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} style={inputStyle}>{cats.map(c => <option key={c}>{c}</option>)}</select>
             <select value={form.who} onChange={e => setForm({...form, who: e.target.value})} style={inputStyle}><option>Miguel</option><option>AnaP</option><option>Ambos</option></select>
             <select value={form.payment_method} onChange={e => setForm({...form, payment_method: e.target.value})} style={inputStyle}><option value="tarjeta">Tarjeta</option><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option></select>
             <input placeholder="Fuente" value={form.source} onChange={e => setForm({...form, source: e.target.value})} style={inputStyle} />
+            <button onClick={() => setForm({...form, country: form.country === "US" ? "MX" : "US"})} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", padding: "4px 10px", fontSize: 18, lineHeight: 1 }} title={form.country === "MX" ? "México" : "EUA"}>{form.country === "MX" ? "🇲🇽" : "🇺🇸"}</button>
           </div>
           <div style={{ display: "flex", gap: 10 }}><Btn onClick={handleSubmit}>Guardar</Btn><Btn onClick={() => setPanel(null)} outline>Cancelar</Btn></div>
         </Card>
@@ -473,6 +494,9 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
               <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                 {editingExpense.tag && <Btn onClick={() => applySingle(editingExpense.id, "tag", null)} outline>Quitar tag</Btn>}
                 {editingExpense.subcategory && <Btn onClick={() => applySingle(editingExpense.id, "subcategory", null)} outline>Quitar sub</Btn>}
+                <button onClick={() => applySingle(editingExpense.id, "country", (editingExpense.country || "US") === "US" ? "MX" : "US")} style={{ padding: "5px 12px", background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+                  <Flag country={editingExpense.country || detectCountry(editingExpense)} /> {(editingExpense.country || detectCountry(editingExpense)) === "MX" ? "→ 🇺🇸" : "→ 🇲🇽"}
+                </button>
               </div>
             </div>
             {applying && <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent, marginTop: 8 }}>Aplicando a {matchCount} registros...</p>}
@@ -493,6 +517,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
                 <div key={e.id||i} style={{ padding: "8px 12px", borderBottom: `1px solid ${C.border}` }} onClick={() => e.id && setEditingExpense(e)}>
                   <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
                     <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim, flexShrink: 0 }}>{fmtDate(e.expense_date)}</span>
+                    <Flag country={e.country || detectCountry(e)} />
                     <Badge color={C.blue} style={{ fontSize: 9 }}>{e.category}</Badge>
                     {e.subcategory && <Badge color="#A78BFA" style={{ fontSize: 8 }}>{e.subcategory}</Badge>}
                     <CardLogo source={e.source} />
@@ -506,16 +531,17 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
           </div>
         ) : (
           <div style={{ maxHeight: "65vh", overflow: "auto" }}>
-            <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, display: "grid", gridTemplateColumns: "82px 1fr 90px 55px 90px 50px 70px", gap: 4, padding: "10px 12px", borderBottom: `2px solid ${C.border}` }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, display: "grid", gridTemplateColumns: "82px 1fr 90px 55px 80px 24px 50px 70px", gap: 4, padding: "10px 12px", borderBottom: `2px solid ${C.border}` }}>
               {Object.entries(sortLabels).map(([col, label]) => (
                 <button key={col} onClick={() => doSort(col)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === col ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0, justifyContent: col === "amount" ? "flex-end" : "flex-start" }}>{label}{sortCol === col && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
               ))}
+              <span style={{ fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: C.textDim, textAlign: "center" }}>🌎</span>
               <span style={{ fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: C.textDim, textTransform: "uppercase" }}>Info</span>
             </div>
             {sorted.map((e, i) => {
               const pay = isPayment(e);
               return (
-                <div key={e.id||i} style={{ display: "grid", gridTemplateColumns: "82px 1fr 90px 55px 90px 50px 70px", gap: 4, padding: "6px 12px", alignItems: "center", cursor: "pointer" }}
+                <div key={e.id||i} style={{ display: "grid", gridTemplateColumns: "82px 1fr 90px 55px 80px 24px 50px 70px", gap: 4, padding: "6px 12px", alignItems: "center", cursor: "pointer" }}
                   onClick={() => e.id && setEditingExpense(e)}
                   onMouseEnter={ev => ev.currentTarget.style.background = C.surface2} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>
                   <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim }}>{fmtDate(e.expense_date)}</span>
@@ -523,6 +549,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
                   <Badge color={C.blue}>{e.category}</Badge>
                   <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>{e.who}</span>
                   <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: amountColor(e), textAlign: "right" }}>{pay ? "+" : ""}{fmtMoney(Math.abs(Number(e.amount)))}</span>
+                  <Flag country={e.country || detectCountry(e)} />
                   <CardLogo source={e.source} />
                   <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
                     {e.subcategory && <Badge color="#A78BFA" style={{ fontSize: 8 }}>{e.subcategory}</Badge>}
