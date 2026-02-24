@@ -61,7 +61,7 @@ export default function App() {
         supaFetch("debts", { order: "sort_order" }),
         supaFetch("checklist_items", { order: "sort_order" }),
         supaFetch("documents", { order: "folder_path,title" }),
-        supaFetch("daily_expenses", { order: "expense_date.desc,created_at.desc" }),
+        supaFetch("daily_expenses", { order: "expense_date.desc,created_at.desc", limit: 10000 }),
       ]);
       setData({ profiles, assumptions, income, retIncome, expenses, expenseCategories, assets, debts, checklist, documents, dailyExpenses });
     } catch (err) { console.error(err); }
