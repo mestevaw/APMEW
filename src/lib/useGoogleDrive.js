@@ -151,7 +151,7 @@ export const useGoogleDrive = () => {
       results.push(result);
     }
 
-    return { dateFolder, results };
+    return { dateFolder, yearFolder, inspeccionFolder, results };
   };
 
   return { token, gisLoaded, signIn, signOut, listAllFiles, createFolder, findSubfolder, uploadFile, uploadPhotos };
