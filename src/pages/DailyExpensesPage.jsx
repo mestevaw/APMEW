@@ -240,6 +240,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
   const [sortDir, setSortDir] = useState("desc");
   const [filterCat, setFilterCat] = useState("all");
   const [search, setSearch] = useState("");
+  const [filterYear, setFilterYear] = useState("all");
   const [qPlace, setQPlace] = useState("");
   const [qConcept, setQConcept] = useState("");
   const [qFrom, setQFrom] = useState("");
@@ -318,8 +319,10 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
   const doSort = (col) => { if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortCol(col); setSortDir(col === "expense_date" ? "desc" : "asc"); } setMenuOpen(false); };
 
   // ─── Filter + Search ───
+  const availableYears = [...new Set(dailyExpenses.map(e => e.expense_date ? e.expense_date.slice(0, 4) : null).filter(Boolean))].sort((a, b) => b.localeCompare(a));
   const allCats = [...new Set(dailyExpenses.map(e => e.category).filter(Boolean))].sort();
-  let filtered = filterCat === "all" ? dailyExpenses : dailyExpenses.filter(e => e.category === filterCat);
+  let filtered = filterYear === "all" ? dailyExpenses : dailyExpenses.filter(e => e.expense_date && e.expense_date.startsWith(filterYear));
+  filtered = filterCat === "all" ? filtered : filtered.filter(e => e.category === filterCat);
   if (search) { const q = search.toLowerCase(); filtered = filtered.filter(e => (e.concept||"").toLowerCase().includes(q) || (e.category||"").toLowerCase().includes(q) || (e.source||"").toLowerCase().includes(q) || (e.tag||"").toLowerCase().includes(q) || (e.who||"").toLowerCase().includes(q) || (e.subcategory||"").toLowerCase().includes(q) || (q === "mx" && (e.country || detectCountry(e)) === "MX") || (q === "us" && (e.country || detectCountry(e)) === "US") || (q === "mexico" && (e.country || detectCountry(e)) === "MX") || (q === "méxico" && (e.country || detectCountry(e)) === "MX")); }
 
   // ═══ KEY CHANGE: Summary date filters apply to the main list too ═══
@@ -390,9 +393,13 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
         </div>
       </div>
 
-      {/* SEARCH */}
-      <div style={{ marginTop: 10, marginBottom: 10 }}>
-        <input placeholder="🔍 Buscar concepto, categoría, tarjeta, tag..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, width: "100%", fontSize: 13, padding: "8px 14px" }} />
+      {/* SEARCH + YEAR FILTER */}
+      <div style={{ display: "flex", gap: 8, marginTop: 10, marginBottom: 10, alignItems: "center" }}>
+        <input placeholder="🔍 Buscar concepto, categoría, tarjeta, tag..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...inputStyle, flex: 1, fontSize: 13, padding: "8px 14px" }} />
+        <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, background: C.surface2, color: filterYear === "all" ? C.textDim : C.accent, border: `1px solid ${filterYear === "all" ? C.border : C.accent}`, borderRadius: 8, padding: "8px 10px", cursor: "pointer", minWidth: 80 }}>
+          <option value="all">Todos</option>
+          {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
       </div>
 
       {/* Category chips */}
@@ -635,7 +642,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
           </div>
         ) : (
           <div style={{ maxHeight: "65vh", overflow: "auto" }}>
-            <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, display: "grid", gridTemplateColumns: "70px minmax(0,1fr) 50px 22px 34px 28px 80px 70px", gap: 4, padding: "10px 12px", borderBottom: `2px solid ${C.border}`, alignItems: "center" }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 10, background: C.surface, display: "grid", gridTemplateColumns: "64px minmax(0,1fr) 46px 20px 30px 26px 90px 66px", gap: 4, padding: "10px 8px", borderBottom: `2px solid ${C.border}`, alignItems: "center" }}>
               <button onClick={() => doSort("expense_date")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "expense_date" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0 }}>Fecha{sortCol === "expense_date" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
               <button onClick={() => doSort("concept")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "concept" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0 }}>Concepto{sortCol === "concept" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
               <button onClick={() => doSort("category")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 10, fontWeight: 600, color: sortCol === "category" ? C.accent : C.textDim, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 2, padding: 0 }}>Cat.{sortCol === "category" && <span style={{ fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}</button>
@@ -648,7 +655,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
             {sorted.map((e, i) => {
               const pay = isPayment(e);
               return (
-                <div key={e.id||i} style={{ display: "grid", gridTemplateColumns: "70px minmax(0,1fr) 50px 22px 34px 28px 80px 70px", gap: 4, padding: "6px 12px", alignItems: "center", cursor: "pointer" }}
+                <div key={e.id||i} style={{ display: "grid", gridTemplateColumns: "64px minmax(0,1fr) 46px 20px 30px 26px 90px 66px", gap: 4, padding: "6px 8px", alignItems: "center", cursor: "pointer" }}
                   onClick={() => e.id && setEditingExpense(e)}
                   onMouseEnter={ev => ev.currentTarget.style.background = C.surface2} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>
                   <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim }}>{fmtDate(e.expense_date)}</span>
@@ -657,9 +664,9 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
                   <Flag country={e.country || detectCountry(e)} />
                   <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textDim, textAlign: "center" }}>{shortCardLabel(e.source)}</span>
                   <span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim, textAlign: "center" }}>{displayWho(e.who)}</span>
-                  <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-                    {e.subcategory && <Badge color="#A78BFA" style={{ fontSize: 8 }}>{e.subcategory}</Badge>}
-                    {e.tag && <Badge color="#10B981" style={{ fontSize: 8 }}>{e.tag}</Badge>}
+                  <div style={{ display: "flex", gap: 2, flexWrap: "nowrap", overflow: "hidden" }}>
+                    {e.subcategory && <Badge color="#A78BFA" style={{ fontSize: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{e.subcategory}</Badge>}
+                    {e.tag && <Badge color="#10B981" style={{ fontSize: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{e.tag}</Badge>}
                     {!e.subcategory && !e.tag && <span style={{ color: C.textMuted, fontSize: 10 }}>—</span>}
                   </div>
                   <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: amountColor(e), textAlign: "right" }}>{pay ? "+" : ""}{fmtMoney(Math.abs(Number(e.amount)))}</span>
