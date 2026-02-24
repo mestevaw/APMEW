@@ -135,9 +135,9 @@ const mapCapitalOne = (row) => {
   const credit = parseFloat(row["Credit"]) || 0;
   const amount = debit > 0 ? debit : (credit > 0 ? -credit : 0);
   if (!date || amount === 0) return null;
-  const row = { expense_date: date.slice(0, 10), concept: desc.slice(0, 100), category: cat, who: "Miguel", amount, payment_method: "tarjeta", source: "Capital One Visa" };
-  row.country = detectCountry(row);
-  return row;
+  const result = { expense_date: date.slice(0, 10), concept: desc.slice(0, 100), category: cat, who: "Miguel", amount, payment_method: "tarjeta", source: "Capital One Visa" };
+  result.country = detectCountry(result);
+  return result;
 };
 
 const AMEX_CATS = { "Restaurant": "restaurantes", "Groceries": "supermercado", "General Retail": "hogar", "Internet Purchase": "hogar", "Mail Order": "hogar", "Fuel": "transporte", "Vehicle": "transporte", "Cable": "servicios", "Communications": "servicios", "Business Services": "servicios" };
@@ -154,9 +154,9 @@ const mapAmex = (row) => {
   let cat = "otro";
   for (const [k, v] of Object.entries(AMEX_CATS)) { if (category.toLowerCase().includes(k.toLowerCase())) { cat = v; break; } }
   const who = member.toUpperCase().includes("HINOJOSA") ? "AnaP" : "Miguel";
-  const row = { expense_date: dateIso.slice(0, 10), concept: desc.slice(0, 100).trim(), category: cat, who, amount: Math.abs(amount), payment_method: "tarjeta", source: "AmEx" };
-  row.country = detectCountry(row);
-  return row;
+  const result = { expense_date: dateIso.slice(0, 10), concept: desc.slice(0, 100).trim(), category: cat, who, amount: Math.abs(amount), payment_method: "tarjeta", source: "AmEx" };
+  result.country = detectCountry(result);
+  return result;
 };
 
 const exportToExcel = (data) => {
