@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { C } from "../../lib/theme";
 import { supaFetch, supaInsert, supaDelete } from "../../lib/supabase";
 import { Card, Badge, Spinner } from "../../components/UI";
-import { getPropExpenseTypes, MONTHS_SHORT } from "./constants";
+import { getPropExpenseTypes, MONTHS_SHORT, PROPERTIES } from "./constants";
 import { fmtMoney } from "./helpers";
 
 const PropertyExpenses = ({ address, mob }) => {
