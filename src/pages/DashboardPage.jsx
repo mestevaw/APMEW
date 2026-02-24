@@ -45,8 +45,8 @@ const PROPERTIES = [
   { address: "5403 Villa Marco", owner: "MNA Works" },
   { address: "11636 Midnight Rain", owner: "MNA Works" },
   { address: "9319 Caen", owner: "MNA Works" },
-  { address: "13662 Escort Drive", owner: "MNA Works" },
-  { address: "626 Scarlet Ibis", owner: "MNA Works" },
+  { address: "13662 Escort Drive", owner: "MNA Works", sold: true },
+  { address: "626 Scarlet Ibis", owner: "MNA Works", sold: true },
   { address: "66 Brees Apt 37", owner: "MNA Works", sold: true },
   { address: "232 Argo Avenue", owner: "Miguel y AnaP" },
   { address: "Ave Progreso 15, Depto C101", owner: "Miguel y AnaP" },
@@ -500,8 +500,9 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [uploadMsg, setUploadMsg] = useState("");
   const fileInputRef = useRef(null);
 
-  const owners = [...new Set(PROPERTIES.map(p => p.owner))];
-  let filtered = filter === "all" ? [...PROPERTIES] : PROPERTIES.filter(p => p.owner === filter);
+  const owners = [...new Set(PROPERTIES.filter(p => !p.sold).map(p => p.owner))];
+  const activeProps = PROPERTIES.filter(p => !p.sold);
+  let filtered = filter === "all" ? [...activeProps] : filter === "vendidas" ? PROPERTIES.filter(p => p.sold) : PROPERTIES.filter(p => p.owner === filter && !p.sold);
   if (sortBy === "number") filtered.sort((a, b) => getNumber(a.address) - getNumber(b.address));
   else filtered.sort((a, b) => getStreet(a.address).localeCompare(getStreet(b.address)));
 
@@ -548,7 +549,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
         <span style={{ color: C.accent }}><HouseIcon /></span>
         <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent, flex: 1 }}>Propiedades</h1>
-        <Badge color={C.textDim}>{PROPERTIES.length}</Badge>
+        <Badge color={C.textDim}>{activeProps.length}</Badge>
         <div style={{ position: "relative" }}>
           <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
           <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
@@ -584,9 +585,9 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
           padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === "all" ? C.accent : C.border}`,
           background: filter === "all" ? C.accentGlow : "transparent", cursor: "pointer",
           fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: filter === "all" ? C.accent : C.textDim,
-        }}>Todas ({PROPERTIES.length})</button>
+        }}>Todas ({activeProps.length})</button>
         {owners.map(o => {
-          const count = PROPERTIES.filter(p => p.owner === o).length;
+          const count = activeProps.filter(p => p.owner === o).length;
           const color = OWNER_COLORS[o] || C.textDim;
           return (
             <button key={o} onClick={() => setFilter(o)} style={{
@@ -596,36 +597,29 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             }}>{(OWNER_SHORT[o] || o)} ({count})</button>
           );
         })}
+        <button onClick={() => setFilter("vendidas")} style={{
+          padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === "vendidas" ? "#EF4444" : C.border}`,
+          background: filter === "vendidas" ? "#EF444418" : "transparent", cursor: "pointer",
+          fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: filter === "vendidas" ? "#EF4444" : C.textDim,
+        }}>Vendidas ({PROPERTIES.filter(p => p.sold).length})</button>
       </div>
 
       <Card>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {filtered.map((prop, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <button onClick={() => onSelectProperty(prop)} style={{
-                display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
-                background: "transparent", border: "none", cursor: "pointer", borderRadius: 8,
-                flex: 1, textAlign: "left",
-              }}
-                onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <span style={{ color: OWNER_COLORS[prop.owner] || C.textDim }}><HouseIcon /></span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 500, color: C.text }}>{prop.address}</div>
-                </div>
-                <Badge color={OWNER_COLORS[prop.owner] || C.textDim}>{OWNER_SHORT[prop.owner] || prop.owner}</Badge>
-                {prop.sold && <Badge color="#EF4444" style={{ fontSize: 8 }}>Vendida</Badge>}
-              </button>
-              {/* Upload button per property */}
-              <button onClick={() => handleStartUpload(prop)} disabled={uploading} title="Subir fotos" style={{
-                background: "none", border: "none", cursor: uploading ? "default" : "pointer",
-                padding: "8px", borderRadius: 6, color: C.textDim, fontSize: 16, flexShrink: 0, opacity: uploading ? 0.3 : 1,
-              }}
-                onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                📸
-              </button>
-            </div>
+            <button key={i} onClick={() => onSelectProperty(prop)} style={{
+              display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+              background: "transparent", border: "none", cursor: "pointer", borderRadius: 8,
+              textAlign: "left", width: "100%",
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ color: prop.sold ? C.textMuted : (OWNER_COLORS[prop.owner] || C.textDim), opacity: prop.sold ? 0.5 : 1 }}><HouseIcon /></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: prop.sold ? 400 : 500, color: prop.sold ? C.textDim : C.text }}>{prop.address}</div>
+              </div>
+              <Badge color={OWNER_COLORS[prop.owner] || C.textDim}>{OWNER_SHORT[prop.owner] || prop.owner}</Badge>
+            </button>
           ))}
         </div>
       </Card>
@@ -635,74 +629,6 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
 
 // ═══════════════════════════════════════════
 // PROPERTY EXPENSES
-// ═══════════════════════════════════════════
-// ═══════════════════════════════════════════
-// PROPERTY TAXES — Year-by-year tax + appraised value
-// ═══════════════════════════════════════════
-const PropertyTaxes = ({ address, mob }) => {
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    supaFetch("property_taxes", { filters: `property_address=eq.${encodeURIComponent(address)}`, order: "tax_year.desc" })
-      .then(d => { if (Array.isArray(d)) setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [address]);
-
-  if (loading) return null;
-  if (data.length === 0) return null;
-
-  const fmt$ = (n) => n != null ? "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
-  const fmtV = (n) => n != null ? "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—";
-  const pctChange = (cur, prev) => {
-    if (!cur || !prev) return null;
-    const pct = ((cur - prev) / prev * 100);
-    return pct;
-  };
-
-  return (
-    <Card style={{ marginBottom: 14 }}>
-      <button onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-        <span>{open ? "▼" : "▶"}</span>
-        <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text }}>🏛️ Property Taxes & Appraisal</span>
-        <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim, marginLeft: "auto" }}>{data.length} años</span>
-      </button>
-      {open && (
-        <div style={{ marginTop: 12, overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "DM Sans", fontSize: mob ? 11 : 12 }}>
-            <thead>
-              <tr style={{ borderBottom: `2px solid ${C.border}` }}>
-                <th style={{ textAlign: "left", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10, textTransform: "uppercase" }}>Año</th>
-                <th style={{ textAlign: "right", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10, textTransform: "uppercase" }}>Property Tax</th>
-                <th style={{ textAlign: "center", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10 }}>Δ</th>
-                <th style={{ textAlign: "right", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10, textTransform: "uppercase" }}>Appraised Value</th>
-                <th style={{ textAlign: "center", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10 }}>Δ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((row, i) => {
-                const prev = data[i + 1]; // data sorted desc, so i+1 is previous year
-                const taxPct = prev ? pctChange(row.property_tax, prev.property_tax) : null;
-                const valPct = prev ? pctChange(row.appraised_value, prev.appraised_value) : null;
-                return (
-                  <tr key={row.tax_year} style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td style={{ padding: "6px 8px", fontWeight: 600, color: C.text }}>{row.tax_year}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "JetBrains Mono", color: row.property_tax ? C.red : C.textMuted }}>{fmt$(row.property_tax)}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 10, color: taxPct > 0 ? C.red : taxPct < 0 ? C.green : C.textMuted }}>{taxPct != null ? `${taxPct > 0 ? "+" : ""}${taxPct.toFixed(1)}%` : ""}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "JetBrains Mono", color: row.appraised_value ? C.blue : C.textMuted }}>{fmtV(row.appraised_value)}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 10, color: valPct > 0 ? C.green : valPct < 0 ? C.red : C.textMuted }}>{valPct != null ? `${valPct > 0 ? "+" : ""}${valPct.toFixed(1)}%` : ""}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
-  );
-};
-
 const PropertyExpenses = ({ address, mob }) => {
   const [propExp, setPropExp] = useState([]);
   const [dailyExp, setDailyExp] = useState([]);
@@ -1001,6 +927,9 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
   const [searching, setSearching] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [showDocs, setShowDocs] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState("");
+  const uploadRef = useRef(null);
 
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null);
@@ -1011,6 +940,18 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
     });
   }, [property.address]);
 
+  const handleUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !drive?.token || !drive?.uploadPhotos || !folderId) return;
+    setUploading(true); setUploadMsg(`Subiendo ${files.length} fotos...`);
+    try {
+      const results = await drive.uploadPhotos(files, folderId, property.address, (p) => setUploadMsg(`Subiendo ${p.current}/${p.total}...`));
+      setUploadMsg(`✓ ${results.length} fotos subidas`);
+    } catch (err) { setUploadMsg("Error: " + err.message); }
+    setUploading(false); e.target.value = "";
+    setTimeout(() => setUploadMsg(""), 4000);
+  };
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -1018,18 +959,31 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
         <span style={{ color: OWNER_COLORS[property.owner] || C.accent }}><HouseIcon /></span>
         <div style={{ flex: 1 }}>
           <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{property.address}</h1>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}</span>
-            {property.sold && <Badge color="#EF4444">Vendida</Badge>}
-          </div>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}{property.sold ? " · Vendida" : ""}</span>
         </div>
+        {folderId && drive?.token && (
+          <>
+            <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
+            <button onClick={() => uploadRef.current?.click()} disabled={uploading} style={{
+              background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8, cursor: uploading ? "default" : "pointer",
+              padding: "6px 14px", fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "flex", alignItems: "center", gap: 6,
+            }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+              onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
+              📸 Subir fotos
+            </button>
+          </>
+        )}
       </div>
+
+      {uploadMsg && (
+        <div style={{ padding: "8px 14px", marginBottom: 12, borderRadius: 8, background: uploadMsg.startsWith("✓") ? `${C.green}15` : `${C.accent}15`, border: `1px solid ${uploadMsg.startsWith("✓") ? C.green : C.accent}40` }}>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent }}>{uploadMsg}</span>
+        </div>
+      )}
 
       {/* Property Expenses */}
       <PropertyExpenses address={property.address} mob={mob} />
-
-      {/* Property Taxes */}
-      <PropertyTaxes address={property.address} mob={mob} />
 
       {/* Documents toggle */}
       {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando carpeta...</p></Card>}
@@ -1510,7 +1464,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
           onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
           <span style={{ color: C.accent }}><HouseIcon /></span>
           <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Propiedades</span>
-          <Badge color={C.textDim}>{PROPERTIES.length}</Badge>
+          <Badge color={C.textDim}>{PROPERTIES.filter(p => !p.sold).length}</Badge>
         </button>
         <button onClick={() => { setShowCars(true); setShowProperties(false); setShowKids(false); }} style={{
           display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
