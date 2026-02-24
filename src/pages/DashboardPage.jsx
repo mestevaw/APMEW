@@ -930,6 +930,7 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
   const uploadRef = useRef(null);
+  const [refreshKey, setRefreshKey] = useState(0); // to refresh SupaExplorer after upload
 
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null);
@@ -940,16 +941,61 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
     });
   }, [property.address]);
 
+  const handleCameraClick = () => {
+    if (!drive?.token) {
+      drive?.signIn?.();
+      return;
+    }
+    uploadRef.current?.click();
+  };
+
+  const registerInSupabase = async (dateFolder, yearFolder, inspeccionFolder, results) => {
+    // Register folders in drive_folders if not already there
+    const folderPath = `PROPERTY > ${property.address} > INSPECCION`;
+    for (const f of [
+      { name: "INSPECCION", id: inspeccionFolder.id, parent: folderId, path: folderPath },
+      { name: yearFolder.name, id: yearFolder.id, parent: inspeccionFolder.id, path: `${folderPath} > ${yearFolder.name}` },
+      { name: dateFolder.name, id: dateFolder.id, parent: yearFolder.id, path: `${folderPath} > ${yearFolder.name} > ${dateFolder.name}` },
+    ]) {
+      try {
+        const exists = await supaFetch("drive_folders", { filters: `google_drive_id=eq.${f.id}` });
+        if (!exists || exists.length === 0) {
+          await supaInsert("drive_folders", { name: f.name, google_drive_id: f.id, parent_drive_id: f.parent, folder_path: f.path });
+        }
+      } catch (e) { console.error("folder register:", e); }
+    }
+    // Register each uploaded photo in documents
+    for (const r of results) {
+      try {
+        const ext = (r.name || "").split(".").pop().toLowerCase();
+        const mimeMap = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", heic: "image/heic", webp: "image/webp" };
+        await supaInsert("documents", {
+          title: r.name, google_drive_file_id: r.id,
+          parent_folder_drive_id: dateFolder.id,
+          mime_type: mimeMap[ext] || r.mimeType || "image/jpeg",
+          file_type: ext || "jpg",
+        });
+      } catch (e) { console.error("doc register:", e); }
+    }
+  };
+
   const handleUpload = async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length || !drive?.token || !drive?.uploadPhotos || !folderId) return;
     setUploading(true); setUploadMsg(`Subiendo ${files.length} fotos...`);
     try {
-      const results = await drive.uploadPhotos(files, folderId, property.address, (p) => setUploadMsg(`Subiendo ${p.current}/${p.total}...`));
-      setUploadMsg(`✓ ${results.length} fotos subidas`);
+      const { dateFolder, results, yearFolder, inspeccionFolder } = await drive.uploadPhotos(
+        files, folderId, property.address,
+        (cur, total, name) => setUploadMsg(`Subiendo ${cur}/${total}...`)
+      );
+      // Register in Supabase so they appear in SupaExplorer
+      setUploadMsg(`Indexando ${results.length} fotos...`);
+      await registerInSupabase(dateFolder, yearFolder, inspeccionFolder, results);
+      setUploadMsg(`✓ ${results.length} fotos subidas e indexadas`);
+      setRefreshKey(k => k + 1); // refresh file list
     } catch (err) { setUploadMsg("Error: " + err.message); }
     setUploading(false); e.target.value = "";
-    setTimeout(() => setUploadMsg(""), 4000);
+    setTimeout(() => setUploadMsg(""), 5000);
   };
 
   return (
@@ -961,16 +1007,16 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
           <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{property.address}</h1>
           <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}{property.sold ? " · Vendida" : ""}</span>
         </div>
-        {folderId && drive?.token && (
+        {folderId && (
           <>
             <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
-            <button onClick={() => uploadRef.current?.click()} disabled={uploading} style={{
+            <button onClick={handleCameraClick} disabled={uploading} style={{
               background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8, cursor: uploading ? "default" : "pointer",
-              padding: "6px 14px", fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "flex", alignItems: "center", gap: 6,
+              padding: mob ? "6px 10px" : "6px 14px", fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "flex", alignItems: "center", gap: 6,
             }}
               onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
               onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-              📸 Subir fotos
+              📸{!mob && " Subir fotos"}
             </button>
           </>
         )}
@@ -1000,7 +1046,7 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
             <span>{showDocs ? "▼" : "▶"}</span>
             <span>📂 Documentos en Drive</span>
           </button>
-          {showDocs && <SupaExplorer rootFolderId={folderId} mob={mob} drive={drive} />}
+          {showDocs && <SupaExplorer key={refreshKey} rootFolderId={folderId} mob={mob} drive={drive} />}
         </>
       )}
     </div>
