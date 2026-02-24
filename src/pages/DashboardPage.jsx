@@ -650,10 +650,12 @@ const PropertyExpenses = ({ address, mob }) => {
   // Map tags → property address + expense type
   const TAG_MAP = {
     "Argo - Agua/Gas": { addr: "232 Argo Avenue", types: ["water", "gas"] },
+    "Argo - Agua/Luz": { addr: "232 Argo Avenue", types: ["water", "electricity"] }, // legacy
     "Argo - Luz": { addr: "232 Argo Avenue", types: ["electricity"] },
     "Argo - Mant.": { addr: "232 Argo Avenue", types: ["hoa"] },
     "Progreso - Luz": { addr: "Ave Progreso 15, Depto C101", types: ["electricity"] },
     "Progreso - Agua": { addr: "Ave Progreso 15, Depto C101", types: ["water"] },
+    "Progreso - Mant.": { addr: "Ave Progreso 15, Depto C101", types: ["hoa"] },
   };
 
   // Find tags for this property
