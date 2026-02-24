@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { C } from "../../lib/theme";
 import { supaFetch } from "../../lib/supabase";
-import { Card, Spinner } from "../../components/UI";
+import { Card, Badge, Spinner } from "../../components/UI";
 import { getFileIcon, getFileExt, isImage, getPreviewUrl, getThumbnailUrl } from "./helpers";
 import AuthImage from "./AuthImage";
 import PhotoGallery from "./PhotoGallery";
