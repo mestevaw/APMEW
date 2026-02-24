@@ -1,5 +1,5 @@
 // dashboard/PropertiesView.jsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
 import { supaFetch } from "../../lib/supabase";
