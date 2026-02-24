@@ -247,14 +247,6 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
           <span style={{ color: C.accent }}>{I.expenses}</span>
           <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Gastos Diarios</span>
         </button>}
-        {goToPage && <button onClick={() => goToPage("daily")} style={{
-          display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
-          background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
-        }} onMouseEnter={e => { e.currentTarget.style.borderColor = "#F59E0B"; e.currentTarget.style.background = "#F59E0B15"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
-          <span style={{ fontSize: 14 }}>🇺🇸🇲🇽</span>
-          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "#F59E0B" }}>EUA vs México</span>
-        </button>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(auto-fit, minmax(200px, 1fr))", gap: mob ? 10 : 16, marginBottom: mob ? 16 : 28 }}>
