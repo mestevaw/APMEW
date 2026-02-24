@@ -5,36 +5,14 @@
 import { useState, useEffect, useRef } from "react";
 import { C } from "../lib/theme";
 import { I } from "../lib/icons";
+import { getFileIcon, getFileExt } from "../lib/helpers";
 import { DRIVE_ROOT_FOLDER } from "../lib/config";
 import { supaFetch, supaUpdate, supaInsert, supaDelete, supaUpsert } from "../lib/supabase";
 import { Card, Badge, Btn, Spinner, Table } from "../components/UI";
+import { FilePreviewModal } from "../components/FilePreviewModal";
 
 // ─── Helpers ───
 const isFolder = (f) => f.mimeType === "application/vnd.google-apps.folder";
-
-const getFileIcon = (mime) => {
-  if (!mime) return "📄";
-  if (mime.includes("pdf")) return "📕";
-  if (mime.includes("sheet") || mime.includes("excel")) return "📊";
-  if (mime.includes("document") || mime.includes("word")) return "📝";
-  if (mime.includes("presentation") || mime.includes("powerpoint")) return "📽️";
-  if (mime.includes("image")) return "🖼️";
-  if (mime.includes("video")) return "🎥";
-  if (mime.includes("audio")) return "🎵";
-  return "📄";
-};
-
-const getFileExt = (mime) => {
-  if (!mime) return "";
-  if (mime.includes("pdf")) return "pdf";
-  if (mime.includes("sheet")) return "sheets";
-  if (mime.includes("excel")) return "xlsx";
-  if (mime.includes("document")) return "doc";
-  if (mime.includes("word")) return "docx";
-  if (mime.includes("presentation")) return "slides";
-  if (mime.includes("image")) return "img";
-  return "";
-};
 
 const guessCategoryFromPath = (path) => {
   const p = path.toLowerCase();
@@ -45,9 +23,6 @@ const guessCategoryFromPath = (path) => {
   if (p.includes("propiedad") || p.includes("argo") || p.includes("progreso")) return "propiedades";
   return "otro";
 };
-
-// Google Drive preview URL
-const getPreviewUrl = (fileId) => `https://drive.google.com/file/d/${fileId}/preview`;
 
 // ─── Carpetas ocultas (agrega aquí las que quieras esconder) ───
 const HIDDEN_FOLDERS = [
@@ -76,7 +51,7 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
       setLoadingDrive(false);
     };
     load();
-  }, [token, currentFolder, tab]);
+  }, [token, currentFolder, tab, listAllFiles]);
 
   // ─── Incremental sync (auto, only indexes missing folders/files) ───
   const [syncing, setSyncing] = useState(false);
@@ -193,26 +168,7 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
       </div>
 
       {/* ─── Preview modal ─── */}
-      {previewFile && (
-        <>
-          <div onClick={() => setPreviewFile(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000 }} />
-          <div style={{ position: "fixed", top: mob ? "2%" : "5%", left: mob ? "2%" : "10%", right: mob ? "2%" : "10%", bottom: mob ? "2%" : "5%", zIndex: 1001, display: "flex", flexDirection: "column", background: C.surface, borderRadius: 16, border: `1px solid ${C.accent}40`, overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
-              <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{previewFile.name}</span>
-              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                <a href={`https://drive.google.com/file/d/${previewFile.id}/view`} target="_blank" rel="noopener" style={{ fontFamily: "DM Sans", fontSize: 12, color: C.blue, textDecoration: "none", padding: "4px 10px", border: `1px solid ${C.border}`, borderRadius: 6 }}>Abrir en Drive ↗</a>
-                <button onClick={() => setPreviewFile(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.close}</button>
-              </div>
-            </div>
-            <iframe
-              src={getPreviewUrl(previewFile.id)}
-              style={{ flex: 1, border: "none", background: "#fff" }}
-              allow="autoplay"
-              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-            />
-          </div>
-        </>
-      )}
+      <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} mob={mob} />
 
       {tab === "drive" && (
         <div>
