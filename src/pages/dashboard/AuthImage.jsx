@@ -1,6 +1,7 @@
 // dashboard/AuthImage.jsx
 import { useState, useEffect } from "react";
 import { getDriveMediaUrl, getThumbnailUrl } from "./helpers";
+import { Spinner } from "../../components/UI";
 
 const AuthImage = ({ fileId, token, alt, style }) => {
   const [src, setSrc] = useState(null);
