@@ -807,12 +807,20 @@ const PropertyExpenses = ({ address, mob }) => {
           </button>
           <Badge color={C.textDim}>{items.length} pagos</Badge>
         </div>
-        {years.map(year => {
+        {years.map((year, yi) => {
           const ym = months.filter(m => m.year === year);
           const yearTotal = ym.reduce((s, m) => s + m.total, 0);
+          // % change vs previous year (for property_tax)
+          const prevYear = years[yi + 1]; // sorted desc, so next in array = previous year
+          const prevYm = prevYear ? months.filter(m => m.year === prevYear) : [];
+          const prevTotal = prevYm.reduce((s, m) => s + m.total, 0);
+          const pctChange = (prevTotal > 0 && viewType === "property_tax") ? ((yearTotal - prevTotal) / prevTotal * 100) : null;
           return (
             <div key={year} style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>{year}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>
+                <span>{year}</span>
+                {pctChange != null && <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: pctChange > 0 ? C.red : pctChange < 0 ? C.green : C.textMuted }}>{pctChange > 0 ? "+" : ""}{pctChange.toFixed(1)}%</span>}
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 {ym.map(m => (
                   <button key={`${m.year}-${m.month}`} onClick={() => setViewMonth({ month: m.month, year: m.year })} style={{
@@ -929,6 +937,8 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
   const [showDocs, setShowDocs] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [inspPanel, setInspPanel] = useState(false); // inspection panel open
   const uploadRef = useRef(null);
   const [refreshKey, setRefreshKey] = useState(0); // to refresh SupaExplorer after upload
 
@@ -1002,23 +1012,21 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
-        <span style={{ color: OWNER_COLORS[property.owner] || C.accent }}><HouseIcon /></span>
-        <div style={{ flex: 1 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 }}>
+          <span style={{ color: OWNER_COLORS[property.owner] || C.accent }}><HouseIcon /></span>
+        </button>
+        <div style={{ flex: 1, cursor: "pointer" }} onClick={onBack}>
           <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{property.address}</h1>
           <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}{property.sold ? " · Vendida" : ""}</span>
         </div>
         {folderId && (
-          <>
-            <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
-            <button onClick={handleCameraClick} disabled={uploading} style={{
-              background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8, cursor: uploading ? "default" : "pointer",
-              padding: mob ? "6px 10px" : "6px 14px", fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "flex", alignItems: "center", gap: 6,
-            }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
-              onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-              📸{!mob && " Subir fotos"}
-            </button>
-          </>
+          <div style={{ position: "relative" }}>
+            <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
+            <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
+              <MenuBtn onClick={() => { setInspPanel(true); setMenuOpen(false); }}>📸 Inspección</MenuBtn>
+              <MenuBtn onClick={() => { setShowDocs(!showDocs); setMenuOpen(false); }}>{showDocs ? "📂 Ocultar docs" : "📂 Ver docs"}</MenuBtn>
+            </DropMenu>
+          </div>
         )}
       </div>
 
@@ -1026,6 +1034,55 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
         <div style={{ padding: "8px 14px", marginBottom: 12, borderRadius: 8, background: uploadMsg.startsWith("✓") ? `${C.green}15` : `${C.accent}15`, border: `1px solid ${uploadMsg.startsWith("✓") ? C.green : C.accent}40` }}>
           <span style={{ fontFamily: "DM Sans", fontSize: 12, color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent }}>{uploadMsg}</span>
         </div>
+      )}
+
+      {/* ── Inspection Panel ── */}
+      <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
+      {inspPanel && (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>📋 Inspección</span>
+            <button onClick={() => setInspPanel(false)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.textMuted }}>✕ Cerrar</button>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={handleCameraClick} disabled={uploading} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "12px 20px",
+              background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer",
+              fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, minWidth: 140,
+            }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+              onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
+              <span style={{ fontSize: 20 }}>📸</span>
+              <div>
+                <div style={{ fontWeight: 600 }}>Fotos</div>
+                <div style={{ fontSize: 10, color: C.textDim }}>Subir fotos de inspección</div>
+              </div>
+            </button>
+            <button onClick={() => {
+              const note = prompt("Nota de inspección:");
+              if (note && note.trim()) {
+                const now = new Date();
+                const dateStr = now.toISOString().slice(0, 10);
+                supaInsert("inspection_notes", { property_address: property.address, note_date: dateStr, note_text: note.trim(), created_by: "MEW" })
+                  .then(() => setUploadMsg("✓ Nota guardada"))
+                  .catch(err => setUploadMsg("Error: " + err.message));
+                setTimeout(() => setUploadMsg(""), 4000);
+              }
+            }} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "12px 20px",
+              background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer",
+              fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, minWidth: 140,
+            }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+              onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
+              <span style={{ fontSize: 20 }}>📝</span>
+              <div>
+                <div style={{ fontWeight: 600 }}>Nota</div>
+                <div style={{ fontSize: 10, color: C.textDim }}>Agregar apunte</div>
+              </div>
+            </button>
+          </div>
+        </Card>
       )}
 
       {/* Property Expenses */}
