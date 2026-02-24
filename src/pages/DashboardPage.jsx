@@ -102,6 +102,25 @@ const fmtDate = (d) => {
 
 const getTypeInfo = (key) => DEADLINE_TYPES.find(t => t.key === key) || DEADLINE_TYPES[DEADLINE_TYPES.length - 1];
 const getCatInfo = (key) => DEADLINE_CATEGORIES.find(c => c.key === key) || DEADLINE_CATEGORIES[0];
+
+const getPropExpenseTypes = (addr) => {
+  const mx = addr.includes("Progreso");
+  return [
+    { key: "electricity", label: mx ? "Luz" : "Electricity", icon: "💡" },
+    { key: "water", label: mx ? "Agua" : "Water", icon: "💧" },
+    { key: "gas", label: "Gas", icon: "🔥" },
+    { key: "property_tax", label: mx ? "Predial" : "Property Tax", icon: "🏛️" },
+    { key: "insurance", label: mx ? "Seguro" : "Insurance", icon: "🛡️" },
+    { key: "hoa", label: mx ? "Mantenimiento" : "HOA", icon: "🏘️" },
+  ];
+};
+
+const MONTHS_SHORT = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
+const fmtMoney = (n) => {
+  if (n == null) return "—";
+  return "$" + Math.abs(Number(n)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 const CarIcon = () => <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M7 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM17 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M5 17H3v-6l2-5h10l2 5v6h-2M5 17h10M9 5l1-2h4l1 2"/></svg>;
 
 // ─── Sorting helpers ───
@@ -610,12 +629,185 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
 };
 
 // ═══════════════════════════════════════════
+// PROPERTY EXPENSES
+// ═══════════════════════════════════════════
+const PropertyExpenses = ({ address, mob }) => {
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [addType, setAddType] = useState("electricity");
+  const [addMonth, setAddMonth] = useState(new Date().getMonth() + 1);
+  const [addYear, setAddYear] = useState(new Date().getFullYear());
+  const [addAmount, setAddAmount] = useState("");
+  const [addNotes, setAddNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [viewType, setViewType] = useState(null); // null = summary, or expense type key
+
+  const types = getPropExpenseTypes(address);
+
+  const loadExpenses = async () => {
+    setLoading(true);
+    const data = await supaFetch("property_expenses", {
+      filters: `property_address=eq.${encodeURIComponent(address)}`,
+      order: "period_year.desc,period_month.desc",
+    });
+    setExpenses(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { loadExpenses(); }, [address]);
+
+  const handleAdd = async () => {
+    setSaving(true);
+    await supaInsert("property_expenses", {
+      property_address: address,
+      expense_type: addType,
+      amount: parseFloat(addAmount) || 0,
+      period_month: addMonth,
+      period_year: addYear,
+      notes: addNotes || null,
+      paid: true,
+    });
+    await loadExpenses();
+    setAdding(false); setSaving(false); setAddAmount(""); setAddNotes("");
+  };
+
+  const handleDelete = async (id) => {
+    await supaDelete("property_expenses", id);
+    await loadExpenses();
+  };
+
+  if (loading) return <Card><div style={{ textAlign: "center", padding: 20 }}><Spinner /></div></Card>;
+
+  // Summary: totals per type
+  const typeTotals = types.map(t => {
+    const items = expenses.filter(e => e.expense_type === t.key);
+    const total = items.reduce((s, e) => s + Number(e.amount || 0), 0);
+    const count = items.length;
+    const last = items[0]; // already sorted desc
+    return { ...t, total, count, last };
+  }).filter(t => t.count > 0 || viewType === null);
+
+  // Detail view for a specific type
+  const detailItems = viewType ? expenses.filter(e => e.expense_type === viewType) : [];
+
+  // Years present in data
+  const years = [...new Set(expenses.map(e => e.period_year))].sort((a, b) => b - a);
+
+  return (
+    <Card style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>
+          {viewType ? (
+            <button onClick={() => setViewType(null)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.accent, padding: 0 }}>
+              ← {types.find(t => t.key === viewType)?.icon} {types.find(t => t.key === viewType)?.label}
+            </button>
+          ) : "💰 Gastos de la Propiedad"}
+        </div>
+        <Badge color={C.textDim}>{expenses.length} pagos</Badge>
+      </div>
+
+      {!viewType ? (
+        <>
+          {/* Summary cards per type */}
+          <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+            {types.map(t => {
+              const items = expenses.filter(e => e.expense_type === t.key);
+              const total = items.reduce((s, e) => s + Number(e.amount || 0), 0);
+              const count = items.length;
+              return (
+                <button key={t.key} onClick={() => count > 0 && setViewType(t.key)} style={{
+                  padding: "10px 12px", background: C.surface2, borderRadius: 8,
+                  border: `1px solid ${C.border}`, cursor: count > 0 ? "pointer" : "default",
+                  textAlign: "left", opacity: count > 0 ? 1 : 0.5, transition: "border-color 0.2s",
+                }}
+                  onMouseEnter={e => count > 0 && (e.currentTarget.style.borderColor = C.accent)}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}>
+                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>{t.icon} {t.label}</div>
+                  <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: count > 0 ? C.text : C.textMuted, marginTop: 4 }}>
+                    {count > 0 ? fmtMoney(total) : "—"}
+                  </div>
+                  {count > 0 && <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{count} pagos</div>}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Grand total */}
+          {expenses.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: C.accentGlow, borderRadius: 8, marginBottom: 12 }}>
+              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Total</span>
+              <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: C.accent }}>{fmtMoney(expenses.reduce((s, e) => s + Number(e.amount || 0), 0))}</span>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Detail: list by year/month */}
+          {years.filter(y => detailItems.some(e => e.period_year === y)).map(year => (
+            <div key={year} style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>{year}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {detailItems.filter(e => e.period_year === year).map(e => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: C.surface2, borderRadius: 6 }}>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, width: 30 }}>{MONTHS_SHORT[e.period_month - 1]}</span>
+                    <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, color: C.text, flex: 1 }}>{fmtMoney(e.amount)}</span>
+                    {e.notes && <span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>{e.notes}</span>}
+                    {e.paid && <span style={{ fontSize: 10, color: "#22C55E" }}>✓</span>}
+                    <button onClick={() => handleDelete(e.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 12, padding: "2px 4px" }}>✕</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 10px" }}>
+                <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: C.accent }}>
+                  Subtotal: {fmtMoney(detailItems.filter(e => e.period_year === year).reduce((s, e) => s + Number(e.amount || 0), 0))}
+                </span>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* Add expense */}
+      {adding ? (
+        <div style={{ padding: "12px", background: C.surface2, borderRadius: 10, border: `1px solid ${C.accent}40` }}>
+          <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent, marginBottom: 10 }}>+ Nuevo gasto</div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+            {types.map(t => (
+              <button key={t.key} onClick={() => setAddType(t.key)} style={{
+                padding: "3px 10px", borderRadius: 12, border: `1px solid ${addType === t.key ? C.accent : C.border}`,
+                background: addType === t.key ? C.accentGlow : "transparent", cursor: "pointer",
+                fontFamily: "DM Sans", fontSize: 11, color: addType === t.key ? C.accent : C.textDim,
+              }}>{t.icon} {t.label}</button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            <select value={addMonth} onChange={e => setAddMonth(parseInt(e.target.value))} style={{ ...dateStyle, padding: "6px 8px" }}>
+              {MONTHS_SHORT.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+            </select>
+            <input type="number" value={addYear} onChange={e => setAddYear(parseInt(e.target.value))} style={{ ...dateStyle, width: 70 }} />
+            <input type="number" value={addAmount} onChange={e => setAddAmount(e.target.value)} placeholder="Monto" step="0.01" style={{ ...dateStyle, flex: 1, minWidth: 80 }} />
+            <input type="text" value={addNotes} onChange={e => setAddNotes(e.target.value)} placeholder="Notas" style={{ ...dateStyle, flex: 1, minWidth: 80 }} />
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={handleAdd} disabled={saving || !addAmount} style={{ fontFamily: "DM Sans", fontSize: 12, padding: "5px 14px", borderRadius: 6, border: "none", background: C.accent, color: "#fff", cursor: "pointer", opacity: !addAmount ? 0.5 : 1 }}>{saving ? "..." : "Agregar"}</button>
+            <button onClick={() => setAdding(false)} style={{ fontFamily: "DM Sans", fontSize: 12, padding: "5px 14px", borderRadius: 6, border: `1px solid ${C.border}`, background: "transparent", color: C.textDim, cursor: "pointer" }}>Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAdding(true)} style={{ padding: "8px 14px", background: "transparent", border: `1px dashed ${C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.textDim, width: "100%", textAlign: "center" }}>+ Agregar gasto</button>
+      )}
+    </Card>
+  );
+};
+
+// ═══════════════════════════════════════════
 // PROPERTY DETAIL
 // ═══════════════════════════════════════════
 const PropertyDetail = ({ property, mob, drive, onBack }) => {
   const [folderId, setFolderId] = useState(null);
   const [searching, setSearching] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [showDocs, setShowDocs] = useState(false);
 
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null);
@@ -636,9 +828,28 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
           <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}</span>
         </div>
       </div>
-      {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando...</p></Card>}
-      {notFound && <Card style={{ textAlign: "center", padding: 30 }}><div style={{ fontSize: 36, marginBottom: 12 }}>📂</div><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta para esta propiedad</p><p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 4 }}>Verifica que exista en Google Drive y sincroniza desde Documentos</p></Card>}
-      {folderId && <SupaExplorer rootFolderId={folderId} mob={mob} drive={drive} />}
+
+      {/* Property Expenses */}
+      <PropertyExpenses address={property.address} mob={mob} />
+
+      {/* Documents toggle */}
+      {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando carpeta...</p></Card>}
+      {notFound && !searching && (
+        <Card style={{ textAlign: "center", padding: 30 }}><div style={{ fontSize: 36, marginBottom: 12 }}>📂</div><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta de Drive</p></Card>
+      )}
+      {folderId && (
+        <>
+          <button onClick={() => setShowDocs(!showDocs)} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", marginBottom: 12,
+            background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10,
+            cursor: "pointer", width: "100%", fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.accent,
+          }}>
+            <span>{showDocs ? "▼" : "▶"}</span>
+            <span>📂 Documentos en Drive</span>
+          </button>
+          {showDocs && <SupaExplorer rootFolderId={folderId} mob={mob} drive={drive} />}
+        </>
+      )}
     </div>
   );
 };
