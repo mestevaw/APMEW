@@ -34,7 +34,7 @@ export const useGoogleDrive = () => {
 
   const listFiles = async (folderId, pageToken) => {
     if (!token) return null;
-    let url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=nextPageToken,files(id,name,mimeType,webViewLink,iconLink,modifiedTime,size,parents)&pageSize=100&orderBy=folder,name`;
+    let url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=nextPageToken,files(id,name,mimeType,webViewLink,iconLink,modifiedTime,size,parents)&pageSize=100&orderBy=folder,name&supportsAllDrives=true&includeItemsFromAllDrives=true`;
     if (pageToken) url += `&pageToken=${pageToken}`;
     const res = await fetch(url, {
       headers: {
@@ -59,16 +59,23 @@ export const useGoogleDrive = () => {
   // ─── Create a folder inside a parent folder ───
   const createFolder = async (name, parentId) => {
     if (!token) throw new Error("No token");
-    const res = await fetch("https://www.googleapis.com/drive/v3/files", {
+    const res = await fetch("https://www.googleapis.com/drive/v3/files?supportsAllDrives=true", {
       method: "POST",
-      headers: { ...apiHeaders(), "Content-Type": "application/json" },
+      headers: {
+        ...apiHeaders(),
+        "Content-Type": "application/json",
+        "X-Goog-Drive-Resource-Keys": `${parentId}/${DRIVE_RESOURCE_KEY}`,
+      },
       body: JSON.stringify({
         name,
         mimeType: "application/vnd.google-apps.folder",
         parents: [parentId],
       }),
     });
-    if (!res.ok) throw new Error(`Create folder failed: ${res.status}`);
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`Create folder "${name}" failed: ${res.status} ${errText}`);
+    }
     return res.json();
   };
 
@@ -76,9 +83,13 @@ export const useGoogleDrive = () => {
   const findSubfolder = async (parentId, nameQuery) => {
     if (!token) return null;
     const q = `'${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and name contains '${nameQuery}' and trashed=false`;
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
-      headers: apiHeaders(),
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
+      headers: {
+        ...apiHeaders(),
+        "X-Goog-Drive-Resource-Keys": `${parentId}/${DRIVE_RESOURCE_KEY}`,
+      },
     });
+    if (!res.ok) { console.error(`findSubfolder(${nameQuery}) failed:`, res.status); return null; }
     const data = await res.json();
     return data.files && data.files.length > 0 ? data.files[0] : null;
   };
@@ -91,13 +102,20 @@ export const useGoogleDrive = () => {
     const metadata = { name: fileName, parents: [parentId] };
 
     // Initiate resumable upload
-    const initRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", {
+    const initRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true", {
       method: "POST",
-      headers: { ...apiHeaders(), "Content-Type": "application/json" },
+      headers: {
+        ...apiHeaders(),
+        "Content-Type": "application/json",
+        "X-Goog-Drive-Resource-Keys": `${parentId}/${DRIVE_RESOURCE_KEY}`,
+      },
       body: JSON.stringify(metadata),
     });
 
-    if (!initRes.ok) throw new Error(`Upload init failed: ${initRes.status}`);
+    if (!initRes.ok) {
+      const errText = await initRes.text().catch(() => "");
+      throw new Error(`Upload init failed: ${initRes.status} ${errText}`);
+    }
     const uploadUrl = initRes.headers.get("Location");
 
     // Upload the file content
@@ -107,25 +125,33 @@ export const useGoogleDrive = () => {
       body: file,
     });
 
-    if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text().catch(() => "");
+      throw new Error(`Upload failed: ${uploadRes.status} ${errText}`);
+    }
     return uploadRes.json();
   };
 
   // ─── Upload multiple photos to inspection folder ───
   const uploadPhotos = async (files, propertyFolderId, propertyName, onProgress) => {
     if (!token) throw new Error("No token");
+    console.log("[uploadPhotos] Starting:", { propertyFolderId, propertyName, fileCount: files.length });
 
-    // 1. Find or create INSPECCION folder (name contains is case-insensitive in Drive API)
+    // 1. Find or create INSPECCION folder
     let inspeccionFolder = await findSubfolder(propertyFolderId, "INSPECCION");
+    console.log("[uploadPhotos] INSPECCION found:", inspeccionFolder);
     if (!inspeccionFolder) {
       inspeccionFolder = await createFolder("INSPECCION", propertyFolderId);
+      console.log("[uploadPhotos] INSPECCION created:", inspeccionFolder);
     }
 
     // 2. Find or create year folder
     const year = new Date().getFullYear().toString();
     let yearFolder = await findSubfolder(inspeccionFolder.id, year);
+    console.log("[uploadPhotos] Year folder found:", yearFolder);
     if (!yearFolder) {
       yearFolder = await createFolder(year, inspeccionFolder.id);
+      console.log("[uploadPhotos] Year folder created:", yearFolder);
     }
 
     // 3. Create date subfolder: "22 feb 26"
@@ -133,8 +159,10 @@ export const useGoogleDrive = () => {
     const months = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
     const dateName = `${now.getDate()} ${months[now.getMonth()]} ${String(now.getFullYear()).slice(2)}`;
     let dateFolder = await findSubfolder(yearFolder.id, dateName);
+    console.log("[uploadPhotos] Date folder found:", dateFolder);
     if (!dateFolder) {
       dateFolder = await createFolder(dateName, yearFolder.id);
+      console.log("[uploadPhotos] Date folder created:", dateFolder);
     }
 
     // 4. Upload each photo
@@ -146,9 +174,11 @@ export const useGoogleDrive = () => {
       const fileName = `${shortName} ${i + 1} Foto ${dateName}.${ext}`;
       if (onProgress) onProgress(i + 1, files.length, fileName);
       const result = await uploadFile(file, fileName, dateFolder.id);
+      console.log("[uploadPhotos] Uploaded:", fileName, "→", result.id);
       results.push(result);
     }
 
+    console.log("[uploadPhotos] Done!", { inspeccionFolder: inspeccionFolder.id, yearFolder: yearFolder.id, dateFolder: dateFolder.id, uploaded: results.length });
     return { dateFolder, yearFolder, inspeccionFolder, results };
   };
 
