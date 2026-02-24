@@ -45,6 +45,9 @@ const PROPERTIES = [
   { address: "5403 Villa Marco", owner: "MNA Works" },
   { address: "11636 Midnight Rain", owner: "MNA Works" },
   { address: "9319 Caen", owner: "MNA Works" },
+  { address: "13662 Escort Drive", owner: "MNA Works" },
+  { address: "626 Scarlet Ibis", owner: "MNA Works" },
+  { address: "66 Brees Apt 37", owner: "MNA Works", sold: true },
   { address: "232 Argo Avenue", owner: "Miguel y AnaP" },
   { address: "Ave Progreso 15, Depto C101", owner: "Miguel y AnaP" },
 ];
@@ -611,6 +614,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
                   <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 500, color: C.text }}>{prop.address}</div>
                 </div>
                 <Badge color={OWNER_COLORS[prop.owner] || C.textDim}>{OWNER_SHORT[prop.owner] || prop.owner}</Badge>
+                {prop.sold && <Badge color="#EF4444" style={{ fontSize: 8 }}>Vendida</Badge>}
               </button>
               {/* Upload button per property */}
               <button onClick={() => handleStartUpload(prop)} disabled={uploading} title="Subir fotos" style={{
@@ -632,6 +636,73 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
 // ═══════════════════════════════════════════
 // PROPERTY EXPENSES
 // ═══════════════════════════════════════════
+// ═══════════════════════════════════════════
+// PROPERTY TAXES — Year-by-year tax + appraised value
+// ═══════════════════════════════════════════
+const PropertyTaxes = ({ address, mob }) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    supaFetch("property_taxes", { filters: `property_address=eq.${encodeURIComponent(address)}`, order: "tax_year.desc" })
+      .then(d => { if (Array.isArray(d)) setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [address]);
+
+  if (loading) return null;
+  if (data.length === 0) return null;
+
+  const fmt$ = (n) => n != null ? "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+  const fmtV = (n) => n != null ? "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—";
+  const pctChange = (cur, prev) => {
+    if (!cur || !prev) return null;
+    const pct = ((cur - prev) / prev * 100);
+    return pct;
+  };
+
+  return (
+    <Card style={{ marginBottom: 14 }}>
+      <button onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+        <span>{open ? "▼" : "▶"}</span>
+        <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text }}>🏛️ Property Taxes & Appraisal</span>
+        <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim, marginLeft: "auto" }}>{data.length} años</span>
+      </button>
+      {open && (
+        <div style={{ marginTop: 12, overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "DM Sans", fontSize: mob ? 11 : 12 }}>
+            <thead>
+              <tr style={{ borderBottom: `2px solid ${C.border}` }}>
+                <th style={{ textAlign: "left", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10, textTransform: "uppercase" }}>Año</th>
+                <th style={{ textAlign: "right", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10, textTransform: "uppercase" }}>Property Tax</th>
+                <th style={{ textAlign: "center", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10 }}>Δ</th>
+                <th style={{ textAlign: "right", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10, textTransform: "uppercase" }}>Appraised Value</th>
+                <th style={{ textAlign: "center", padding: "6px 8px", color: C.textDim, fontWeight: 600, fontSize: 10 }}>Δ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row, i) => {
+                const prev = data[i + 1]; // data sorted desc, so i+1 is previous year
+                const taxPct = prev ? pctChange(row.property_tax, prev.property_tax) : null;
+                const valPct = prev ? pctChange(row.appraised_value, prev.appraised_value) : null;
+                return (
+                  <tr key={row.tax_year} style={{ borderBottom: `1px solid ${C.border}` }}>
+                    <td style={{ padding: "6px 8px", fontWeight: 600, color: C.text }}>{row.tax_year}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "JetBrains Mono", color: row.property_tax ? C.red : C.textMuted }}>{fmt$(row.property_tax)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 10, color: taxPct > 0 ? C.red : taxPct < 0 ? C.green : C.textMuted }}>{taxPct != null ? `${taxPct > 0 ? "+" : ""}${taxPct.toFixed(1)}%` : ""}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "JetBrains Mono", color: row.appraised_value ? C.blue : C.textMuted }}>{fmtV(row.appraised_value)}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: "JetBrains Mono", fontSize: 10, color: valPct > 0 ? C.green : valPct < 0 ? C.red : C.textMuted }}>{valPct != null ? `${valPct > 0 ? "+" : ""}${valPct.toFixed(1)}%` : ""}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+};
+
 const PropertyExpenses = ({ address, mob }) => {
   const [propExp, setPropExp] = useState([]);
   const [dailyExp, setDailyExp] = useState([]);
@@ -929,12 +1000,18 @@ const PropertyDetail = ({ property, mob, drive, onBack }) => {
         <span style={{ color: OWNER_COLORS[property.owner] || C.accent }}><HouseIcon /></span>
         <div style={{ flex: 1 }}>
           <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{property.address}</h1>
-          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>{property.owner}</span>
+            {property.sold && <Badge color="#EF4444">Vendida</Badge>}
+          </div>
         </div>
       </div>
 
       {/* Property Expenses */}
       <PropertyExpenses address={property.address} mob={mob} />
+
+      {/* Property Taxes */}
+      <PropertyTaxes address={property.address} mob={mob} />
 
       {/* Documents toggle */}
       {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando carpeta...</p></Card>}
