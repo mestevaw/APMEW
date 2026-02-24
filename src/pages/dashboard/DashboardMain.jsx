@@ -7,7 +7,7 @@ import { supaFetch } from "../../lib/supabase";
 import { Card, StatCard, Badge, Spinner } from "../../components/UI";
 import { KIDS, PROFILE_FOLDERS, PROPERTIES, OWNER_COLORS, OWNER_SHORT, CARS } from "./constants";
 import { fmtMoney } from "./helpers";
-import { CarIcon, HouseIcon } from "./icons";
+import { CarIcon, HouseIcon, CalendarIcon } from "./icons";
 import PersonDetail from "./PersonDetail";
 import PropertyDetail from "./PropertyDetail";
 import PropertiesView from "./PropertiesView";
