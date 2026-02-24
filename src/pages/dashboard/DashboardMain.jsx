@@ -4,7 +4,7 @@ import { C } from "../../lib/theme";
 import { fmt } from "../../lib/helpers";
 import { I } from "../../lib/icons";
 import { supaFetch } from "../../lib/supabase";
-import { Card, StatCard, Badge, Spinner } from "../../components/UI";
+import { Card, StatCard, Badge, MiniBar, SectionTitle, Spinner } from "../../components/UI";
 import { KIDS, PROFILE_FOLDERS, PROPERTIES, OWNER_COLORS, OWNER_SHORT, CARS } from "./constants";
 import { fmtMoney } from "./helpers";
 import { CarIcon, HouseIcon, CalendarIcon } from "./icons";
