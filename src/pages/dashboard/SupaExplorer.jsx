@@ -1,1 +1,163 @@
+// dashboard/SupaExplorer.jsx
+import { useState, useEffect } from "react";
+import { C } from "../../lib/theme";
+import { supaFetch } from "../../lib/supabase";
+import { Card, Spinner } from "../../components/UI";
+import { getFileIcon, getFileExt, isImage, getPreviewUrl, getThumbnailUrl } from "./helpers";
+import AuthImage from "./AuthImage";
+import PhotoGallery from "./PhotoGallery";
 
+const SupaExplorer = ({ rootFolderId, mob, drive }) => {
+  const [currentFolder, setCurrentFolder] = useState(rootFolderId);
+  const [breadcrumb, setBreadcrumb] = useState([{ id: rootFolderId, name: "Inicio" }]);
+  const [subfolders, setSubfolders] = useState([]);
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
+  const [galleryImages, setGalleryImages] = useState(null);
+  const [galleryStart, setGalleryStart] = useState(0);
+
+  useEffect(() => { setCurrentFolder(rootFolderId); setBreadcrumb([{ id: rootFolderId, name: "Inicio" }]); }, [rootFolderId]);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [folders, files] = await Promise.all([
+          supaFetch("drive_folders", { filters: `parent_drive_id=eq.${currentFolder}`, order: "name" }),
+          supaFetch("documents", { filters: `parent_folder_drive_id=eq.${currentFolder}`, order: "title" }),
+        ]);
+        setSubfolders(folders || []);
+        setDocs(files || []);
+      } catch (e) { console.error(e); setSubfolders([]); setDocs([]); }
+      setLoading(false);
+    };
+    load();
+  }, [currentFolder]);
+
+  const navigateToFolder = (driveId, folderName) => {
+    setCurrentFolder(driveId);
+    setBreadcrumb(prev => [...prev, { id: driveId, name: folderName }]);
+  };
+  const navigateToBreadcrumb = (index) => {
+    setCurrentFolder(breadcrumb[index].id);
+    setBreadcrumb(breadcrumb.slice(0, index + 1));
+  };
+
+  const imageFiles = docs.filter(d => isImage(d.mime_type));
+  const nonImageFiles = docs.filter(d => !isImage(d.mime_type));
+
+  const openImage = (imgDoc, idx) => {
+    setGalleryImages(imageFiles);
+    setGalleryStart(idx);
+  };
+
+  return (
+    <div>
+      {/* Photo gallery */}
+      {galleryImages && (
+        <PhotoGallery images={galleryImages} startIndex={galleryStart} onClose={() => setGalleryImages(null)} mob={mob} token={drive?.token} />
+      )}
+
+      {/* File preview modal (non-image) */}
+      {previewFile && (
+        <>
+          <div onClick={() => setPreviewFile(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999 }} />
+          <div style={{ position: "fixed", top: mob ? "2%" : "5%", left: mob ? "2%" : "10%", right: mob ? "2%" : "10%", bottom: mob ? "2%" : "5%", zIndex: 10000, display: "flex", flexDirection: "column", background: C.surface, borderRadius: 16, border: `1px solid ${C.accent}40`, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${C.border}` }}>
+              <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{previewFile.name}</span>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <a href={`https://drive.google.com/file/d/${previewFile.id}/view`} target="_blank" rel="noopener" style={{ fontFamily: "DM Sans", fontSize: 12, color: C.blue, textDecoration: "none", padding: "4px 10px", border: `1px solid ${C.border}`, borderRadius: 6 }}>Abrir en Drive ↗</a>
+                <button onClick={() => setPreviewFile(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.close}</button>
+              </div>
+            </div>
+            <iframe src={getPreviewUrl(previewFile.id)} style={{ flex: 1, border: "none", background: "#fff" }} allow="autoplay" sandbox="allow-same-origin allow-scripts allow-popups allow-forms" />
+          </div>
+        </>
+      )}
+
+      {/* Breadcrumb */}
+      {breadcrumb.length > 1 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
+          {breadcrumb.map((b, i) => (
+            <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              {i > 0 && <span style={{ color: C.textMuted, fontSize: 12 }}>/</span>}
+              <button onClick={() => navigateToBreadcrumb(i)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 13, color: i === breadcrumb.length - 1 ? C.accent : C.textDim, fontWeight: i === breadcrumb.length - 1 ? 600 : 400, padding: "2px 4px" }}>{b.name}</button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <Card>
+        {loading ? (
+          <div style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Cargando...</p></div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {breadcrumb.length > 1 && (
+              <button onClick={() => navigateToBreadcrumb(breadcrumb.length - 2)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", borderRadius: 8, width: "100%" }}
+                onMouseEnter={e => e.currentTarget.style.background = C.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                {I.back}<span style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>.. Regresar</span>
+              </button>
+            )}
+            {subfolders.map(f => (
+              <button key={f.id} onClick={() => navigateToFolder(f.google_drive_id, f.name)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", borderRadius: 8, width: "100%", textAlign: "left" }}
+                onMouseEnter={e => e.currentTarget.style.background = C.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ color: C.accent }}>{I.folder}</span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 500, color: C.text, flex: 1 }}>{f.name}</span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted }}>Carpeta</span>
+              </button>
+            ))}
+            {nonImageFiles.map(d => (
+              <button key={d.id} onClick={() => d.google_drive_file_id && setPreviewFile({ id: d.google_drive_file_id, name: d.title })} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, width: "100%", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+                onMouseEnter={e => e.currentTarget.style.background = C.surface2} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ fontSize: 16 }}>{getFileIcon(d.mime_type)}</span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, flex: 1 }}>{d.title}</span>
+                <Badge color={C.blue}>{d.file_type || getFileExt(d.mime_type) || "file"}</Badge>
+              </button>
+            ))}
+            {/* Image grid with gallery */}
+            {imageFiles.length > 0 && (
+              <div style={{ padding: "12px 0 4px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>🖼️ {imageFiles.length} fotos</span>
+                  {!drive?.token && drive?.signIn && (
+                    <button onClick={drive.signIn} style={{
+                      fontFamily: "DM Sans", fontSize: 11, color: C.blue, background: `${C.blue}15`,
+                      border: `1px solid ${C.blue}40`, borderRadius: 6, padding: "3px 10px", cursor: "pointer",
+                    }}>Conectar Drive para ver fotos</button>
+                  )}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: mob ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 6 }}>
+                  {imageFiles.map((img, idx) => (
+                    <button key={img.id} onClick={() => openImage(img, idx)} style={{
+                      background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8,
+                      cursor: "pointer", overflow: "hidden", aspectRatio: "1", display: "flex",
+                      alignItems: "center", justifyContent: "center", padding: 0, transition: "border-color 0.2s",
+                    }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
+                      {drive?.token ? (
+                        <AuthImage fileId={img.google_drive_file_id} token={drive.token} alt={img.title}
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <span style={{ fontSize: 24 }}>📷</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {subfolders.length === 0 && docs.length === 0 && !loading && (
+              <div style={{ textAlign: "center", padding: 30 }}><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>Carpeta vacía</p></div>
+            )}
+          </div>
+        )}
+      </Card>
+      <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted, marginTop: 8 }}>{subfolders.length} carpetas, {docs.length} archivos</div>
+    </div>
+  );
+};
+
+// ─── House icon ───
+
+export default SupaExplorer;
