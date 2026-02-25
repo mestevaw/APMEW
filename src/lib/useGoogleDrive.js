@@ -137,8 +137,8 @@ export const useGoogleDrive = () => {
     if (!token) throw new Error("No token");
     console.log("[uploadPhotos] Starting:", { propertyFolderId, propertyName, fileCount: files.length });
 
-    // 1. Find or create INSPECCION folder
-    let inspeccionFolder = await findSubfolder(propertyFolderId, "INSPECCION");
+    // 1. Find or create INSPECCION folder — search "INSPEC" to match INSPECCION/INSPECCIONES/INSPECCIÓN
+    let inspeccionFolder = await findSubfolder(propertyFolderId, "INSPEC");
     console.log("[uploadPhotos] INSPECCION found:", inspeccionFolder);
     if (!inspeccionFolder) {
       inspeccionFolder = await createFolder("INSPECCION", propertyFolderId);
