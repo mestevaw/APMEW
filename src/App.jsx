@@ -232,10 +232,22 @@ export default function App() {
 
         <div style={{ padding: "14px 16px", background: C.surface2, borderRadius: 10, marginTop: 16 }}>
           <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Conectado a Supabase</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.green }} />
             <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.green }}>Online</span>
           </div>
+          {drive.token ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.blue }} />
+              <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.blue }}>Google Drive</span>
+            </div>
+          ) : (
+            <button onClick={drive.signIn} disabled={!drive.gisLoaded} style={{
+              fontFamily: "DM Sans", fontSize: 11, color: C.accent, background: C.accentGlow || `${C.accent}15`,
+              border: `1px solid ${C.accent}40`, borderRadius: 6, padding: "5px 10px", cursor: drive.gisLoaded ? "pointer" : "default",
+              width: "100%", opacity: drive.gisLoaded ? 1 : 0.5,
+            }}>🔗 Conectar Google Drive</button>
+          )}
         </div>
       </nav>
 
