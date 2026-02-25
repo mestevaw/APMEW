@@ -1,11 +1,16 @@
-// dashboard/OwnerDetail.jsx
+// ═══════════════════════════════════════════
+// Archivo: src/pages/dashboard/OwnerDetail.jsx
+// Versión: 1.0
+// Fecha: 2026-02-25
+// ═══════════════════════════════════════════
+
 import { useState, useEffect } from "react";
 import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
 import { supaFetch } from "../../lib/supabase";
 import { Card, Badge, Spinner } from "../../components/UI";
 import { PROPERTIES, OWNER_COLORS, getPropExpenseTypes } from "./constants";
-import { fmtMoney } from "./helpers";
+import { fmtMoney, isPersonalProperty } from "./helpers";
 import { HouseIcon } from "./icons";
 
 const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
@@ -14,13 +19,12 @@ const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
   const [ownerYear, setOwnerYear] = useState(null);
   const ownerProps = PROPERTIES.filter(p => p.owner === ownerName);
   const types = getPropExpenseTypes(ownerProps[0]?.address || "");
-  const personal = ownerProps[0]?.address.includes("Progreso") || ownerProps[0]?.address.includes("Argo");
+  const personal = ownerProps[0] ? isPersonalProperty(ownerProps[0].address) : false;
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       const allItems = [];
-      // Fetch all properties in parallel
       const results = await Promise.all(ownerProps.map(p => Promise.all([
         supaFetch("property_expenses", { filters: `property_address=eq.${encodeURIComponent(p.address)}`, order: "period_year.desc" }),
         supaFetch("property_taxes", { filters: `property_address=eq.${encodeURIComponent(p.address)}`, order: "tax_year.desc" }),
@@ -31,7 +35,6 @@ const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
           expense_type: "property_tax", amount: Number(t.property_tax), period_year: t.tax_year, period_month: 1,
         }));
       });
-      // Group by type + year
       const grouped = {};
       allItems.forEach(e => {
         const key = e.expense_type;
@@ -47,7 +50,6 @@ const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
 
   const years = [...new Set(Object.values(expByType).flatMap(y => Object.keys(y)))].map(Number).sort((a, b) => b - a);
   const displayYear = ownerYear || years[0] || new Date().getFullYear();
-  const isRental = !personal;
   const selectStyle = { fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, background: C.surface2, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 8px", cursor: "pointer" };
 
   return (
@@ -118,21 +120,18 @@ const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
       <Card>
         <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 12 }}>🏠 Propiedades</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {ownerProps.filter(p => !p.sold).map(p => {
-            const rents = (expByType["gross_rents"] || {})[displayYear] ? "—" : "";
-            return (
-              <button key={p.address} onClick={() => onSelectProperty(p)} style={{
-                display: "flex", alignItems: "center", gap: 8, padding: "10px 12px",
-                background: C.surface2, borderRadius: 8, border: "none", cursor: "pointer", width: "100%", textAlign: "left",
-              }}
-                onMouseEnter={e => e.currentTarget.style.background = C.accentGlow}
-                onMouseLeave={e => e.currentTarget.style.background = C.surface2}>
-                <span style={{ color: OWNER_COLORS[p.owner] || C.accent }}><HouseIcon /></span>
-                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text, flex: 1 }}>{p.address}</span>
-                <span style={{ color: C.textMuted, fontSize: 12 }}>▸</span>
-              </button>
-            );
-          })}
+          {ownerProps.filter(p => !p.sold).map(p => (
+            <button key={p.address} onClick={() => onSelectProperty(p)} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "10px 12px",
+              background: C.surface2, borderRadius: 8, border: "none", cursor: "pointer", width: "100%", textAlign: "left",
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = C.accentGlow}
+              onMouseLeave={e => e.currentTarget.style.background = C.surface2}>
+              <span style={{ color: OWNER_COLORS[p.owner] || C.accent }}><HouseIcon /></span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text, flex: 1 }}>{p.address}</span>
+              <span style={{ color: C.textMuted, fontSize: 12 }}>▸</span>
+            </button>
+          ))}
           {ownerProps.filter(p => p.sold).length > 0 && (
             <>
               <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 8, marginBottom: 4 }}>VENDIDAS</div>
@@ -155,6 +154,5 @@ const OwnerDetail = ({ ownerName, mob, onBack, onSelectProperty }) => {
     </div>
   );
 };
-
 
 export default OwnerDetail;
