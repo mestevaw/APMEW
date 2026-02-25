@@ -1,60 +1,25 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DailyExpensesPage.jsx
-// Versión: 1
+// Versión: 2
 // Fecha: 2026-02-25
 // ═══════════════════════════════════════════
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { C, inputStyle } from "../lib/theme";
-import { I } from "../lib/icons";
 import { fmtMoney, fmtDateShort, detectCountry } from "../lib/helpers";
-import { supaInsert, supaUpdate, supaBatchInsert, supaBatchUpdate } from "../lib/supabase";
+import { supaUpdate, supaBatchInsert, supaBatchUpdate } from "../lib/supabase";
 import { parseFileToRows, autoMapRow } from "../lib/parsers";
-import { Card, SectionTitle, Badge, Btn, Spinner } from "../components/UI";
+import { Card, SectionTitle, Badge, Btn } from "../components/UI";
+import { useToast } from "../components/Toast";
 
-// ─── Display helpers ───
-const CAT_DISPLAY = { hogar: "Casa", supermercado: "Súper", restaurantes: "Rest.", entretenimiento: "Entret.", servicios: "Serv.", transporte: "Transp.", salud: "Salud", otro: "Otro" };
-const displayCat = (cat) => CAT_DISPLAY[cat] || cat;
-const WHO_DISPLAY = { Miguel: "MEW", AnaP: "AP", Ambos: "Amb" };
-const displayWho = (who) => WHO_DISPLAY[who] || who;
-
-// ─── Card logos (SVG) ───
-const VisaLogo = () => (
-  <svg width="32" height="11" viewBox="0 0 1000 324" xmlns="http://www.w3.org/2000/svg">
-    <path d="M413.8 2.4L271.4 321.6h-93.2L116.7 52.1c-3.7-14.7-7-20.1-18.4-26.3C78.5 15.1 42 5 9.4 0l2.2-10.2h150c19.1 0 36.3 12.7 40.6 34.8l37.1 197.3L331.9 2.4h81.9zm323.6 215c.3-84.3-116.6-88.9-115.8-126.6.2-11.5 11.2-23.7 35.1-26.8 11.8-1.6 44.5-2.8 81.6 14.5l14.5-67.8C735.1 3.5 712.7-4 684.8-4c-77.2 0-131.5 41-131.9 99.7-.5 43.4 38.7 67.6 68.3 82 30.4 14.7 40.6 24.1 40.5 37.3-.2 20.1-24.3 29-46.7 29.4-39.2.6-62-10.6-80.1-19.1l-14.1 66.1c18.2 8.4 51.8 15.7 86.6 16.1 82 0 135.7-40.5 135.9-103.1zm203.8 104.2h72.4L946 2.4h-66.9c-15 0-27.7 8.8-33.3 22.2L708.2 321.6h82l16.3-45.1h100.2l9.5 45.1zM825 207.3l41.1-113.5 23.7 113.5H825zM523.6 2.4l-64.5 319.2h-78.1L445.5 2.4h78.1z" fill="#1a1f71"/>
-  </svg>
-);
-const AmexLogo = () => (
-  <svg width="28" height="11" viewBox="0 0 48 16" xmlns="http://www.w3.org/2000/svg">
-    <rect width="48" height="16" rx="2" fill="#006FCF"/>
-    <text x="24" y="12" textAnchor="middle" fill="white" fontFamily="Arial" fontWeight="700" fontSize="9">AMEX</text>
-  </svg>
-);
-const CardLogo = ({ source }) => {
-  const s = (source || "").toLowerCase();
-  if (s.includes("capital") || s.includes("visa")) return <VisaLogo />;
-  if (s.includes("amex") || s.includes("american")) return <AmexLogo />;
-  if (s.includes("master")) return <span style={{ fontFamily: "JetBrains Mono", fontSize: 10, fontWeight: 700, color: "#fff", background: "#EB001B", padding: "1px 5px", borderRadius: 3, lineHeight: "14px" }}>MC</span>;
-  if (s.includes("efectivo")) return <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textMuted }}>💵</span>;
-  if (s.includes("transfer")) return <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textMuted }}>🏦</span>;
-  return source ? <span style={{ fontFamily: "DM Sans", fontSize: 9, color: C.textMuted }}>{source.slice(0, 6)}</span> : null;
-};
-
-const isPayment = (e) => (e.category === "otro" || e.category === "Otro") && Number(e.amount) < 0;
-const displayConcept = (e) => isPayment(e) ? "Pago" : e.concept;
-
-const shortCardLabel = (source) => {
-  const s = (source || "").toLowerCase();
-  if (s.includes("capital") || s.includes("visa")) return "Visa";
-  if (s.includes("amex") || s.includes("american")) return "Amex";
-  if (s.includes("master")) return "MC";
-  if (s.includes("efectivo")) return "Cash";
-  if (s.includes("transfer")) return "Transf";
-  return source ? source.slice(0, 5) : "—";
-};
-
-const Flag = ({ country }) => <span style={{ fontSize: 13, lineHeight: 1, cursor: "default" }} title={country === "MX" ? "México" : "EUA"}>{country === "MX" ? "🇲🇽" : "🇺🇸"}</span>;
-const amountColor = (e) => isPayment(e) ? C.green : C.red;
+// ─── Subcomponentes extraídos ───
+import EditModal from "./daily/EditModal";
+import ComparisonPanel from "./daily/ComparisonPanel";
+import {
+  CATEGORIES, displayCat, displayWho, isPayment, displayConcept,
+  amountColor, shortCardLabel, Flag, dateStyle,
+  DropMenu, MenuBtn, MenuDivider, MenuLabel, CloseBtn,
+} from "./daily/shared";
 
 // ─── Export CSV ───
 const exportToExcel = (data) => {
@@ -68,38 +33,6 @@ const exportToExcel = (data) => {
   a.href = URL.createObjectURL(blob);
   a.download = `gastos_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
-};
-
-// ─── Small UI atoms ───
-const DropMenu = ({ open, onClose, children, style }) => {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return;
-    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open, onClose]);
-  if (!open) return null;
-  return <div ref={ref} style={{ position: "absolute", right: 0, top: "100%", marginTop: 6, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,0.4)", minWidth: 220, zIndex: 100, overflow: "hidden", ...style }}>{children}</div>;
-};
-const MenuBtn = ({ onClick, children, active }) => <button onClick={onClick} style={{ width: "100%", textAlign: "left", padding: "10px 16px", background: active ? C.accentGlow : "transparent", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 13, color: active ? C.accent : C.text, display: "flex", alignItems: "center", gap: 8 }} onMouseEnter={e => e.currentTarget.style.background = C.surface2} onMouseLeave={e => e.currentTarget.style.background = active ? C.accentGlow : "transparent"}>{children}</button>;
-const MenuDivider = () => <div style={{ height: 1, background: C.border, margin: "4px 0" }} />;
-const MenuLabel = ({ children }) => <div style={{ padding: "8px 16px 4px", fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>{children}</div>;
-const CloseBtn = ({ onClick }) => <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 18, padding: "2px 6px", lineHeight: 1 }} onMouseEnter={e => e.currentTarget.style.color = C.text} onMouseLeave={e => e.currentTarget.style.color = C.textDim}>✕</button>;
-
-const dateStyle = { ...inputStyle, fontSize: 12, background: "#fff", color: "#111", borderColor: "#ccc" };
-
-// ─── Tags + subcategories ───
-const TAG_OPTIONS = ["Argo - Agua/Gas","Argo - Luz","Argo - Mant.","Progreso - Luz","Progreso - Agua","Progreso - Mant.","Mango Nest","MNA Works","Tortuga Home","Honda CRV","Hyundai Tucson","Mazda 6","Personal","Médico","Viaje","Educación"];
-const SUBCATEGORIES = {
-  hogar: ["Suscripciones","Limpieza","Muebles","Electrónica","Ropa","Mascotas"],
-  servicios: ["Internet","Teléfono","Streaming","Software","Seguros"],
-  restaurantes: ["Café","Comida rápida","Formal","Delivery"],
-  transporte: ["Gasolina","Uber/Taxi","Estacionamiento","Mant. auto","Vuelos","Honda CRV","Hyundai Tucson","Mazda 6"],
-  salud: ["Farmacia","Consulta","Dentista","Óptica","Gym"],
-  entretenimiento: ["Cine","Libros","Juegos","Eventos","Música"],
-  supermercado: ["HEB","Whole Foods","Costco","Otro"],
-  otro: ["Propina","Comisión","Donación","Otro"],
 };
 
 // ═══════════════════════════════════════════
@@ -127,7 +60,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
   const [sumTo, setSumTo] = useState("");
   const [applying, setApplying] = useState(false);
   const fileRef = useRef(null);
-  const cats = ["supermercado","transporte","salud","entretenimiento","servicios","restaurantes","hogar","otro"];
+  const toast = useToast();
 
   const openPanel = (p) => { setPanel(panel === p ? null : p); setMenuOpen(false); };
 
@@ -156,6 +89,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
       }
     } catch (err) {
       console.error(err);
+      toast.error("Error leyendo archivo: " + err.message);
       setImportMsg("Error: " + err.message);
     }
     e.target.value = "";
@@ -165,12 +99,10 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
     if (!importData) return;
     setImporting(true);
     let count = 0, skipped = 0;
-
     const existing = new Set();
     for (const e of dailyExpenses) {
       existing.add(`${e.expense_date}|${(e.concept || "").slice(0, 40).toLowerCase()}|${Number(e.amount).toFixed(2)}`);
     }
-
     const newRows = [];
     for (const row of importData) {
       const key = `${row.expense_date}|${(row.concept || "").slice(0, 40).toLowerCase()}|${Number(row.amount).toFixed(2)}`;
@@ -178,36 +110,42 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
       newRows.push(row);
       existing.add(key);
     }
-
     const BATCH_SIZE = 50;
     for (let i = 0; i < newRows.length; i += BATCH_SIZE) {
       const batch = newRows.slice(i, i + BATCH_SIZE);
       try { await supaBatchInsert("daily_expenses", batch); count += batch.length; }
-      catch (e) { console.error("Batch insert error:", e); }
+      catch (e) { console.error("Batch insert error:", e); toast.error("Error en importación parcial"); }
       setImportMsg(`Procesando... ${count} nuevas, ${skipped} existentes`);
     }
-
     setImportMsg(`✓ ${count} importadas${skipped > 0 ? `, ${skipped} ya existían` : ""}`);
+    if (count > 0) toast.success(`${count} gastos importados`);
     setImportData(null);
     setImporting(false);
     if (count > 0) reload();
   };
 
   // ─── Tag / subcategory batch update ───
-  // FIX: usa id del concepto como filtro más seguro
   const applyToMatching = async (expense, field, value) => {
     setApplying(true);
     const cpt = (expense.concept || "").trim();
     try {
       await supaBatchUpdate("daily_expenses", `concept=eq.${encodeURIComponent(cpt)}`, { [field]: value });
-    } catch (e) { console.error("Batch update error:", e); }
+      toast.success(`${field} actualizado para gastos similares`);
+    } catch (e) {
+      console.error("Batch update error:", e);
+      toast.error("Error actualizando gastos");
+    }
     setApplying(false);
     setEditingExpense(null);
     reload();
   };
 
   const applySingle = async (id, field, value) => {
-    try { await supaUpdate("daily_expenses", id, { [field]: value }); } catch { /* silent */ }
+    try {
+      await supaUpdate("daily_expenses", id, { [field]: value });
+    } catch (e) {
+      toast.error("Error actualizando gasto");
+    }
     setEditingExpense(null);
     reload();
   };
@@ -232,19 +170,15 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
   if (search) {
     const q = search.toLowerCase();
     filtered = filtered.filter(e =>
-      (e.concept || "").toLowerCase().includes(q) ||
-      (e.category || "").toLowerCase().includes(q) ||
-      (e.source || "").toLowerCase().includes(q) ||
-      (e.tag || "").toLowerCase().includes(q) ||
-      (e.who || "").toLowerCase().includes(q) ||
-      (e.subcategory || "").toLowerCase().includes(q) ||
+      (e.concept || "").toLowerCase().includes(q) || (e.category || "").toLowerCase().includes(q) ||
+      (e.source || "").toLowerCase().includes(q) || (e.tag || "").toLowerCase().includes(q) ||
+      (e.who || "").toLowerCase().includes(q) || (e.subcategory || "").toLowerCase().includes(q) ||
       (q === "mx" && (e.country || detectCountry(e)) === "MX") ||
       (q === "us" && (e.country || detectCountry(e)) === "US") ||
       ((q === "mexico" || q === "méxico") && (e.country || detectCountry(e)) === "MX")
     );
   }
 
-  // Summary date filters apply to main list when panel is open
   if (panel === "summary") {
     if (sumFrom) filtered = filtered.filter(e => e.expense_date >= sumFrom);
     if (sumTo)   filtered = filtered.filter(e => e.expense_date <= sumTo);
@@ -262,12 +196,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
 
   // Summary by category
   const catSummary = {};
-  filtered.forEach(e => {
-    const c = e.category || "otro";
-    if (!catSummary[c]) catSummary[c] = { count: 0, total: 0 };
-    catSummary[c].count++;
-    catSummary[c].total += Number(e.amount) || 0;
-  });
+  filtered.forEach(e => { const c = e.category || "otro"; if (!catSummary[c]) catSummary[c] = { count: 0, total: 0 }; catSummary[c].count++; catSummary[c].total += Number(e.amount) || 0; });
   const catSumSorted = Object.entries(catSummary).sort((a, b) => b[1].total - a[1].total);
 
   // Query
@@ -282,7 +211,6 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
     });
   }
   const queryTotal = queryResults.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-
   const sortLabels = { expense_date: "Fecha", concept: "Concepto", category: "Cat.", amount: "Monto", source: "Tarj.", who: "Quién" };
   const matchCount = editingExpense ? dailyExpenses.filter(e => (e.concept || "").trim().toLowerCase() === (editingExpense.concept || "").trim().toLowerCase()).length : 0;
 
@@ -406,56 +334,10 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
         </Card>
       )}
 
-      {/* ═══ COMPARISON US vs MX ═══ */}
-      {panel === "comparison" && (() => {
-        const all = dailyExpenses.filter(e => !isPayment(e));
-        const usItems = all.filter(e => (e.country || detectCountry(e)) === "US");
-        const mxItems = all.filter(e => (e.country || detectCountry(e)) === "MX");
-        const usTotal = usItems.reduce((s, e) => s + Number(e.amount || 0), 0);
-        const mxTotal = mxItems.reduce((s, e) => s + Number(e.amount || 0), 0);
-        const grandTotal = usTotal + mxTotal;
-        const catBk = (items) => { const m = {}; items.forEach(e => { const c = e.category || "otro"; m[c] = (m[c] || 0) + Number(e.amount || 0); }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
-        const usCats = catBk(usItems);
-        const mxCats = catBk(mxItems);
-        const monthly = {};
-        all.forEach(e => { const ym = (e.expense_date || "").slice(0, 7); if (!ym) return; if (!monthly[ym]) monthly[ym] = { us: 0, mx: 0 }; monthly[ym][(e.country || detectCountry(e)) === "MX" ? "mx" : "us"] += Number(e.amount || 0); });
-        const mos = Object.entries(monthly).sort((a, b) => b[0].localeCompare(a[0]));
-        const pBar = (val, max, color) => <div style={{ flex: 1, height: 8, background: C.surface2, borderRadius: 4, overflow: "hidden" }}><div style={{ width: `${max > 0 ? (val / max * 100) : 0}%`, height: "100%", background: color, borderRadius: 4 }} /></div>;
-        return (
-          <Card style={{ marginBottom: 16, borderColor: "#F59E0B" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <SectionTitle style={{ margin: 0 }}>🇺🇸 EUA vs 🇲🇽 México</SectionTitle>
-              <CloseBtn onClick={() => setPanel(null)} />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-              <div style={{ padding: 14, background: "#1e3a5f20", borderRadius: 10, border: "1px solid #3B82F640" }}>
-                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>🇺🇸 EUA</div>
-                <div style={{ fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 700, color: "#3B82F6", marginTop: 4 }}>{fmtMoney(usTotal)}</div>
-                <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{usItems.length} gastos · {grandTotal > 0 ? (usTotal / grandTotal * 100).toFixed(0) : 0}%</div>
-              </div>
-              <div style={{ padding: 14, background: "#065f4620", borderRadius: 10, border: "1px solid #10B98140" }}>
-                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>🇲🇽 México</div>
-                <div style={{ fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 700, color: "#10B981", marginTop: 4 }}>{fmtMoney(mxTotal)}</div>
-                <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>{mxItems.length} gastos · {grandTotal > 0 ? (mxTotal / grandTotal * 100).toFixed(0) : 0}%</div>
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-              <div>
-                <div style={{ fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>🇺🇸 Por categoría</div>
-                {usCats.map(([cat, t]) => <div key={cat} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0" }}><span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.text, width: 50 }}>{displayCat(cat)}</span>{pBar(t, usTotal, "#3B82F6")}<span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: C.textDim, minWidth: 60, textAlign: "right" }}>{fmtMoney(t)}</span></div>)}
-              </div>
-              <div>
-                <div style={{ fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>🇲🇽 Por categoría</div>
-                {mxCats.length > 0 ? mxCats.map(([cat, t]) => <div key={cat} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0" }}><span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.text, width: 50 }}>{displayCat(cat)}</span>{pBar(t, mxTotal, "#10B981")}<span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: C.textDim, minWidth: 60, textAlign: "right" }}>{fmtMoney(t)}</span></div>) : <p style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted }}>Sin gastos MX</p>}
-              </div>
-            </div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6 }}>Por mes</div>
-            <div style={{ maxHeight: 200, overflow: "auto" }}>
-              {mos.map(([ym, d]) => <div key={ym} style={{ display: "grid", gridTemplateColumns: "55px 1fr 70px 1fr 70px", gap: 4, padding: "4px 0", alignItems: "center" }}><span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: C.textDim }}>{ym}</span>{pBar(d.us, Math.max(d.us, d.mx), "#3B82F6")}<span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#3B82F6", textAlign: "right" }}>{fmtMoney(d.us)}</span>{pBar(d.mx, Math.max(d.us, d.mx), "#10B981")}<span style={{ fontFamily: "JetBrains Mono", fontSize: 10, color: "#10B981", textAlign: "right" }}>{fmtMoney(d.mx)}</span></div>)}
-            </div>
-          </Card>
-        );
-      })()}
+      {/* ═══ COMPARISON — subcomponente ═══ */}
+      {panel === "comparison" && (
+        <ComparisonPanel dailyExpenses={dailyExpenses} onClose={() => setPanel(null)} />
+      )}
 
       {/* ═══ FORM ═══ */}
       {panel === "form" && (
@@ -469,7 +351,7 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
             <input placeholder="Monto" type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} style={{ ...inputStyle, fontFamily: "JetBrains Mono" }} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "1fr 1fr 1fr 1fr auto", gap: 12, marginBottom: 16 }}>
-            <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={inputStyle}>{cats.map(c => <option key={c}>{c}</option>)}</select>
+            <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={inputStyle}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select>
             <select value={form.who} onChange={e => setForm({ ...form, who: e.target.value })} style={inputStyle}><option>Miguel</option><option>AnaP</option><option>Ambos</option></select>
             <select value={form.payment_method} onChange={e => setForm({ ...form, payment_method: e.target.value })} style={inputStyle}><option value="tarjeta">Tarjeta</option><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option></select>
             <input placeholder="Fuente" value={form.source} onChange={e => setForm({ ...form, source: e.target.value })} style={inputStyle} />
@@ -494,67 +376,16 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
         </Card>
       )}
 
-      {/* ═══ EDIT MODAL ═══ */}
-      {editingExpense && (
-        <>
-          <div onClick={() => setEditingExpense(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9999 }} />
-          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 20, zIndex: 10000, minWidth: mob ? "90vw" : 380, maxHeight: "80vh", overflow: "auto" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <h3 style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 600, color: C.text }}>Editar gasto</h3>
-              <CloseBtn onClick={() => setEditingExpense(null)} />
-            </div>
-            <div style={{ padding: "8px 0 14px", borderBottom: `1px solid ${C.border}`, marginBottom: 14 }}>
-              <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text }}>{editingExpense.concept}</p>
-              <p style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: C.textDim }}>{fmtDateShort(editingExpense.expense_date)} · {fmtMoney(Number(editingExpense.amount))}</p>
-              {matchCount > 1 && <p style={{ fontFamily: "DM Sans", fontSize: 11, color: C.accent, marginTop: 4 }}>{matchCount} gastos con este concepto — cambios se aplican a todos</p>}
-            </div>
-            {/* Country */}
-            <div style={{ marginBottom: 14 }}>
-              <p style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>PAÍS <Flag country={editingExpense.country || detectCountry(editingExpense)} /></p>
-              <div style={{ display: "flex", gap: 8 }}>
-                {["US", "MX"].map(code => (
-                  <button key={code} onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "country", code) : applySingle(editingExpense.id, "country", code)} style={{ padding: "7px 16px", background: (editingExpense.country || detectCountry(editingExpense)) === code ? `${C.accent}20` : C.surface2, border: `1px solid ${(editingExpense.country || detectCountry(editingExpense)) === code ? C.accent : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>{code === "US" ? "🇺🇸 EUA" : "🇲🇽 México"}</button>
-                ))}
-              </div>
-              {matchCount > 1 && <p style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 4 }}>Se aplica a los {matchCount} gastos con este concepto</p>}
-            </div>
-            {/* Category */}
-            <div style={{ marginBottom: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
-              <p style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>CATEGORÍA <Badge color={C.blue}>{displayCat(editingExpense.category)}</Badge></p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {cats.map(cat => (
-                  <button key={cat} onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "category", cat) : applySingle(editingExpense.id, "category", cat)} disabled={applying} style={{ padding: "5px 12px", background: editingExpense.category === cat ? `${C.blue}20` : C.surface2, border: `1px solid ${editingExpense.category === cat ? C.blue : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text }}>{displayCat(cat)}</button>
-                ))}
-              </div>
-            </div>
-            {/* Subcategory */}
-            <div style={{ marginBottom: 16 }}>
-              <p style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>SUBCATEGORÍA {editingExpense.subcategory && <Badge color="#A78BFA">{editingExpense.subcategory}</Badge>}</p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {(SUBCATEGORIES[editingExpense.category] || SUBCATEGORIES.otro).map(sub => (
-                  <button key={sub} onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "subcategory", sub) : applySingle(editingExpense.id, "subcategory", sub)} disabled={applying} style={{ padding: "5px 12px", background: editingExpense.subcategory === sub ? "#A78BFA25" : C.surface2, border: `1px solid ${editingExpense.subcategory === sub ? "#A78BFA" : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text }}>{sub}</button>
-                ))}
-              </div>
-              <input placeholder="Otra subcategoría..." onKeyDown={e => { if (e.key === "Enter" && e.target.value) { matchCount > 1 ? applyToMatching(editingExpense, "subcategory", e.target.value) : applySingle(editingExpense.id, "subcategory", e.target.value); } }} style={{ ...inputStyle, marginTop: 6, fontSize: 12 }} />
-            </div>
-            {/* Tag */}
-            <div>
-              <p style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>ASOCIAR CON {editingExpense.tag && <Badge color="#10B981">{editingExpense.tag}</Badge>}</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {TAG_OPTIONS.map(tag => (
-                  <button key={tag} onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "tag", tag) : applySingle(editingExpense.id, "tag", tag)} disabled={applying} style={{ padding: "7px 14px", background: editingExpense.tag === tag ? `${C.green}15` : C.surface2, border: `1px solid ${editingExpense.tag === tag ? C.green : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text, textAlign: "left" }}>{tag}</button>
-                ))}
-                <input placeholder="Tag personalizado..." onKeyDown={e => { if (e.key === "Enter" && e.target.value) { matchCount > 1 ? applyToMatching(editingExpense, "tag", e.target.value) : applySingle(editingExpense.id, "tag", e.target.value); } }} style={{ ...inputStyle, marginTop: 4 }} />
-              </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-                {editingExpense.tag && <Btn onClick={() => applySingle(editingExpense.id, "tag", null)} outline>Quitar tag</Btn>}
-                {editingExpense.subcategory && <Btn onClick={() => applySingle(editingExpense.id, "subcategory", null)} outline>Quitar sub</Btn>}
-              </div>
-            </div>
-            {applying && <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent, marginTop: 8 }}>Aplicando a {matchCount} registros...</p>}
-          </div>
-        </>
-      )}
+      {/* ═══ EDIT MODAL — subcomponente ═══ */}
+      <EditModal
+        expense={editingExpense}
+        matchCount={matchCount}
+        onApplyBatch={applyToMatching}
+        onApplySingle={applySingle}
+        onClose={() => setEditingExpense(null)}
+        applying={applying}
+        mob={mob}
+      />
 
       {/* ═══ TABLE ═══ */}
       <Card style={{ padding: 0, overflow: "hidden" }}>
