@@ -6,6 +6,7 @@ import { supaFetch, supaInsert } from "../../lib/supabase";
 import { Card, Badge, Spinner } from "../../components/UI";
 import { OWNER_COLORS } from "./constants";
 import { fmtMoney, findFolderByAddress } from "./helpers";
+import { DRIVE_ROOT_FOLDER } from "../../lib/config";
 import { HouseIcon } from "./icons";
 import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuComponents";
 import SupaExplorer from "./SupaExplorer";
@@ -27,17 +28,34 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
 
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null); setTenant(null);
-    findFolderByAddress(property.address, property.owner).then(folder => {
-      console.log("[PropertyDetail] findFolderByAddress result:", folder ? { name: folder.name, id: folder.google_drive_id, path: folder.folder_path } : "NOT FOUND");
+
+    const findFolder = async () => {
+      // Strategy 1: Search directly in Drive API (works even if Supabase index is incomplete)
+      if (drive?.token && drive?.searchFolderByAddress) {
+        console.log("[PropertyDetail] Searching Drive API for:", property.address);
+        const driveResult = await drive.searchFolderByAddress(property.address, property.owner, DRIVE_ROOT_FOLDER);
+        if (driveResult) {
+          console.log("[PropertyDetail] Found via Drive API:", driveResult);
+          setFolderId(driveResult.id);
+          setSearching(false);
+          return;
+        }
+        console.log("[PropertyDetail] Not found via Drive API, trying Supabase...");
+      }
+      // Strategy 2: Fallback to Supabase index
+      const folder = await findFolderByAddress(property.address, property.owner);
+      console.log("[PropertyDetail] Supabase result:", folder ? { name: folder.name, id: folder.google_drive_id } : "NOT FOUND");
       if (folder) setFolderId(folder.google_drive_id);
       else setNotFound(true);
       setSearching(false);
-    });
+    };
+
+    findFolder();
     if (!personal) {
       supaFetch("tenants", { filters: `property_address=eq.${encodeURIComponent(property.address)}`, limit: 1 })
         .then(rows => { if (rows && rows[0]) setTenant(rows[0]); });
     }
-  }, [property.address]);
+  }, [property.address, drive?.token]);
 
   const handleCameraClick = () => {
     if (!drive?.token) {
