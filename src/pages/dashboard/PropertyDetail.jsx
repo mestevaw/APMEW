@@ -48,12 +48,24 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   };
 
   const registerInSupabase = async (dateFolder, yearFolder, inspeccionFolder, results) => {
+    // Look up the parent property folder's path from Supabase
+    let basePath = "";
+    try {
+      const parentRows = await supaFetch("drive_folders", { filters: `google_drive_id=eq.${folderId}` });
+      if (parentRows && parentRows[0]) basePath = parentRows[0].folder_path;
+    } catch (e) { console.error("lookup parent path:", e); }
+    if (!basePath) basePath = `PROPERTY > ${property.address}`;
+
+    // Use real folder names from Drive (e.g. "INSPECCIONES" not hardcoded "INSPECCION")
+    const inspecPath = `${basePath}/${inspeccionFolder.name}`;
+    const yearPath = `${inspecPath}/${yearFolder.name}`;
+    const datePath = `${yearPath}/${dateFolder.name}`;
+
     // Register folders in drive_folders if not already there
-    const folderPath = `PROPERTY > ${property.address} > INSPECCION`;
     for (const f of [
-      { name: "INSPECCION", id: inspeccionFolder.id, parent: folderId, path: folderPath },
-      { name: yearFolder.name, id: yearFolder.id, parent: inspeccionFolder.id, path: `${folderPath} > ${yearFolder.name}` },
-      { name: dateFolder.name, id: dateFolder.id, parent: yearFolder.id, path: `${folderPath} > ${yearFolder.name} > ${dateFolder.name}` },
+      { name: inspeccionFolder.name, id: inspeccionFolder.id, parent: folderId, path: inspecPath },
+      { name: yearFolder.name, id: yearFolder.id, parent: inspeccionFolder.id, path: yearPath },
+      { name: dateFolder.name, id: dateFolder.id, parent: yearFolder.id, path: datePath },
     ]) {
       try {
         const exists = await supaFetch("drive_folders", { filters: `google_drive_id=eq.${f.id}` });
@@ -70,7 +82,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         await supaInsert("documents", {
           title: r.name, google_drive_file_id: r.id,
           parent_folder_drive_id: dateFolder.id,
-          folder_path: `${folderPath} > ${yearFolder.name} > ${dateFolder.name}`,
+          folder_path: datePath,
           category: "inspeccion",
           mime_type: mimeMap[ext] || r.mimeType || "image/jpeg",
           file_type: ext || "jpg",
