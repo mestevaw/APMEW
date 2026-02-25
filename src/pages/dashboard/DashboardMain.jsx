@@ -5,7 +5,7 @@ import { fmt } from "../../lib/helpers";
 import { I } from "../../lib/icons";
 import { supaFetch } from "../../lib/supabase";
 import { Card, StatCard, Badge, MiniBar, SectionTitle, Spinner } from "../../components/UI";
-import { KIDS, PROFILE_FOLDERS, PROPERTIES, OWNER_COLORS, OWNER_SHORT, CARS } from "./constants";
+import { KIDS, PROFILE_FOLDERS, PROPERTIES, OWNER_COLORS, OWNER_SHORT, CARS, PROPERTY_VALUES_2025 } from "./constants";
 import { fmtMoney } from "./helpers";
 import { CarIcon, HouseIcon, CalendarIcon } from "./icons";
 import PersonDetail from "./PersonDetail";
@@ -29,7 +29,8 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
 
   const totalA = assets.reduce((s, a) => s + Number(a.current_value || 0), 0);
   const totalD = debts.reduce((s, d) => s + Number(d.outstanding_balance || 0), 0);
-  const nw = totalA - totalD;
+  const totalPropValue = Object.values(PROPERTY_VALUES_2025).reduce((s, v) => s + (v || 0), 0);
+  const nw = totalA + totalPropValue - totalD;
   const [grossRentsMonthly, setGrossRentsMonthly] = useState(0);
   const [allGrossRents, setAllGrossRents] = useState([]);
 
@@ -260,7 +261,8 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(auto-fit, minmax(200px, 1fr))", gap: mob ? 10 : 16, marginBottom: mob ? 16 : 28 }}>
-        <StatCard label="PATRIMONIO NETO" value={fmt(nw)} sub={`Activos: ${fmt(totalA)}`} color={nw >= 0 ? C.green : C.red} icon={I.patrimony} delay={.1} mob={mob} />
+        <StatCard label="PATRIMONIO NETO" value={fmt(nw)} sub={`Activos: ${fmt(totalA)} · Props: ${fmt(totalPropValue)}`} color={nw >= 0 ? C.green : C.red} icon={I.patrimony} delay={.1} mob={mob} />
+        <StatCard label="VALOR PROPIEDADES" value={fmt(totalPropValue)} sub={`${Object.keys(PROPERTY_VALUES_2025).length} propiedades (2025)`} color={C.accent} icon="🏠" delay={.12} mob={mob} />
         <StatCard label="INGRESOS ACTUALES" value={fmt(ti)} sub="Mensuales" color={C.blue} icon={I.income} delay={.15} mob={mob} />
         <StatCard label="GASTOS RETIRO" value={fmt(tre)} sub="Mensuales estimados" color={C.red} icon={I.expenses} delay={.2} mob={mob} />
         <StatCard label="INGRESOS RETIRO" value={fmt(tri)} sub="Mensuales proyectados" color={C.green} icon={I.income} delay={.25} mob={mob} />
