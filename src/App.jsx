@@ -179,6 +179,33 @@ export default function App() {
   };
 
   // ─── Layout ───
+
+  // Full-screen Drive connection prompt (first thing user sees)
+  if (!drive.token) {
+    return (
+      <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "DM Sans" }}>
+        <style>{baseStyles}</style>
+        <div style={{ margin: "auto", textAlign: "center", padding: 40, maxWidth: 400 }}>
+          <div style={{ fontFamily: "JetBrains Mono", fontSize: 32, fontWeight: 700, color: C.accent, letterSpacing: 3, marginBottom: 8 }}>APMEW</div>
+          <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textMuted, marginBottom: 40 }}>{todayStr()}</div>
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: "40px 32px" }}>
+            <div style={{ fontSize: 40, marginBottom: 16 }}>📁</div>
+            <h2 style={{ fontFamily: "DM Sans", fontSize: 18, fontWeight: 600, color: C.text, marginBottom: 8 }}>Conectar Google Drive</h2>
+            <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 28, lineHeight: 1.5 }}>Para ver documentos, fotos de inspecciones y archivos de las propiedades.</p>
+            <button onClick={drive.signIn} disabled={!drive.gisLoaded} style={{
+              fontFamily: "DM Sans", fontSize: 14, fontWeight: 600,
+              color: "#fff", background: C.accent,
+              border: "none", borderRadius: 10, padding: "12px 32px",
+              cursor: drive.gisLoaded ? "pointer" : "default",
+              opacity: drive.gisLoaded ? 1 : 0.5,
+              width: "100%",
+            }}>{drive.gisLoaded ? "🔗 Iniciar sesión con Google" : "Cargando..."}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "DM Sans" }}>
       <style>{baseStyles}</style>
@@ -231,23 +258,15 @@ export default function App() {
         </div>
 
         <div style={{ padding: "14px 16px", background: C.surface2, borderRadius: 10, marginTop: 16 }}>
-          <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Conectado a Supabase</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+          <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, marginBottom: 4 }}>Conectado</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.green }} />
-            <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.green }}>Online</span>
+            <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.green }}>Supabase</span>
           </div>
-          {drive.token ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.blue }} />
-              <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.blue }}>Google Drive</span>
-            </div>
-          ) : (
-            <button onClick={drive.signIn} disabled={!drive.gisLoaded} style={{
-              fontFamily: "DM Sans", fontSize: 11, color: C.accent, background: C.accentGlow || `${C.accent}15`,
-              border: `1px solid ${C.accent}40`, borderRadius: 6, padding: "5px 10px", cursor: drive.gisLoaded ? "pointer" : "default",
-              width: "100%", opacity: drive.gisLoaded ? 1 : 0.5,
-            }}>🔗 Conectar Google Drive</button>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.blue }} />
+            <span style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.blue }}>Google Drive</span>
+          </div>
         </div>
       </nav>
 
