@@ -9,7 +9,7 @@ import { FilePreviewModal } from "../../components/FilePreviewModal";
 import AuthImage from "./AuthImage";
 import PhotoGallery from "./PhotoGallery";
 
-const SupaExplorer = ({ rootFolderId, mob, drive }) => {
+const SupaExplorer = ({ rootFolderId, mob, drive, propertyAddress }) => {
   const [currentFolder, setCurrentFolder] = useState(rootFolderId);
   const [breadcrumb, setBreadcrumb] = useState([{ id: rootFolderId, name: "Inicio" }]);
   const [subfolders, setSubfolders] = useState([]);
@@ -76,11 +76,13 @@ const SupaExplorer = ({ rootFolderId, mob, drive }) => {
     setGalleryStart(idx);
   };
 
+  const isInspectionContext = breadcrumb.some(b => (b.name || "").toUpperCase().includes("INSPEC"));
+
   return (
     <div>
       {/* Photo gallery */}
       {galleryImages && (
-        <PhotoGallery images={galleryImages} startIndex={galleryStart} onClose={() => setGalleryImages(null)} mob={mob} token={drive?.token} />
+        <PhotoGallery images={galleryImages} startIndex={galleryStart} onClose={() => setGalleryImages(null)} mob={mob} token={drive?.token} propertyAddress={isInspectionContext ? propertyAddress : null} />
       )}
 
       {/* File preview modal (non-image) */}
