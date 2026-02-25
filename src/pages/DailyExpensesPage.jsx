@@ -585,6 +585,24 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
               <p style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: C.textDim }}>{fmtDate(editingExpense.expense_date)} · {fmtMoney(Number(editingExpense.amount))}</p>
               {matchCount > 1 && <p style={{ fontFamily: "DM Sans", fontSize: 11, color: C.accent, marginTop: 4 }}>{matchCount} gastos con este concepto — cambios se aplican a todos</p>}
             </div>
+            {/* Country — FIRST */}
+            <div style={{ marginBottom: 14 }}>
+              <p style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>PAÍS <Flag country={editingExpense.country || detectCountry(editingExpense)} /></p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "country", "US") : applySingle(editingExpense.id, "country", "US")} style={{ padding: "7px 16px", background: (editingExpense.country || detectCountry(editingExpense)) === "US" ? `${C.accent}20` : C.surface2, border: `1px solid ${(editingExpense.country || detectCountry(editingExpense)) === "US" ? C.accent : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>🇺🇸 EUA</button>
+                <button onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "country", "MX") : applySingle(editingExpense.id, "country", "MX")} style={{ padding: "7px 16px", background: (editingExpense.country || detectCountry(editingExpense)) === "MX" ? `${C.accent}20` : C.surface2, border: `1px solid ${(editingExpense.country || detectCountry(editingExpense)) === "MX" ? C.accent : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>🇲🇽 México</button>
+              </div>
+              {matchCount > 1 && <p style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 4 }}>Se aplica a los {matchCount} gastos con este concepto</p>}
+            </div>
+            {/* Category */}
+            <div style={{ marginBottom: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+              <p style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>CATEGORÍA <Badge color={C.blue}>{displayCat(editingExpense.category)}</Badge></p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {cats.map(cat => (
+                  <button key={cat} onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "category", cat) : applySingle(editingExpense.id, "category", cat)} disabled={applying} style={{ padding: "5px 12px", background: editingExpense.category === cat ? `${C.blue}20` : C.surface2, border: `1px solid ${editingExpense.category === cat ? C.blue : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text }}>{displayCat(cat)}</button>
+                ))}
+              </div>
+            </div>
             {/* Subcategory */}
             <div style={{ marginBottom: 16 }}>
               <p style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>SUBCATEGORÍA {editingExpense.subcategory && <Badge color="#A78BFA">{editingExpense.subcategory}</Badge>}</p>
@@ -608,15 +626,6 @@ export const DailyExpensesPage = ({ dailyExpenses, onAdd, mob, reload }) => {
                 {editingExpense.tag && <Btn onClick={() => applySingle(editingExpense.id, "tag", null)} outline>Quitar tag</Btn>}
                 {editingExpense.subcategory && <Btn onClick={() => applySingle(editingExpense.id, "subcategory", null)} outline>Quitar sub</Btn>}
               </div>
-            </div>
-            {/* Country */}
-            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
-              <p style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>PAÍS <Flag country={editingExpense.country || detectCountry(editingExpense)} /></p>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "country", "US") : applySingle(editingExpense.id, "country", "US")} style={{ padding: "7px 16px", background: (editingExpense.country || detectCountry(editingExpense)) === "US" ? `${C.accent}20` : C.surface2, border: `1px solid ${(editingExpense.country || detectCountry(editingExpense)) === "US" ? C.accent : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>🇺🇸 EUA</button>
-                <button onClick={() => matchCount > 1 ? applyToMatching(editingExpense, "country", "MX") : applySingle(editingExpense.id, "country", "MX")} style={{ padding: "7px 16px", background: (editingExpense.country || detectCountry(editingExpense)) === "MX" ? `${C.accent}20` : C.surface2, border: `1px solid ${(editingExpense.country || detectCountry(editingExpense)) === "MX" ? C.accent : C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6 }}>🇲🇽 México</button>
-              </div>
-              {matchCount > 1 && <p style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 4 }}>Se aplica a los {matchCount} gastos con este concepto</p>}
             </div>
             {applying && <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent, marginTop: 8 }}>Aplicando a {matchCount} registros...</p>}
           </div>
