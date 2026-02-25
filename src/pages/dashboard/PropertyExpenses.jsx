@@ -5,6 +5,7 @@
 // ═══════════════════════════════════════════
 import { useState, useEffect, useRef } from "react";
 import { supaFetch, supaInsert, supaDelete } from "../../lib/supabase";
+import { C } from "../../lib/theme";
 import { Card, Badge, Spinner } from "../../components/UI";
 import { getPropExpenseTypes, MONTHS_SHORT, PROPERTIES } from "./constants";
 import { fmtMoney, isPersonalProperty } from "./helpers";
