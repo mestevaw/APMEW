@@ -1,4 +1,9 @@
-// dashboard/CarsView.jsx
+// ═══════════════════════════════════════════
+// Archivo: src/pages/dashboard/CarsView.jsx
+// Versión: 1.0
+// Fecha: 2026-02-25
+// ═══════════════════════════════════════════
+
 import { useState, useEffect } from "react";
 import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
@@ -109,7 +114,8 @@ const CarDetail = ({ car, mob, drive, onBack }) => {
         <span>{showDocs ? "▼" : "▶"}</span>
         <span>📂 Documentos en Drive</span>
       </button>
-      {showDocs && <SupaExplorer rootFolderId={car.folderId} mob={mob} />}
+      {/* FIX v1.0: Se agrega drive={drive} — antes no se pasaba y SupaExplorer caía siempre al fallback de Supabase */}
+      {showDocs && <SupaExplorer rootFolderId={car.folderId} mob={mob} drive={drive} />}
     </div>
   );
 };
