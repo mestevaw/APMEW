@@ -28,6 +28,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null); setTenant(null);
     findFolderByAddress(property.address).then(folder => {
+      console.log("[PropertyDetail] findFolderByAddress result:", folder ? { name: folder.name, id: folder.google_drive_id, path: folder.folder_path } : "NOT FOUND");
       if (folder) setFolderId(folder.google_drive_id);
       else setNotFound(true);
       setSearching(false);
@@ -69,6 +70,8 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         await supaInsert("documents", {
           title: r.name, google_drive_file_id: r.id,
           parent_folder_drive_id: dateFolder.id,
+          folder_path: `${folderPath} > ${yearFolder.name} > ${dateFolder.name}`,
+          category: "inspeccion",
           mime_type: mimeMap[ext] || r.mimeType || "image/jpeg",
           file_type: ext || "jpg",
         });
@@ -79,6 +82,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   const handleUpload = async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length || !drive?.token || !drive?.uploadPhotos || !folderId) return;
+    console.log("[PropertyDetail] handleUpload using folderId:", folderId, "for property:", property.address);
     setUploading(true); setUploadMsg(`Subiendo ${files.length} fotos...`);
     try {
       const { dateFolder, results, yearFolder, inspeccionFolder } = await drive.uploadPhotos(
