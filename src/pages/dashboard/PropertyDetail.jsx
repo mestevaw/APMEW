@@ -1,11 +1,16 @@
-// src/pages/dashboard/PropertyDetail.jsx
+// ═══════════════════════════════════════════
+// Archivo: src/pages/dashboard/PropertyDetail.jsx
+// Versión: 1.0
+// Fecha: 2026-02-25
+// ═══════════════════════════════════════════
+
 import { useState, useEffect, useRef } from "react";
 import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
 import { supaFetch, supaInsert } from "../../lib/supabase";
 import { Card, Badge, Spinner } from "../../components/UI";
 import { OWNER_COLORS, PROPERTY_VALUES_2025 } from "./constants";
-import { fmtMoney, findFolderByAddress } from "./helpers";
+import { fmtMoney, findFolderByAddress, isPersonalProperty } from "./helpers";
 import { DRIVE_ROOT_FOLDER } from "../../lib/config";
 import { HouseIcon } from "./icons";
 import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuComponents";
@@ -24,7 +29,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   const [tenant, setTenant] = useState(null);
   const uploadRef = useRef(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const personal = property.address.includes("Progreso") || property.address.includes("Argo"); // to refresh SupaExplorer after upload
+  const personal = isPersonalProperty(property.address);
 
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null); setTenant(null);
@@ -76,7 +81,6 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   };
 
   const registerInSupabase = async (dateFolder, yearFolder, inspeccionFolder, results) => {
-    // Look up the parent property folder's path from Supabase
     let basePath = "";
     try {
       const parentRows = await supaFetch("drive_folders", { filters: `google_drive_id=eq.${folderId}` });
@@ -84,12 +88,10 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
     } catch (e) { console.error("lookup parent path:", e); }
     if (!basePath) basePath = `PROPERTY > ${property.address}`;
 
-    // Use real folder names from Drive (e.g. "INSPECCIONES" not hardcoded "INSPECCION")
     const inspecPath = `${basePath}/${inspeccionFolder.name}`;
     const yearPath = `${inspecPath}/${yearFolder.name}`;
     const datePath = `${yearPath}/${dateFolder.name}`;
 
-    // Register folders in drive_folders if not already there
     for (const f of [
       { name: inspeccionFolder.name, id: inspeccionFolder.id, parent: folderId, path: inspecPath },
       { name: yearFolder.name, id: yearFolder.id, parent: inspeccionFolder.id, path: yearPath },
@@ -102,7 +104,6 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         }
       } catch (e) { console.error("folder register:", e); }
     }
-    // Register each uploaded photo in documents
     for (const r of results) {
       try {
         const ext = (r.name || "").split(".").pop().toLowerCase();
@@ -129,11 +130,10 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         files, folderId, property.address,
         (cur, total, name) => setUploadMsg(`Subiendo ${cur}/${total}...`)
       );
-      // Register in Supabase so they appear in SupaExplorer
       setUploadMsg(`Indexando ${results.length} fotos...`);
       await registerInSupabase(dateFolder, yearFolder, inspeccionFolder, results);
       setUploadMsg(`✓ ${results.length} fotos subidas e indexadas`);
-      setRefreshKey(k => k + 1); // refresh file list
+      setRefreshKey(k => k + 1);
     } catch (err) { setUploadMsg("Error: " + err.message); }
     setUploading(false); e.target.value = "";
     setTimeout(() => setUploadMsg(""), 5000);
@@ -148,8 +148,8 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         </button>
         <div style={{ flex: 1, cursor: "pointer" }} onClick={onBack}>
           <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{property.address}</h1>
-          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim }}>
-            <button onClick={(e) => { e.stopPropagation(); onOwnerClick?.(property.owner); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim, textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}>{property.owner}</button>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim, cursor: onOwnerClick ? "pointer" : "default" }} onClick={e => { if (onOwnerClick) { e.stopPropagation(); onOwnerClick(property.owner); } }}>
+            {property.owner}
             {property.sold ? " · Vendida" : ""}
           </span>
         </div>
@@ -294,7 +294,5 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
     </div>
   );
 };
-
-// ═══════════════════════════════════════════
 
 export default PropertyDetail;
