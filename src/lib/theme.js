@@ -1,3 +1,9 @@
+// ═══════════════════════════════════════════
+// Archivo: src/lib/theme.js
+// Versión: 1.0
+// Fecha: 2026-02-25
+// ═══════════════════════════════════════════
+
 export const C = {
   bg: "#0C0F14", surface: "#151920", surface2: "#1C2230",
   border: "#2A3040", borderLight: "#353D50",
