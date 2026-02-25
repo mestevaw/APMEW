@@ -1,4 +1,4 @@
-// dashboard/PropertiesView.jsx
+// src/pages/dashboard/PropertiesView.jsx
 import { useState, useEffect, useRef } from "react";
 import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
@@ -37,7 +37,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
 
     // Find folder ID for this property
     setUploading(true); setUploadMsg(`Buscando carpeta de ${uploadTarget.address}...`);
-    const folder = await findFolderByAddress(uploadTarget.address);
+    const folder = await findFolderByAddress(uploadTarget.address, uploadTarget.owner);
     if (!folder) {
       setUploadMsg("No se encontró la carpeta. Vincula manualmente primero.");
       setUploading(false); return;
