@@ -130,6 +130,63 @@ export const useGoogleDrive = () => {
     return uploadRes.json();
   };
 
+  // ─── Search for a property folder by navigating Drive tree ───
+  const searchFolderByAddress = async (address, ownerName, rootFolderId) => {
+    if (!token || !rootFolderId) return null;
+    const numMatch = address.match(/^\d+/);
+    const street = address.replace(/^\d+\s*/, "").trim().split(/[\s,]/)[0].toUpperCase();
+    if (!numMatch) return null;
+    console.log("[searchFolder] Looking for:", numMatch[0], street, "owner:", ownerName);
+
+    // Step 1: Find PROPERTY MANAGEMENT in root
+    const pmFolder = await findSubfolder(rootFolderId, "PROPERTY MANAGEMENT");
+    if (!pmFolder) { console.log("[searchFolder] PROPERTY MANAGEMENT not found"); return null; }
+
+    // Step 2: Find owner folder (e.g. TORTUGA HOME)
+    const ownerClean = ownerName?.trim();
+    const ownerFolder = ownerClean ? await findSubfolder(pmFolder.id, ownerClean) : null;
+    console.log("[searchFolder] Owner folder:", ownerFolder);
+
+    // Step 3: Search for address folder inside owner (or PM if no owner found)
+    const searchIn = ownerFolder || pmFolder;
+    const data = await listFiles(searchIn.id);
+    if (!data?.files) return null;
+
+    const match = data.files.find(f => {
+      if (f.mimeType !== "application/vnd.google-apps.folder") return false;
+      const name = f.name.toUpperCase();
+      return name.includes(numMatch[0]) && name.includes(street);
+    });
+
+    if (match) {
+      console.log("[searchFolder] Found:", match.name, match.id);
+      return { id: match.id, name: match.name };
+    }
+
+    // Step 4: If not found in owner, try all PM subfolders (fallback)
+    if (ownerFolder) {
+      console.log("[searchFolder] Not in owner folder, trying all PM subfolders...");
+      const pmData = await listFiles(pmFolder.id);
+      if (pmData?.files) {
+        for (const sub of pmData.files.filter(f => f.mimeType === "application/vnd.google-apps.folder")) {
+          const subData = await listFiles(sub.id);
+          const found = subData?.files?.find(f => {
+            if (f.mimeType !== "application/vnd.google-apps.folder") return false;
+            const name = f.name.toUpperCase();
+            return name.includes(numMatch[0]) && name.includes(street);
+          });
+          if (found) {
+            console.log("[searchFolder] Found in", sub.name, ":", found.name, found.id);
+            return { id: found.id, name: found.name };
+          }
+        }
+      }
+    }
+
+    console.log("[searchFolder] NOT FOUND:", address);
+    return null;
+  };
+
   // ─── Upload multiple photos to inspection folder ───
   const uploadPhotos = async (files, propertyFolderId, propertyName, onProgress) => {
     if (!token) throw new Error("No token");
@@ -180,5 +237,5 @@ export const useGoogleDrive = () => {
     return { dateFolder, yearFolder, inspeccionFolder, results };
   };
 
-  return { token, gisLoaded, signIn, signOut, listAllFiles, createFolder, findSubfolder, uploadFile, uploadPhotos };
+  return { token, gisLoaded, signIn, signOut, listAllFiles, createFolder, findSubfolder, uploadFile, uploadPhotos, searchFolderByAddress };
 };
