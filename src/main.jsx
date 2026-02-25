@@ -1,9 +1,18 @@
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './App.jsx'
+// ═══════════════════════════════════════════
+// Archivo: src/main.jsx
+// Versión: 2
+// Fecha: 2026-02-25
+// ═══════════════════════════════════════════
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App.jsx";
+import { ToastProvider } from "./components/Toast.jsx";
+
+ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <App />
+    <ToastProvider>
+      <App />
+    </ToastProvider>
   </React.StrictMode>,
-)
+);
