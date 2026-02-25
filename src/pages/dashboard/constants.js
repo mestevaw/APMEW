@@ -43,6 +43,16 @@ export const PROPERTIES = [
   { address: "Ave Progreso 15, Depto C101", owner: "Miguel y AnaP" },
 ];
 
+export const PROPERTY_VALUES_2025 = {
+  "6515 Hazy Glen": 195000, "10919 Soogan Trail": 185000, "14231 Dusky Thrush": 237000,
+  "10731 Shaencrossing": 215000, "10603 Shaencrest": 215000, "8719 Snow Goose": 180000,
+  "14331 Purple Martin": 215000, "5275 Charolais": 190000, "9283 Ridge Breeze": 240000,
+  "5430 Spring Walk": 190000, "5802 Silent Meadow": 225000, "10 Moondance Hill": 214000,
+  "1526 Alaskan Wolf": 175000, "9519 Gillcross Way": 220000, "5403 Villa Marco": 200000,
+  "10123 Dixon Wood": 200000, "15151 Spring Mist": 215000, "14107 Purple Martin": 230000,
+  "9319 Caen": 230000, "12118 Allegheny River": 260000, "11636 Midnight Rain": 254000,
+  "7039 Cozy Run": 215000,
+};
 export const OWNER_COLORS = { "Mango Nest": "#4ADE80", "MNA Works": "#60A5FA", "Tortuga Home": "#F59E0B", "Argo Real": "#A78BFA", "Miguel y AnaP": "#C8A862" };
 export const OWNER_SHORT = { "Mango Nest": "Mango", "MNA Works": "MNA", "Tortuga Home": "Tortuga", "Argo Real": "Argo", "Miguel y AnaP": "AnaPMEW" };
 
