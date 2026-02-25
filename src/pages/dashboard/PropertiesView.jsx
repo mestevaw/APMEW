@@ -27,7 +27,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const handleStartUpload = (prop) => {
     setUploadTarget(prop);
     setMenuOpen(false);
-    if (!drive?.token && drive?.signIn) { drive.signIn(); return; }
+    if (!drive?.token) { setUploadMsg("Conecta Google Drive primero (botón en la barra lateral)"); setTimeout(() => setUploadMsg(""), 4000); return; }
     setTimeout(() => fileInputRef.current?.click(), 100);
   };
 
@@ -80,12 +80,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             </MenuBtn>
             <MenuDivider />
             <MenuLabel>Fotos</MenuLabel>
-            <MenuBtn onClick={() => {
-              if (!drive?.token && drive?.signIn) { drive.signIn(); setMenuOpen(false); return; }
-              setMenuOpen(false);
-            }}>
-              {drive?.token ? "✅ Drive conectado" : "🔗 Conectar Google Drive"}
-            </MenuBtn>
+            {drive?.token && <MenuBtn onClick={() => setMenuOpen(false)}>✅ Drive conectado</MenuBtn>}
           </DropMenu>
         </div>
       </div>
