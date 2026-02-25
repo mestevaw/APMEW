@@ -1,43 +1,46 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/InspectionsPage.jsx
-// Versión: 1.0
+// Versión: 1
 // Fecha: 2026-02-25
 // ═══════════════════════════════════════════
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { C } from "../lib/theme";
 import { I } from "../lib/icons";
 import { DRIVE_ROOT_FOLDER } from "../lib/config";
 import { supaFetch, supaInsert } from "../lib/supabase";
-import { isImage } from "../lib/helpers";
+import { isImage, todayFolderName } from "../lib/helpers";
 import { Card, Spinner } from "../components/UI";
 import { PROPERTIES, OWNER_COLORS } from "./dashboard/constants";
 import AuthImage from "./dashboard/AuthImage";
 import PhotoGallery from "./dashboard/PhotoGallery";
 
-const MONTHS = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-const todayName = () => {
-  const d = new Date();
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
-};
-
 export const InspectionsPage = ({ mob, drive }) => {
   const activeProps = PROPERTIES.filter(p => !p.sold);
-  const [selected, setSelected] = useState(null);       // selected property
-  const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState("");              // status text
-  const [dateFolderId, setDateFolderId] = useState(null);
-  const [photos, setPhotos] = useState([]);
-  const [notes, setNotes] = useState([]);
+  const [selected, setSelected]           = useState(null);
+  const [loading, setLoading]             = useState(false);
+  const [status, setStatus]               = useState("");
+  const [dateFolderId, setDateFolderId]   = useState(null);
+  const [photos, setPhotos]               = useState([]);
+  const [notes, setNotes]                 = useState([]);
   const [galleryImages, setGalleryImages] = useState(null);
-  const [galleryStart, setGalleryStart] = useState(0);
-  const [uploading, setUploading] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState("");
+  const [galleryStart, setGalleryStart]   = useState(0);
+  const [uploading, setUploading]         = useState(false);
+  const [uploadMsg, setUploadMsg]         = useState("");
   const uploadRef = useRef(null);
 
-  // ─── Navigate to INSPECCION/year/today for selected property ───
+  // Extraemos token para evitar que el objeto `drive` (nueva ref cada render)
+  // dispare el efecto innecesariamente.
+  const driveToken = drive?.token;
+
+  // ─── Stable references a funciones de drive ───
+  const searchFolderByAddress = drive?.searchFolderByAddress;
+  const findSubfolder         = drive?.findSubfolder;
+  const listAllFiles          = drive?.listAllFiles;
+
+  // ─── Navigate to INSPECCION/year/today para la propiedad seleccionada ───
   useEffect(() => {
-    if (!selected || !drive?.token) return;
+    if (!selected || !driveToken) return;
     let cancelled = false;
 
     const navigate = async () => {
@@ -49,9 +52,7 @@ export const InspectionsPage = ({ mob, drive }) => {
 
       try {
         // 1. Find property folder in Drive
-        const propFolder = await drive.searchFolderByAddress(
-          selected.address, selected.owner, DRIVE_ROOT_FOLDER
-        );
+        const propFolder = await searchFolderByAddress(selected.address, selected.owner, DRIVE_ROOT_FOLDER);
         if (cancelled) return;
         if (!propFolder) {
           setStatus("No se encontró la carpeta de la propiedad en Drive.");
@@ -59,9 +60,9 @@ export const InspectionsPage = ({ mob, drive }) => {
           return;
         }
 
-        // 2. Find INSPECCION subfolder
+        // 2. INSPECCION subfolder
         setStatus("Buscando carpeta INSPECCION...");
-        const inspecFolder = await drive.findSubfolder(propFolder.id, "INSPEC");
+        const inspecFolder = await findSubfolder(propFolder.id, "INSPEC");
         if (cancelled) return;
         if (!inspecFolder) {
           setStatus("No existe carpeta INSPECCION para esta propiedad.");
@@ -69,10 +70,10 @@ export const InspectionsPage = ({ mob, drive }) => {
           return;
         }
 
-        // 3. Find year folder
+        // 3. Year folder
         const year = new Date().getFullYear().toString();
         setStatus(`Buscando carpeta ${year}...`);
-        const yearFolder = await drive.findSubfolder(inspecFolder.id, year);
+        const yearFolder = await findSubfolder(inspecFolder.id, year);
         if (cancelled) return;
         if (!yearFolder) {
           setStatus(`No hay carpeta de inspecciones para ${year}.`);
@@ -80,48 +81,43 @@ export const InspectionsPage = ({ mob, drive }) => {
           return;
         }
 
-        // 4. Find today's date folder
-        const today = todayName();
+        // 4. Today's date folder
+        const today = todayFolderName();
         setStatus(`Buscando inspección de hoy (${today})...`);
-        const dateFolder = await drive.findSubfolder(yearFolder.id, today);
+        const dateFolder = await findSubfolder(yearFolder.id, today);
         if (cancelled) return;
 
-        if (dateFolder) {
-          setDateFolderId(dateFolder.id);
-          setStatus("");
-
-          // 5. List photos in today's folder
-          const files = await drive.listAllFiles(dateFolder.id);
-          if (cancelled) return;
-          const imgs = (files || [])
+        const loadPhotosFromFolder = async (folderId) => {
+          const files = await listAllFiles(folderId);
+          if (cancelled) return [];
+          return (files || [])
             .filter(f => isImage(f.mimeType))
             .map(f => ({
               id: f.id, title: f.name, google_drive_file_id: f.id,
               mime_type: f.mimeType, file_type: (f.name || "").split(".").pop().toLowerCase(),
             }));
-          setPhotos(imgs);
+        };
+
+        if (dateFolder) {
+          setDateFolderId(dateFolder.id);
+          setStatus("");
+          const imgs = await loadPhotosFromFolder(dateFolder.id);
+          if (!cancelled) setPhotos(imgs);
         } else {
-          // No folder for today — show most recent inspection
+          // No folder for today — show most recent
           setStatus("No hay inspección de hoy. Mostrando la más reciente...");
-          const allDates = await drive.listAllFiles(yearFolder.id);
+          const allDates = await listAllFiles(yearFolder.id);
           if (cancelled) return;
           const folders = (allDates || [])
             .filter(f => f.mimeType === "application/vnd.google-apps.folder")
-            .sort((a, b) => b.name.localeCompare(a.name)); // most recent first by name
+            .sort((a, b) => b.name.localeCompare(a.name));
 
           if (folders.length > 0) {
             const recentFolder = folders[0];
             setDateFolderId(recentFolder.id);
             setStatus(`Mostrando: ${recentFolder.name}`);
-            const files = await drive.listAllFiles(recentFolder.id);
-            if (cancelled) return;
-            const imgs = (files || [])
-              .filter(f => isImage(f.mimeType))
-              .map(f => ({
-                id: f.id, title: f.name, google_drive_file_id: f.id,
-                mime_type: f.mimeType, file_type: (f.name || "").split(".").pop().toLowerCase(),
-              }));
-            setPhotos(imgs);
+            const imgs = await loadPhotosFromFolder(recentFolder.id);
+            if (!cancelled) setPhotos(imgs);
           } else {
             setStatus("No hay inspecciones registradas este año.");
           }
@@ -143,21 +139,18 @@ export const InspectionsPage = ({ mob, drive }) => {
 
     navigate();
     return () => { cancelled = true; };
-  }, [selected, drive?.token]);
+  }, [selected, driveToken, searchFolderByAddress, findSubfolder, listAllFiles]);
 
   // ─── Upload handler ───
   const handleUpload = async (e) => {
     const files = Array.from(e.target.files || []);
-    if (!files.length || !drive?.token || !drive?.uploadPhotos || !selected) return;
+    if (!files.length || !driveToken || !drive?.uploadPhotos || !selected) return;
 
     setUploading(true);
     setUploadMsg(`Subiendo ${files.length} fotos...`);
 
     try {
-      // Find property folder
-      const propFolder = await drive.searchFolderByAddress(
-        selected.address, selected.owner, DRIVE_ROOT_FOLDER
-      );
+      const propFolder = await searchFolderByAddress(selected.address, selected.owner, DRIVE_ROOT_FOLDER);
       if (!propFolder) throw new Error("No se encontró la carpeta de la propiedad");
 
       const { results, skipped = 0 } = await drive.uploadPhotos(
@@ -165,13 +158,13 @@ export const InspectionsPage = ({ mob, drive }) => {
         (cur, total, name) => setUploadMsg(`Subiendo ${cur}/${total}... ${name}`)
       );
       const newUploads = results.filter(r => !r.skipped).length;
-      const msg = skipped > 0
+      setUploadMsg(skipped > 0
         ? `✓ ${newUploads} nuevas, ${skipped} ya existían`
-        : `✓ ${results.length} fotos subidas`;
-      setUploadMsg(msg);
+        : `✓ ${results.length} fotos subidas`
+      );
 
-      // Refresh the view
-      setSelected({ ...selected }); // trigger re-fetch
+      // Refresh
+      setSelected({ ...selected });
     } catch (err) {
       setUploadMsg("Error: " + err.message);
     }
@@ -181,9 +174,9 @@ export const InspectionsPage = ({ mob, drive }) => {
   };
 
   // ─── Add note ───
-  const handleAddNote = () => {
+  const handleAddNote = useCallback(() => {
     const note = prompt("Nota de inspección:");
-    if (!note || !note.trim() || !selected) return;
+    if (!note?.trim() || !selected) return;
     const dateStr = new Date().toISOString().slice(0, 10);
     supaInsert("inspection_notes", {
       property_address: selected.address,
@@ -193,7 +186,6 @@ export const InspectionsPage = ({ mob, drive }) => {
     })
       .then(() => {
         setUploadMsg("✓ Nota guardada");
-        // Refresh notes
         supaFetch("inspection_notes", {
           filters: `property_address=eq.${encodeURIComponent(selected.address)}`,
           order: "note_date.desc",
@@ -201,10 +193,10 @@ export const InspectionsPage = ({ mob, drive }) => {
       })
       .catch(err => setUploadMsg("Error: " + err.message));
     setTimeout(() => setUploadMsg(""), 4000);
-  };
+  }, [selected]);
 
-  // ─── Render ───
-  if (!drive?.token) {
+  // ─── Render: sin token ───
+  if (!driveToken) {
     return (
       <div>
         <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, marginBottom: 4 }}>Inspecciones</h1>
@@ -217,24 +209,24 @@ export const InspectionsPage = ({ mob, drive }) => {
     );
   }
 
+  // ─── Render principal ───
   return (
     <div>
-      {/* Photo Gallery */}
       {galleryImages && (
         <PhotoGallery
           images={galleryImages} startIndex={galleryStart}
           onClose={() => setGalleryImages(null)}
-          mob={mob} token={drive.token}
+          mob={mob} token={driveToken}
           propertyAddress={selected?.address}
         />
       )}
 
       <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, marginBottom: 4 }}>Inspecciones</h1>
       <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 20 }}>
-        Fotos y notas de inspecciones · {todayName()}
+        Fotos y notas de inspecciones · {todayFolderName()}
       </p>
 
-      {/* Property selector */}
+      {/* Selector de propiedad */}
       {!selected ? (
         <Card>
           <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.textDim, marginBottom: 12 }}>Selecciona una propiedad:</div>
@@ -259,7 +251,7 @@ export const InspectionsPage = ({ mob, drive }) => {
         </Card>
       ) : (
         <div>
-          {/* Back + property header */}
+          {/* Back + header */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
             <button onClick={() => { setSelected(null); setDateFolderId(null); setPhotos([]); setNotes([]); setStatus(""); }}
               style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>
@@ -269,7 +261,6 @@ export const InspectionsPage = ({ mob, drive }) => {
               <div style={{ fontFamily: "DM Sans", fontSize: mob ? 16 : 18, fontWeight: 700, color: C.text }}>{selected.address}</div>
               <div style={{ fontFamily: "DM Sans", fontSize: 11, color: OWNER_COLORS[selected.owner] || C.textDim }}>{selected.owner}</div>
             </div>
-            {/* Action buttons */}
             <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
             <button onClick={() => uploadRef.current?.click()} disabled={uploading} style={{
               padding: "6px 12px", background: `${C.accent}15`, border: `1px solid ${C.accent}40`,
@@ -292,7 +283,6 @@ export const InspectionsPage = ({ mob, drive }) => {
             </div>
           )}
 
-          {/* Loading */}
           {loading && (
             <Card style={{ textAlign: "center", padding: 30 }}>
               <Spinner />
@@ -300,7 +290,6 @@ export const InspectionsPage = ({ mob, drive }) => {
             </Card>
           )}
 
-          {/* Status (non-loading) */}
           {!loading && status && !dateFolderId && (
             <Card style={{ textAlign: "center", padding: 30 }}>
               <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
@@ -308,7 +297,7 @@ export const InspectionsPage = ({ mob, drive }) => {
             </Card>
           )}
 
-          {/* Notes section */}
+          {/* Notas */}
           {!loading && notes.length > 0 && (
             <Card style={{ marginBottom: 16 }}>
               <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>📝 Notas de Inspección</div>
@@ -329,11 +318,10 @@ export const InspectionsPage = ({ mob, drive }) => {
             </Card>
           )}
 
-          {/* Photos */}
+          {/* Fotos */}
           {!loading && dateFolderId && (
             <Card>
               {status && <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent, marginBottom: 10 }}>{status}</div>}
-
               {photos.length > 0 ? (
                 <div>
                   <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, marginBottom: 8 }}>🖼️ {photos.length} fotos</div>
@@ -346,7 +334,7 @@ export const InspectionsPage = ({ mob, drive }) => {
                       }}
                         onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
                         onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-                        <AuthImage fileId={img.google_drive_file_id} token={drive.token} alt={img.title}
+                        <AuthImage fileId={img.google_drive_file_id} token={driveToken} alt={img.title}
                           style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                       </button>
                     ))}
@@ -364,5 +352,3 @@ export const InspectionsPage = ({ mob, drive }) => {
     </div>
   );
 };
-
-export default InspectionsPage;
