@@ -34,7 +34,7 @@ export const useGoogleDrive = () => {
   });
 
   const listFiles = async (folderId, pageToken) => {
-    if (!token) return null;
+    if (!token || !folderId || folderId === "undefined" || folderId === "null") return null;
     let url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=nextPageToken,files(id,name,mimeType,webViewLink,iconLink,modifiedTime,size,parents)&pageSize=100&orderBy=folder,name&supportsAllDrives=true&includeItemsFromAllDrives=true`;
     if (pageToken) url += `&pageToken=${pageToken}`;
     const res = await fetch(url, {
@@ -132,7 +132,8 @@ export const useGoogleDrive = () => {
 
   // ─── Search for a property folder by navigating Drive tree ───
   const searchFolderByAddress = async (address, ownerName, rootFolderId) => {
-    if (!token || !rootFolderId) return null;
+    if (!token || !rootFolderId || !address) return null;
+    try {
     const numMatch = address.match(/^\d+/);
     const street = address.replace(/^\d+\s*/, "").trim().split(/[\s,]/)[0].toUpperCase();
     if (!numMatch) return null;
@@ -185,6 +186,10 @@ export const useGoogleDrive = () => {
 
     console.log("[searchFolder] NOT FOUND:", address);
     return null;
+    } catch (e) {
+      console.error("[searchFolder] Error:", e);
+      return null;
+    }
   };
 
   // ─── Upload multiple photos to inspection folder ───
