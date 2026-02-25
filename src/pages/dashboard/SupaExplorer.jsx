@@ -130,12 +130,6 @@ const SupaExplorer = ({ rootFolderId, mob, drive }) => {
               <div style={{ padding: "12px 0 4px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, paddingLeft: 4 }}>
                   <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>🖼️ {imageFiles.length} fotos</span>
-                  {!drive?.token && drive?.signIn && (
-                    <button onClick={drive.signIn} style={{
-                      fontFamily: "DM Sans", fontSize: 11, color: C.blue, background: `${C.blue}15`,
-                      border: `1px solid ${C.blue}40`, borderRadius: 6, padding: "3px 10px", cursor: "pointer",
-                    }}>Conectar Drive para ver fotos</button>
-                  )}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: mob ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 6 }}>
                   {imageFiles.map((img, idx) => (
