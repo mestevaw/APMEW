@@ -26,6 +26,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const [selectedOwner, setSelectedOwner] = useState(null);
   const [statYear, setStatYear] = useState(new Date().getFullYear());
   const [showYearlyDetail, setShowYearlyDetail] = useState(null);
+  const [showPatrimonio, setShowPatrimonio] = useState(false);
 
   const totalA = assets.reduce((s, a) => s + Number(a.current_value || 0), 0);
   const totalD = debts.reduce((s, d) => s + Number(d.outstanding_balance || 0), 0);
@@ -122,7 +123,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
         {isIncome ? (
           <Card>
             {rentRows.length > 0 && <>
-              <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>💰 GROSS RENTS</div>
+              <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>💰 RENTAS TOTALES</div>
               {rentRows.map((r, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
                   <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text }}>{r.property_address}</span>
@@ -163,6 +164,67 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
             {expenseRows.length === 0 && <div style={{ textAlign: "center", padding: 30, color: C.textDim }}>Sin gastos en {statYear}</div>}
           </Card>
         )}
+      </div>
+    );
+  }
+
+  // ═══ PATRIMONIO DETAIL VIEW ═══
+  if (showPatrimonio) {
+    const propEntries = Object.entries(PROPERTY_VALUES_2025).sort((a, b) => b[1] - a[1]);
+    const sortedAssets = [...assets].sort((a, b) => Number(b.current_value || 0) - Number(a.current_value || 0));
+    const sortedDebts = [...debts].sort((a, b) => Number(b.outstanding_balance || 0) - Number(a.outstanding_balance || 0));
+
+    const Section = ({ title, icon, items, total, color }) => (
+      <Card style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim }}>{icon} {title}</span>
+          <span style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color }}>{fmtMoney(total)}</span>
+        </div>
+        {items.map((item, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none" }}>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{item.label}</span>
+            <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, color, flexShrink: 0 }}>{fmtMoney(item.value)}</span>
+          </div>
+        ))}
+      </Card>
+    );
+
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <button onClick={() => setShowPatrimonio(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
+          <div style={{ flex: 1 }}>
+            <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>Patrimonio Neto</h1>
+            <span style={{ fontFamily: "JetBrains Mono", fontSize: 14, color: nw >= 0 ? C.green : C.red }}>{fmtMoney(nw)}</span>
+          </div>
+        </div>
+
+        {/* Summary bar */}
+        <Card style={{ marginBottom: 16, padding: "12px 16px" }}>
+          {[
+            { label: "Activos financieros", value: totalA, color: C.blue },
+            { label: "Valor propiedades", value: totalPropValue, color: C.accent },
+            { label: "Deudas", value: totalD, color: C.red },
+          ].map((r, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 2 ? `1px solid ${C.border}` : "none" }}>
+              <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>{r.label}</span>
+              <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: r.color }}>{i === 2 ? "-" : ""}{fmtMoney(r.value)}</span>
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 2px", borderTop: `2px solid ${C.border}`, marginTop: 6 }}>
+            <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 700, color: C.text }}>Patrimonio Neto</span>
+            <span style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 700, color: nw >= 0 ? C.green : C.red }}>{fmtMoney(nw)}</span>
+          </div>
+        </Card>
+
+        <Section title="ACTIVOS FINANCIEROS" icon="💰" color={C.blue} total={totalA}
+          items={sortedAssets.map(a => ({ label: a.name || a.asset_type, value: Number(a.current_value || 0) }))} />
+
+        <Section title={`PROPIEDADES (${propEntries.length})`} icon="🏠" color={C.accent} total={totalPropValue}
+          items={propEntries.map(([addr, val]) => ({ label: addr, value: val }))} />
+
+        <Section title="DEUDAS" icon="📉" color={C.red} total={totalD}
+          items={sortedDebts.map(d => ({ label: d.creditor || d.debt_type, value: Number(d.outstanding_balance || 0) }))} />
       </div>
     );
   }
@@ -261,7 +323,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(auto-fit, minmax(200px, 1fr))", gap: mob ? 10 : 16, marginBottom: mob ? 16 : 28 }}>
-        <StatCard label="PATRIMONIO NETO" value={fmt(nw)} sub={`Activos: ${fmt(totalA)} · Props: ${fmt(totalPropValue)}`} color={nw >= 0 ? C.green : C.red} icon={I.patrimony} delay={.1} mob={mob} />
+        <StatCard label="PATRIMONIO NETO" value={fmt(nw)} sub={`Activos: ${fmt(totalA)} · Props: ${fmt(totalPropValue)} ▸`} color={nw >= 0 ? C.green : C.red} icon={I.patrimony} delay={.1} mob={mob} onClick={() => setShowPatrimonio(true)} />
         <StatCard label="VALOR PROPIEDADES" value={fmt(totalPropValue)} sub={`${Object.keys(PROPERTY_VALUES_2025).length} propiedades (2025)`} color={C.accent} icon="🏠" delay={.12} mob={mob} />
         <StatCard label="INGRESOS ACTUALES" value={fmt(ti)} sub="Mensuales" color={C.blue} icon={I.income} delay={.15} mob={mob} />
         <StatCard label="GASTOS RETIRO" value={fmt(tre)} sub="Mensuales estimados" color={C.red} icon={I.expenses} delay={.2} mob={mob} />
