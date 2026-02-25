@@ -1,4 +1,4 @@
-// dashboard/PropertyDetail.jsx
+// src/pages/dashboard/PropertyDetail.jsx
 import { useState, useEffect, useRef } from "react";
 import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
@@ -27,7 +27,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
 
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null); setTenant(null);
-    findFolderByAddress(property.address).then(folder => {
+    findFolderByAddress(property.address, property.owner).then(folder => {
       console.log("[PropertyDetail] findFolderByAddress result:", folder ? { name: folder.name, id: folder.google_drive_id, path: folder.folder_path } : "NOT FOUND");
       if (folder) setFolderId(folder.google_drive_id);
       else setNotFound(true);
