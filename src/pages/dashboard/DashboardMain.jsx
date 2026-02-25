@@ -56,8 +56,15 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const deByYear = (dailyExpenses || []).filter(e => e.expense_date && e.expense_date.startsWith(String(statYear)));
   const yearlyExpenses = deByYear.filter(e => Number(e.amount) > 0).reduce((s, e) => s + Number(e.amount || 0), 0);
   // Only count refunds as income (negative amount BUT not credit card payments)
-  // Credit card payments = category "otro"/"Otro" + negative amount → excluded
-  const isCardPayment = (e) => (e.category === "otro" || e.category === "Otro") && Number(e.amount) < 0;
+  const CARD_KEYWORDS = ["capital one", "amex", "american express", "mastercard", "chase", "citi"];
+  const isCardPayment = (e) => {
+    if (Number(e.amount) >= 0) return false;
+    // Category "otro" + negative = always a payment
+    if (e.category === "otro" || e.category === "Otro") return true;
+    // Concept contains a credit card company name = payment
+    const c = (e.concept || "").toLowerCase();
+    return CARD_KEYWORDS.some(k => c.includes(k));
+  };
   const yearlyRefunds = deByYear.filter(e => Number(e.amount) < 0 && !isCardPayment(e)).reduce((s, e) => s + Math.abs(Number(e.amount || 0)), 0);
   const rentsForYear = allGrossRents.filter(r => r.period_year === statYear).reduce((s, r) => s + Number(r.amount || 0), 0);
   const yearlyIncome = rentsForYear + yearlyRefunds;
