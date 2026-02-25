@@ -3,6 +3,7 @@
 // Versión: 1.0
 // Fecha: 2026-02-25
 // ═══════════════════════════════════════════
+import { useState, useEffect, useRef } from "react";
 import { supaFetch, supaInsert, supaDelete } from "../../lib/supabase";
 import { Card, Badge, Spinner } from "../../components/UI";
 import { getPropExpenseTypes, MONTHS_SHORT, PROPERTIES } from "./constants";
