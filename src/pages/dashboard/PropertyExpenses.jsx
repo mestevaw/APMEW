@@ -1,10 +1,12 @@
-// dashboard/PropertyExpenses.jsx
-import { useState, useEffect } from "react";
-import { C } from "../../lib/theme";
+// ═══════════════════════════════════════════
+// Archivo: src/pages/dashboard/PropertyExpenses.jsx
+// Versión: 1.0
+// Fecha: 2026-02-25
+// ═══════════════════════════════════════════
 import { supaFetch, supaInsert, supaDelete } from "../../lib/supabase";
 import { Card, Badge, Spinner } from "../../components/UI";
 import { getPropExpenseTypes, MONTHS_SHORT, PROPERTIES } from "./constants";
-import { fmtMoney } from "./helpers";
+import { fmtMoney, isPersonalProperty } from "./helpers";
 
 const PropertyExpenses = ({ address, mob }) => {
   const [propExp, setPropExp] = useState([]);
@@ -23,7 +25,7 @@ const PropertyExpenses = ({ address, mob }) => {
   const [selectedYear, setSelectedYear] = useState(null); // null = auto-latest
 
   const types = getPropExpenseTypes(address);
-  const personal = address.includes("Progreso") || address.includes("Argo");
+  const personal = isPersonalProperty(address);
 
   // Map tags → property address + expense type
   const TAG_MAP = {
