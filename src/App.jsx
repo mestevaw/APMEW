@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════
 // Archivo: src/App.jsx
-// Versión: 1
+// Versión: 2
 // Fecha: 2026-02-25
 // ═══════════════════════════════════════════
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 
 // ─── Lib ───
 import { C, baseStyles } from "./lib/theme";
@@ -15,17 +15,20 @@ import { useGoogleDrive } from "./lib/useGoogleDrive";
 
 // ─── Components ───
 import { Loading, NavItem } from "./components/UI";
+import { useToast } from "./components/Toast";
 
-// ─── Pages ───
-import { DashboardPage } from "./pages/DashboardPage";
-import { CrudPage } from "./pages/CrudPage";
-import { ExpensesPage } from "./pages/ExpensesPage";
-import { PatrimonyPage } from "./pages/PatrimonyPage";
-import { ChecklistPage } from "./pages/ChecklistPage";
+// ─── Pages: lazy-loaded (se descargan solo cuando se navegan) ───
+const DashboardPage     = lazy(() => import("./pages/DashboardPage").then(m => ({ default: m.DashboardPage })));
+const DailyExpensesPage = lazy(() => import("./pages/DailyExpensesPage").then(m => ({ default: m.DailyExpensesPage })));
+const DocumentsPage     = lazy(() => import("./pages/DocumentsPage").then(m => ({ default: m.DocumentsPage })));
+const InspectionsPage   = lazy(() => import("./pages/InspectionsPage").then(m => ({ default: m.InspectionsPage })));
+const ExpensesPage      = lazy(() => import("./pages/ExpensesPage").then(m => ({ default: m.ExpensesPage })));
+const PatrimonyPage     = lazy(() => import("./pages/PatrimonyPage").then(m => ({ default: m.PatrimonyPage })));
+
+// ─── Pages: ligeras, import directo ───
+import { CrudPage }       from "./pages/CrudPage";
+import { ChecklistPage }  from "./pages/ChecklistPage";
 import { ProjectionPage } from "./pages/ProjectionPage";
-import { DailyExpensesPage } from "./pages/DailyExpensesPage";
-import { DocumentsPage } from "./pages/DocumentsPage";
-import { InspectionsPage } from "./pages/InspectionsPage";
 
 // ─── Date helper ───
 const todayStr = () => {
@@ -43,6 +46,7 @@ export default function App() {
   const [dashKey, setDashKey]     = useState(0);
   const mob   = useIsMobile();
   const drive = useGoogleDrive();
+  const toast = useToast();
 
   const [data, setData] = useState({
     profiles: [], assumptions: [], income: [], retIncome: [],
@@ -77,6 +81,7 @@ export default function App() {
       });
     } catch (err) {
       console.error("Error cargando datos:", err);
+      toast.error("Error cargando datos de Supabase. Revisa tu conexión.");
     }
     setLoading(false);
   }, []);
@@ -90,6 +95,7 @@ export default function App() {
       setData(prev => ({ ...prev, [key]: rows }));
     } catch (err) {
       console.error(`Error recargando ${table}:`, err);
+      toast.error(`Error recargando ${table}`);
     }
   }, []);
 
@@ -107,16 +113,25 @@ export default function App() {
 
   // ─── Actions ───
   const toggleChecklist = async (item) => {
-    await supaUpdate("checklist_items", item.id, {
-      is_completed: !item.is_completed,
-      completed_date: !item.is_completed ? new Date().toISOString().split("T")[0] : null,
-    });
-    reloadChecklist();
+    try {
+      await supaUpdate("checklist_items", item.id, {
+        is_completed: !item.is_completed,
+        completed_date: !item.is_completed ? new Date().toISOString().split("T")[0] : null,
+      });
+      reloadChecklist();
+    } catch (err) {
+      toast.error("Error actualizando checklist");
+    }
   };
 
   const addDailyExpense = async (expense) => {
-    await supaInsert("daily_expenses", expense);
-    reloadDailyExpenses();
+    try {
+      await supaInsert("daily_expenses", expense);
+      reloadDailyExpenses();
+      toast.success("Gasto guardado");
+    } catch (err) {
+      toast.error("Error guardando gasto");
+    }
   };
 
   // ─── Navigation ───
@@ -135,82 +150,87 @@ export default function App() {
   const goHome    = () => { setPage("dashboard"); setDashKey(k => k + 1); if (mob) setSidebarOpen(false); };
   const handleNav = (id) => { setPage(id); if (mob) setSidebarOpen(false); };
 
-  // ─── Page Router ───
+  // ─── Page Router (con Suspense para lazy pages) ───
   const renderPage = () => {
     if (loading) return <Loading />;
-    switch (page) {
-      case "dashboard":
-        return (
-          <DashboardPage
-            key={dashKey} data={data} mob={mob} drive={drive}
-            goToPage={(p) => { setPage(p); if (mob) setSidebarOpen(false); }}
-          />
-        );
 
-      case "income":
-        return (
-          <CrudPage
-            title="Ingresos Actuales" subtitle="Últimos ingresos antes de retirarse"
-            table="current_income" items={data.income} mob={mob} reload={reloadIncome}
-            totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
-            columns={[
-              { label: "Fuente", key: "source", bold: true },
-              { label: "Monto Mensual", key: "monthly_amount", align: "right", mono: true, render: r => fmt(Number(r.monthly_amount)) },
-              { label: "Notas", key: "notes", color: () => C.textDim },
-            ]}
-            formFields={[
-              { key: "source",         label: "Fuente de Ingreso" },
-              { key: "monthly_amount", label: "Monto Mensual", type: "number" },
-              { key: "notes",          label: "Notas" },
-            ]}
-            defaults={{ source: "", monthly_amount: 0, notes: "" }}
-          />
-        );
+    const content = (() => {
+      switch (page) {
+        case "dashboard":
+          return (
+            <DashboardPage
+              key={dashKey} data={data} mob={mob} drive={drive}
+              goToPage={(p) => { setPage(p); if (mob) setSidebarOpen(false); }}
+            />
+          );
 
-      case "retIncome":
-        return (
-          <CrudPage
-            title="Ingresos en Retiro" subtitle="Fuentes de ingreso una vez retirados"
-            table="retirement_income" items={data.retIncome} mob={mob} reload={reloadRetIncome}
-            totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
-            columns={[
-              { label: "Fuente", key: "source", bold: true },
-              { label: "Mensual", key: "monthly_amount", align: "right", mono: true, render: r => fmt(Number(r.monthly_amount)) },
-              { label: "Anual", key: "annual_amount", align: "right", mono: true, render: r => r.annual_amount ? fmt(Number(r.annual_amount)) : "—" },
-              { label: "Notas", key: "notes", color: () => C.textDim },
-            ]}
-            formFields={[
-              { key: "source",         label: "Fuente de Ingreso" },
-              { key: "monthly_amount", label: "Monto Mensual", type: "number" },
-              { key: "annual_amount",  label: "Monto Anual",   type: "number" },
-              { key: "notes",          label: "Notas" },
-            ]}
-            defaults={{ source: "", monthly_amount: 0, annual_amount: 0, notes: "" }}
-          />
-        );
+        case "income":
+          return (
+            <CrudPage
+              title="Ingresos Actuales" subtitle="Últimos ingresos antes de retirarse"
+              table="current_income" items={data.income} mob={mob} reload={reloadIncome}
+              totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
+              columns={[
+                { label: "Fuente", key: "source", bold: true },
+                { label: "Monto Mensual", key: "monthly_amount", align: "right", mono: true, render: r => fmt(Number(r.monthly_amount)) },
+                { label: "Notas", key: "notes", color: () => C.textDim },
+              ]}
+              formFields={[
+                { key: "source",         label: "Fuente de Ingreso" },
+                { key: "monthly_amount", label: "Monto Mensual", type: "number" },
+                { key: "notes",          label: "Notas" },
+              ]}
+              defaults={{ source: "", monthly_amount: 0, notes: "" }}
+            />
+          );
 
-      case "expenses":
-        return <ExpensesPage expenses={data.expenses} categories={data.expenseCategories} mob={mob} reload={reloadExpenses} />;
-      case "patrimony":
-        return <PatrimonyPage assets={data.assets} debts={data.debts} mob={mob} reload={reloadPatrimony} />;
-      case "projection":
-        return <ProjectionPage profiles={data.profiles} assumptions={data.assumptions} mob={mob} />;
-      case "checklist":
-        return <ChecklistPage checklist={data.checklist} onToggle={toggleChecklist} mob={mob} />;
-      case "daily":
-        return <DailyExpensesPage dailyExpenses={data.dailyExpenses} onAdd={addDailyExpense} mob={mob} reload={reloadDailyExpenses} />;
-      case "docs":
-        return <DocumentsPage documents={data.documents} mob={mob} reload={reloadDocuments} drive={drive} />;
-      case "inspections":
-        return <InspectionsPage mob={mob} drive={drive} />;
-      default:
-        return (
-          <DashboardPage
-            key={dashKey} data={data} mob={mob} drive={drive}
-            goToPage={(p) => { setPage(p); if (mob) setSidebarOpen(false); }}
-          />
-        );
-    }
+        case "retIncome":
+          return (
+            <CrudPage
+              title="Ingresos en Retiro" subtitle="Fuentes de ingreso una vez retirados"
+              table="retirement_income" items={data.retIncome} mob={mob} reload={reloadRetIncome}
+              totalLabel="TOTAL MENSUAL" totalKey="monthly_amount"
+              columns={[
+                { label: "Fuente", key: "source", bold: true },
+                { label: "Mensual", key: "monthly_amount", align: "right", mono: true, render: r => fmt(Number(r.monthly_amount)) },
+                { label: "Anual", key: "annual_amount", align: "right", mono: true, render: r => r.annual_amount ? fmt(Number(r.annual_amount)) : "—" },
+                { label: "Notas", key: "notes", color: () => C.textDim },
+              ]}
+              formFields={[
+                { key: "source",         label: "Fuente de Ingreso" },
+                { key: "monthly_amount", label: "Monto Mensual", type: "number" },
+                { key: "annual_amount",  label: "Monto Anual",   type: "number" },
+                { key: "notes",          label: "Notas" },
+              ]}
+              defaults={{ source: "", monthly_amount: 0, annual_amount: 0, notes: "" }}
+            />
+          );
+
+        case "expenses":
+          return <ExpensesPage expenses={data.expenses} categories={data.expenseCategories} mob={mob} reload={reloadExpenses} />;
+        case "patrimony":
+          return <PatrimonyPage assets={data.assets} debts={data.debts} mob={mob} reload={reloadPatrimony} />;
+        case "projection":
+          return <ProjectionPage profiles={data.profiles} assumptions={data.assumptions} mob={mob} />;
+        case "checklist":
+          return <ChecklistPage checklist={data.checklist} onToggle={toggleChecklist} mob={mob} />;
+        case "daily":
+          return <DailyExpensesPage dailyExpenses={data.dailyExpenses} onAdd={addDailyExpense} mob={mob} reload={reloadDailyExpenses} />;
+        case "docs":
+          return <DocumentsPage documents={data.documents} mob={mob} reload={reloadDocuments} drive={drive} />;
+        case "inspections":
+          return <InspectionsPage mob={mob} drive={drive} />;
+        default:
+          return (
+            <DashboardPage
+              key={dashKey} data={data} mob={mob} drive={drive}
+              goToPage={(p) => { setPage(p); if (mob) setSidebarOpen(false); }}
+            />
+          );
+      }
+    })();
+
+    return <Suspense fallback={<Loading />}>{content}</Suspense>;
   };
 
   // ─── Layout: pantalla de login Google Drive ───
