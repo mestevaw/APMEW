@@ -1,4 +1,4 @@
-// dashboard/SupaExplorer.jsx
+// src/pages/dashboard/SupaExplorer.jsx
 import { useState, useEffect } from "react";
 import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
@@ -25,6 +25,28 @@ const SupaExplorer = ({ rootFolderId, mob, drive }) => {
     const load = async () => {
       setLoading(true);
       try {
+        // If connected to Drive, use API directly (always up-to-date, same as DocumentsPage)
+        if (drive?.token && drive?.listAllFiles) {
+          const allFiles = await drive.listAllFiles(currentFolder);
+          if (allFiles) {
+            const driveFolders = allFiles
+              .filter(f => f.mimeType === "application/vnd.google-apps.folder")
+              .map(f => ({ id: f.id, name: f.name, google_drive_id: f.id }))
+              .sort((a, b) => a.name.localeCompare(b.name));
+            const driveFiles = allFiles
+              .filter(f => f.mimeType !== "application/vnd.google-apps.folder")
+              .map(f => ({
+                id: f.id, title: f.name, google_drive_file_id: f.id,
+                mime_type: f.mimeType, file_type: (f.name || "").split(".").pop().toLowerCase(),
+              }))
+              .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+            setSubfolders(driveFolders);
+            setDocs(driveFiles);
+            setLoading(false);
+            return;
+          }
+        }
+        // Fallback: read from Supabase index
         const [folders, files] = await Promise.all([
           supaFetch("drive_folders", { filters: `parent_drive_id=eq.${currentFolder}`, order: "name" }),
           supaFetch("documents", { filters: `parent_folder_drive_id=eq.${currentFolder}`, order: "title" }),
@@ -35,7 +57,7 @@ const SupaExplorer = ({ rootFolderId, mob, drive }) => {
       setLoading(false);
     };
     load();
-  }, [currentFolder]);
+  }, [currentFolder, drive?.token]);
 
   const navigateToFolder = (driveId, folderName) => {
     setCurrentFolder(driveId);
