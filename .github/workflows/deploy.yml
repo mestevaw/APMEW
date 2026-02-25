@@ -19,6 +19,12 @@ jobs:
           node-version: 20
       - run: npm install
       - run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_KEY: ${{ secrets.VITE_SUPABASE_KEY }}
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_DRIVE_ROOT_FOLDER: ${{ secrets.VITE_DRIVE_ROOT_FOLDER }}
+          VITE_DRIVE_RESOURCE_KEY: ${{ secrets.VITE_DRIVE_RESOURCE_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
