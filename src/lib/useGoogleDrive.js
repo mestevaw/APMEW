@@ -1,3 +1,4 @@
+// src/lib/useGoogleDrive.js
 import { useState, useEffect, useRef } from "react";
 import { GOOGLE_CLIENT_ID, DRIVE_SCOPE, DRIVE_RESOURCE_KEY } from "./config";
 
@@ -79,19 +80,16 @@ export const useGoogleDrive = () => {
     return res.json();
   };
 
-  // ─── Find subfolder by name (case-insensitive partial match) ───
+  // ─── Find subfolder by name using listFiles (search API doesn't work for shared folders) ───
   const findSubfolder = async (parentId, nameQuery) => {
     if (!token) return null;
-    const q = `'${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and name contains '${nameQuery}' and trashed=false`;
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
-      headers: {
-        ...apiHeaders(),
-        "X-Goog-Drive-Resource-Keys": `${parentId}/${DRIVE_RESOURCE_KEY}`,
-      },
-    });
-    if (!res.ok) { console.error(`findSubfolder(${nameQuery}) failed:`, res.status); return null; }
-    const data = await res.json();
-    return data.files && data.files.length > 0 ? data.files[0] : null;
+    const data = await listFiles(parentId);
+    if (!data || !data.files) return null;
+    const query = nameQuery.toLowerCase();
+    const folder = data.files.find(f =>
+      f.mimeType === "application/vnd.google-apps.folder" && f.name.toLowerCase().includes(query)
+    );
+    return folder ? { id: folder.id, name: folder.name } : null;
   };
 
   // ─── Upload a file to a folder ───
