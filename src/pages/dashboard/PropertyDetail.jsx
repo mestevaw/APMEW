@@ -41,7 +41,8 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
 
   const handleCameraClick = () => {
     if (!drive?.token) {
-      drive?.signIn?.();
+      setUploadMsg("Conecta Google Drive primero (botón en la barra lateral)");
+      setTimeout(() => setUploadMsg(""), 4000);
       return;
     }
     uploadRef.current?.click();
