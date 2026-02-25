@@ -257,12 +257,17 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
 
       {/* Property Value 2025 */}
       {PROPERTY_VALUES_2025[property.address] && (
-        <Card style={{ marginBottom: 16, padding: "12px 16px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.textDim }}>🏠 Valor 2025</span>
-            <span style={{ fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 700, color: C.accent }}>{fmtMoney(PROPERTY_VALUES_2025[property.address])}</span>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 16 }}>
+          <div style={{
+            padding: "10px 12px", background: `${C.accent}10`, borderRadius: 8,
+            border: `1px solid ${C.accent}40`, textAlign: "left",
+          }}>
+            <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent }}>🏠 Valor 2025</div>
+            <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: C.accent, marginTop: 4 }}>
+              {fmtMoney(PROPERTY_VALUES_2025[property.address])}
+            </div>
           </div>
-        </Card>
+        </div>
       )}
 
       {/* Property Expenses */}
