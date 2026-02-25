@@ -1,12 +1,14 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/helpers.js
+// Versión: 1.0
+// Fecha: 2026-02-25
 // ═══════════════════════════════════════════
 
 import { supaFetch } from "../../lib/supabase";
 import { DEADLINE_TYPES, DEADLINE_CATEGORIES } from "./constants";
 
-// ─── Re-export shared helpers para que los imports existentes sigan funcionando ───
-export { fmtMoney, getFileIcon, getFileExt, isImage, getPreviewUrl, getThumbnailUrl, getDriveMediaUrl } from "../../lib/helpers";
+// ─── Re-export shared helpers ───
+export { fmtMoney, getFileIcon, getFileExt, isImage, isFolder, isPersonalProperty, getPreviewUrl, getThumbnailUrl, getDriveMediaUrl } from "../../lib/helpers";
 
 const getDeadlineStatus = (dateStr) => {
   if (!dateStr) return { color: "#6B7280", label: "Sin fecha", urgency: 0 };
@@ -21,7 +23,7 @@ const getDeadlineStatus = (dateStr) => {
 
 const fmtDate = (d) => {
   if (!d) return "—";
-  const dt = new Date(d + "T00:00:00");
+  const dt = new Date(d + "T12:00:00"); // mediodía — consistente con lib/helpers
   return dt.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
 };
 
@@ -46,7 +48,6 @@ const findFolderByAddress = async (address, owner) => {
     });
     console.log("[findFolder] Owner query:", results?.length, "results", results?.map(r => ({ name: r.name, path: r.folder_path })));
     if (results && results.length > 0) {
-      // Score by name match, penalize IRS/Expenses/Tax paths, prefer shortest path
       const scored = results.map(r => {
         const path = (r.folder_path || "").toLowerCase();
         const nameScore = words.filter(w => r.name.toLowerCase().includes(w)).length;
@@ -54,7 +55,6 @@ const findFolderByAddress = async (address, owner) => {
         const depth = (r.folder_path || "").split(">").length;
         return { ...r, nameScore, isSubfolder, depth };
       });
-      // Non-subfolder first, then higher name score, then shorter path
       scored.sort((a, b) => {
         if (a.isSubfolder !== b.isSubfolder) return a.isSubfolder ? 1 : -1;
         if (a.nameScore !== b.nameScore) return b.nameScore - a.nameScore;
@@ -65,7 +65,7 @@ const findFolderByAddress = async (address, owner) => {
     }
   }
 
-  // ─── Strategy 2: Fallback without owner (old behavior with penalty system) ───
+  // ─── Strategy 2: Fallback without owner ───
   if (numMatch) {
     const results = await supaFetch("drive_folders", { filters: `name=ilike.*${numMatch[0]}*&folder_path=ilike.*PROPERTY*` });
     console.log("[findFolder] Fallback query:", results?.length, "results");
