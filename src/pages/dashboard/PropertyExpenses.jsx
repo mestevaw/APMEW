@@ -289,7 +289,7 @@ const PropertyExpenses = ({ address, mob }) => {
     <Card style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>💰 Gastos de la Propiedad</span>
+          <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>💰 Ingresos y Egresos</span>
           {isRental && availableYears.length > 0 && (
             <select value={displayYear} onChange={e => setSelectedYear(Number(e.target.value))} style={{ ...dateStyle, padding: "3px 6px", fontWeight: 600, fontSize: 13, color: C.accent, cursor: "pointer", background: C.surface2 }}>
               {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
@@ -338,7 +338,7 @@ const PropertyExpenses = ({ address, mob }) => {
             </div>
             {incomeTotal > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: `${C.green}12`, borderRadius: 8, marginBottom: 4 }}>
-                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.green }}>Net Income</span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.green }}>Ingreso Neto</span>
                 <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 600, color: incomeTotal - expenseTotal > 0 ? C.green : C.red }}>{fmtMoney(incomeTotal - expenseTotal)}</span>
               </div>
             )}
