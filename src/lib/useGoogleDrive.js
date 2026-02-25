@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════
 // Archivo: src/lib/useGoogleDrive.js
-// Versión: 1.0
+// Versión: 1.1
 // Fecha: 2026-02-25
 // ═══════════════════════════════════════════
 
@@ -199,6 +199,7 @@ export const useGoogleDrive = () => {
   }, [token, findSubfolder, listFiles]);
 
   // ─── Upload multiple photos to inspection folder ───
+  // v1.1: Detección de duplicados — lista archivos existentes y salta los que ya están
   const uploadPhotos = useCallback(async (files, propertyFolderId, propertyName, onProgress) => {
     if (!token) throw new Error("No token");
     console.log("[uploadPhotos] Starting:", { propertyFolderId, propertyName, fileCount: files.length });
@@ -231,22 +232,39 @@ export const useGoogleDrive = () => {
       console.log("[uploadPhotos] Date folder created:", dateFolder);
     }
 
-    // 4. Upload each photo
+    // 4. Check existing files in date folder to avoid duplicates
+    const existingFiles = await listAllFiles(dateFolder.id);
+    const existingNames = new Set((existingFiles || []).map(f => f.name));
+    console.log("[uploadPhotos] Existing files in folder:", existingNames.size, [...existingNames]);
+
+    // 5. Upload each photo, skipping duplicates
     const results = [];
+    let skipped = 0;
     const shortName = propertyName.replace(/^\d+\s*/, "").split(/\s+/).slice(0, 2).join(" ");
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const ext = file.name.split(".").pop() || "jpg";
       const fileName = `${shortName} ${i + 1} Foto ${dateName}.${ext}`;
+
+      if (existingNames.has(fileName)) {
+        console.log("[uploadPhotos] SKIP (duplicate):", fileName);
+        skipped++;
+        if (onProgress) onProgress(i + 1, files.length, `⏭️ ${fileName} (ya existe)`);
+        // Add to results with the existing file's id so Supabase indexing still works
+        const existing = (existingFiles || []).find(f => f.name === fileName);
+        if (existing) results.push({ id: existing.id, name: existing.name, mimeType: existing.mimeType, skipped: true });
+        continue;
+      }
+
       if (onProgress) onProgress(i + 1, files.length, fileName);
       const result = await uploadFile(file, fileName, dateFolder.id);
       console.log("[uploadPhotos] Uploaded:", fileName, "→", result.id);
       results.push(result);
     }
 
-    console.log("[uploadPhotos] Done!", { inspeccionFolder: inspeccionFolder.id, yearFolder: yearFolder.id, dateFolder: dateFolder.id, uploaded: results.length });
-    return { dateFolder, yearFolder, inspeccionFolder, results };
-  }, [token, findSubfolder, createFolder, uploadFile]);
+    console.log("[uploadPhotos] Done!", { uploaded: results.length - skipped, skipped, total: files.length });
+    return { dateFolder, yearFolder, inspeccionFolder, results, skipped };
+  }, [token, findSubfolder, createFolder, uploadFile, listAllFiles]);
 
   return { token, gisLoaded, signIn, signOut, listAllFiles, createFolder, findSubfolder, uploadFile, uploadPhotos, searchFolderByAddress };
 };
