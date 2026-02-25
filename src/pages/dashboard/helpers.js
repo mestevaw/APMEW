@@ -33,41 +33,59 @@ const getNumber = (addr) => { const m = addr.match(/^(\d+)/); return m ? parseIn
 const getStreet = (addr) => addr.replace(/^\d+\s*/, "").trim().toLowerCase();
 
 // ─── Supabase folder lookup ───
-const findFolderByAddress = async (address) => {
-  console.log("[findFolder] Searching for:", address);
+const findFolderByAddress = async (address, owner) => {
+  console.log("[findFolder] Searching for:", address, "owner:", owner);
   const numMatch = address.match(/^\d+/);
+  const words = address.toLowerCase().split(/[\s,]+/).filter(w => w.length > 2);
+
+  // ─── Strategy 1: Use owner name to narrow down directly ───
+  if (owner && numMatch) {
+    const ownerClean = owner.trim().replace(/\s+/g, "*");
+    const results = await supaFetch("drive_folders", {
+      filters: `name=ilike.*${numMatch[0]}*&folder_path=ilike.*${ownerClean}*`
+    });
+    console.log("[findFolder] Owner query:", results?.length, "results", results?.map(r => ({ name: r.name, path: r.folder_path })));
+    if (results && results.length > 0) {
+      // Score by name match, penalize IRS/Expenses/Tax paths, prefer shortest path
+      const scored = results.map(r => {
+        const path = (r.folder_path || "").toLowerCase();
+        const nameScore = words.filter(w => r.name.toLowerCase().includes(w)).length;
+        const isSubfolder = /\b(irs|expense|1099|tax|w-9)\b/.test(path);
+        const depth = (r.folder_path || "").split(">").length;
+        return { ...r, nameScore, isSubfolder, depth };
+      });
+      // Non-subfolder first, then higher name score, then shorter path
+      scored.sort((a, b) => {
+        if (a.isSubfolder !== b.isSubfolder) return a.isSubfolder ? 1 : -1;
+        if (a.nameScore !== b.nameScore) return b.nameScore - a.nameScore;
+        return a.depth - b.depth;
+      });
+      console.log("[findFolder] Best match:", { name: scored[0].name, id: scored[0].google_drive_id, path: scored[0].folder_path, isSubfolder: scored[0].isSubfolder });
+      if (scored[0].nameScore >= 1) return scored[0];
+    }
+  }
+
+  // ─── Strategy 2: Fallback without owner (old behavior with penalty system) ───
   if (numMatch) {
     const results = await supaFetch("drive_folders", { filters: `name=ilike.*${numMatch[0]}*&folder_path=ilike.*PROPERTY*` });
-    console.log("[findFolder] Query 1 (num+PROPERTY):", results?.length, "results", results?.map(r => ({ name: r.name, id: r.google_drive_id, path: r.folder_path })));
+    console.log("[findFolder] Fallback query:", results?.length, "results");
     if (results && results.length > 0) {
-      const words = address.toLowerCase().split(/[\s,]+/).filter(w => w.length > 2);
-      const scored = results.map(r => ({ ...r, score: words.filter(w => r.name.toLowerCase().includes(w)).length }));
-      scored.sort((a, b) => b.score - a.score);
-      console.log("[findFolder] Best match:", { name: scored[0].name, id: scored[0].google_drive_id, score: scored[0].score, path: scored[0].folder_path });
-      if (scored[0].score >= 1) return scored[0];
+      const scored = results.map(r => {
+        const path = (r.folder_path || "").toLowerCase();
+        const nameScore = words.filter(w => r.name.toLowerCase().includes(w)).length;
+        const isSubfolder = /\b(irs|expense|1099|tax|w-9)\b/.test(path);
+        const depth = (r.folder_path || "").split(">").length;
+        return { ...r, nameScore, isSubfolder, depth };
+      });
+      scored.sort((a, b) => {
+        if (a.isSubfolder !== b.isSubfolder) return a.isSubfolder ? 1 : -1;
+        if (a.nameScore !== b.nameScore) return b.nameScore - a.nameScore;
+        return a.depth - b.depth;
+      });
+      if (scored[0].nameScore >= 1) return scored[0];
     }
   }
-  const words = address.split(/[\s,]+/).filter(w => w.length > 3 && !/^\d+$/.test(w));
-  for (const word of words) {
-    const results = await supaFetch("drive_folders", { filters: `name=ilike.*${word}*&folder_path=ilike.*PROPERTY*` });
-    console.log("[findFolder] Query 2 (word:", word, "):", results?.length, "results");
-    if (results && results.length > 0) {
-      const allWords = address.toLowerCase().split(/[\s,]+/).filter(w => w.length > 2);
-      const scored = results.map(r => ({ ...r, score: allWords.filter(w => r.name.toLowerCase().includes(w)).length }));
-      scored.sort((a, b) => b.score - a.score);
-      if (scored[0].score >= 1) return scored[0];
-    }
-  }
-  if (numMatch) {
-    const results = await supaFetch("drive_folders", { filters: `name=ilike.*${numMatch[0]}*` });
-    console.log("[findFolder] Query 3 (num only):", results?.length, "results");
-    if (results && results.length > 0) {
-      const words2 = address.toLowerCase().split(/[\s,]+/).filter(w => w.length > 2);
-      const scored = results.map(r => ({ ...r, score: words2.filter(w => r.name.toLowerCase().includes(w)).length }));
-      scored.sort((a, b) => b.score - a.score);
-      if (scored[0].score >= 1) return scored[0];
-    }
-  }
+
   console.log("[findFolder] NOT FOUND for:", address);
   return null;
 };
