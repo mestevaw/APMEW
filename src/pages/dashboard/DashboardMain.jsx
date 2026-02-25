@@ -1,4 +1,4 @@
-// dashboard/DashboardMain.jsx
+// src/pages/dashboard/DashboardMain.jsx
 import { useState, useEffect } from "react";
 import { C } from "../../lib/theme";
 import { fmt } from "../../lib/helpers";
@@ -55,9 +55,12 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   // Yearly totals based on selected statYear
   const deByYear = (dailyExpenses || []).filter(e => e.expense_date && e.expense_date.startsWith(String(statYear)));
   const yearlyExpenses = deByYear.filter(e => Number(e.amount) > 0).reduce((s, e) => s + Number(e.amount || 0), 0);
-  const yearlyPayments = deByYear.filter(e => Number(e.amount) < 0).reduce((s, e) => s + Math.abs(Number(e.amount || 0)), 0);
+  // Only count refunds as income (negative amount BUT not credit card payments)
+  // Credit card payments = category "otro"/"Otro" + negative amount → excluded
+  const isCardPayment = (e) => (e.category === "otro" || e.category === "Otro") && Number(e.amount) < 0;
+  const yearlyRefunds = deByYear.filter(e => Number(e.amount) < 0 && !isCardPayment(e)).reduce((s, e) => s + Math.abs(Number(e.amount || 0)), 0);
   const rentsForYear = allGrossRents.filter(r => r.period_year === statYear).reduce((s, r) => s + Number(r.amount || 0), 0);
-  const yearlyIncome = rentsForYear + yearlyPayments;
+  const yearlyIncome = rentsForYear + yearlyRefunds;
 
   // Available years from daily expenses + gross rents
   const availStatYears = [...new Set([
@@ -88,10 +91,10 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
     const yearDE = (dailyExpenses || []).filter(e => e.expense_date && e.expense_date.startsWith(String(statYear)));
     // Income sources
     const rentRows = allGrossRents.filter(r => r.period_year === statYear);
-    const paymentRows = yearDE.filter(e => Number(e.amount) < 0).map(e => ({ ...e, amount: Math.abs(Number(e.amount)) }));
+    const refundRows = yearDE.filter(e => Number(e.amount) < 0 && !isCardPayment(e)).map(e => ({ ...e, amount: Math.abs(Number(e.amount)) }));
     // Expense sources
     const expenseRows = yearDE.filter(e => Number(e.amount) > 0);
-    const items = isIncome ? [...rentRows.map(r => ({ type: "rent", addr: r.property_address, amount: Number(r.amount || 0) })), ...paymentRows.map(e => ({ type: "payment", concept: e.concept, date: e.expense_date, amount: e.amount }))]
+    const items = isIncome ? [...rentRows.map(r => ({ type: "rent", addr: r.property_address, amount: Number(r.amount || 0) })), ...refundRows.map(e => ({ type: "refund", concept: e.concept, date: e.expense_date, amount: e.amount }))]
       : expenseRows;
     const totalAmt = isIncome ? yearlyIncome : yearlyExpenses;
 
@@ -122,17 +125,17 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
                 <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: C.accent }}>Subtotal: {fmtMoney(rentRows.reduce((s, r) => s + Number(r.amount || 0), 0))}</span>
               </div>
             </>}
-            {paymentRows.length > 0 && <>
-              <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>💳 PAGOS / CRÉDITOS</div>
-              {paymentRows.slice(0, 50).map((e, i) => (
+            {refundRows.length > 0 && <>
+              <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, marginBottom: 8 }}>🔄 DEVOLUCIONES / REEMBOLSOS</div>
+              {refundRows.slice(0, 50).map((e, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: `1px solid ${C.border}` }}>
                   <div><span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text }}>{e.concept}</span><span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginLeft: 8 }}>{e.expense_date}</span></div>
                   <span style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: "#4ADE80" }}>{fmtMoney(e.amount)}</span>
                 </div>
               ))}
-              {paymentRows.length > 50 && <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, padding: 8 }}>+{paymentRows.length - 50} más</div>}
+              {refundRows.length > 50 && <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, padding: 8 }}>+{refundRows.length - 50} más</div>}
             </>}
-            {rentRows.length === 0 && paymentRows.length === 0 && <div style={{ textAlign: "center", padding: 30, color: C.textDim }}>Sin entradas en {statYear}</div>}
+            {rentRows.length === 0 && refundRows.length === 0 && <div style={{ textAlign: "center", padding: 30, color: C.textDim }}>Sin entradas en {statYear}</div>}
           </Card>
         ) : (
           <Card>
