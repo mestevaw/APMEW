@@ -101,7 +101,7 @@ export const getPropExpenseTypes = (addr) => {
   ];
   // US rental properties (Form 8825 categories)
   return [
-    { key: "gross_rents", label: "Gross Rents", icon: "💰", income: true },
+    { key: "gross_rents", label: "Rentas Totales", icon: "💰", income: true },
     { key: "maintenance", label: "Maintenance", icon: "🔧" },
     { key: "insurance", label: "Insurance", icon: "🛡️" },
     { key: "legal_fees", label: "Legal Fees", icon: "⚖️" },
