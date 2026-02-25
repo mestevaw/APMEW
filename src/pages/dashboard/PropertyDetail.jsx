@@ -4,7 +4,7 @@ import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
 import { supaFetch, supaInsert } from "../../lib/supabase";
 import { Card, Badge, Spinner } from "../../components/UI";
-import { OWNER_COLORS } from "./constants";
+import { OWNER_COLORS, PROPERTY_VALUES_2025 } from "./constants";
 import { fmtMoney, findFolderByAddress } from "./helpers";
 import { DRIVE_ROOT_FOLDER } from "../../lib/config";
 import { HouseIcon } from "./icons";
@@ -254,6 +254,16 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
           </Card>
         );
       })()}
+
+      {/* Property Value 2025 */}
+      {PROPERTY_VALUES_2025[property.address] && (
+        <Card style={{ marginBottom: 16, padding: "12px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.textDim }}>🏠 Valor 2025</span>
+            <span style={{ fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 700, color: C.accent }}>{fmtMoney(PROPERTY_VALUES_2025[property.address])}</span>
+          </div>
+        </Card>
+      )}
 
       {/* Property Expenses */}
       <PropertyExpenses address={property.address} mob={mob} />
