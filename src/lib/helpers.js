@@ -1,10 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/lib/helpers.js
-// Versión: 1.0
+// Versión: 1
 // Fecha: 2026-02-25
 // ═══════════════════════════════════════════
 
 import { useState, useEffect } from "react";
+
+// ─── Constantes compartidas ───
+export const MONTHS_ES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 
 // ─── Formato moneda MXN (sin centavos) ───
 export const fmt = (n, d = 0) => {
@@ -27,16 +30,21 @@ export const pct = (n) => `${(n * 100).toFixed(1)}%`;
 // ─── Fecha corta: "22 feb 26" ───
 export const fmtDateShort = (d) => {
   if (!d) return "—";
-  const dt = new Date(d + "T12:00:00"); // mediodía para evitar problemas de timezone
-  const M = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-  return `${dt.getDate()} ${M[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}`;
+  const dt = new Date(d + "T12:00:00");
+  return `${dt.getDate()} ${MONTHS_ES[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}`;
 };
 
 // ─── Fecha larga: "22 feb 2026" ───
 export const fmtDateLong = (d) => {
   if (!d) return "—";
-  const dt = new Date(d + "T12:00:00"); // mediodía para evitar problemas de timezone
+  const dt = new Date(d + "T12:00:00");
   return dt.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
+};
+
+// ─── Nombre de hoy: "25 feb 26" (para carpetas Drive) ───
+export const todayFolderName = () => {
+  const d = new Date();
+  return `${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
 };
 
 // ─── Mobile hook ───
@@ -55,6 +63,8 @@ export const isFolder = (f) => f.mimeType === "application/vnd.google-apps.folde
 
 export const isPersonalProperty = (addr) =>
   addr.includes("Progreso") || addr.includes("Argo");
+
+export const isImage = (mime) => mime && mime.includes("image");
 
 export const getFileIcon = (mime) => {
   if (!mime) return "📄";
@@ -80,9 +90,21 @@ export const getFileExt = (mime) => {
   return "";
 };
 
-export const isImage = (mime) => mime && mime.includes("image");
-
 // ─── Google Drive URLs ───
-export const getPreviewUrl = (fileId) => `https://drive.google.com/file/d/${fileId}/preview`;
+export const getPreviewUrl   = (fileId) => `https://drive.google.com/file/d/${fileId}/preview`;
 export const getThumbnailUrl = (fileId) => `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
 export const getDriveMediaUrl = (fileId) => `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+
+// ─── Detección de país (centralizado — antes estaba solo en DailyExpensesPage) ───
+const MX_TAGS     = ["Progreso - Luz", "Progreso - Agua", "Progreso - Mant."];
+const MX_CONCEPTS = ["predial", "telmex", "cfe ", "izzi", "oxxo", "walmart mx", "soriana", "coppel", "liverpool"];
+
+export const detectCountry = (row) => {
+  if (row.country && row.country !== "US" && row.country !== "MX") return "US";
+  if (row.country) return row.country;
+  if (row.tag && MX_TAGS.includes(row.tag)) return "MX";
+  const c = (row.concept || "").toLowerCase();
+  if (MX_CONCEPTS.some(w => c.includes(w))) return "MX";
+  if (row.source === "Efectivo" && row.tag && row.tag.includes("Progreso")) return "MX";
+  return "US";
+};
