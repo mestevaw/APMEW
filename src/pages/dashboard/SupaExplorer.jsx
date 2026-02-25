@@ -1,4 +1,9 @@
-// src/pages/dashboard/SupaExplorer.jsx
+// ═══════════════════════════════════════════
+// Archivo: src/pages/dashboard/SupaExplorer.jsx
+// Versión: 1.0
+// Fecha: 2026-02-25
+// ═══════════════════════════════════════════
+
 import { useState, useEffect } from "react";
 import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
@@ -26,10 +31,12 @@ const SupaExplorer = ({ rootFolderId, mob, drive, propertyAddress }) => {
       if (!currentFolder || currentFolder === "undefined") { setLoading(false); return; }
       setLoading(true);
       try {
-        // If connected to Drive, use API directly (always up-to-date, same as DocumentsPage)
+        // ── FIX v1.0: Si hay token de Drive, usar API directamente (siempre up-to-date) ──
+        // Antes: caía a Supabase si la carpeta estaba vacía (allFiles.length > 0).
+        // Ahora: confía en Drive si responde (allFiles !== null), incluso si está vacía.
         if (drive?.token && drive?.listAllFiles && currentFolder) {
           const allFiles = await drive.listAllFiles(currentFolder);
-          if (allFiles && allFiles.length > 0) {
+          if (allFiles) {
             const driveFolders = allFiles
               .filter(f => f.mimeType === "application/vnd.google-apps.folder")
               .map(f => ({ id: f.id, name: f.name, google_drive_id: f.id }))
@@ -164,7 +171,5 @@ const SupaExplorer = ({ rootFolderId, mob, drive, propertyAddress }) => {
     </div>
   );
 };
-
-// ─── House icon ───
 
 export default SupaExplorer;
