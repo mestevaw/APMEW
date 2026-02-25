@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/PropertyDetail.jsx
-// Versión: 1.0
+// Versión: 1.1
 // Fecha: 2026-02-25
 // ═══════════════════════════════════════════
 
@@ -126,17 +126,21 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
     console.log("[PropertyDetail] handleUpload using folderId:", folderId, "for property:", property.address);
     setUploading(true); setUploadMsg(`Subiendo ${files.length} fotos...`);
     try {
-      const { dateFolder, results, yearFolder, inspeccionFolder } = await drive.uploadPhotos(
+      const { dateFolder, results, yearFolder, inspeccionFolder, skipped = 0 } = await drive.uploadPhotos(
         files, folderId, property.address,
-        (cur, total, name) => setUploadMsg(`Subiendo ${cur}/${total}...`)
+        (cur, total, name) => setUploadMsg(`Subiendo ${cur}/${total}... ${name}`)
       );
-      setUploadMsg(`Indexando ${results.length} fotos...`);
-      await registerInSupabase(dateFolder, yearFolder, inspeccionFolder, results);
-      setUploadMsg(`✓ ${results.length} fotos subidas e indexadas`);
+      const newUploads = results.filter(r => !r.skipped);
+      setUploadMsg(`Indexando ${newUploads.length} fotos...`);
+      await registerInSupabase(dateFolder, yearFolder, inspeccionFolder, newUploads);
+      const msg = skipped > 0
+        ? `✓ ${newUploads.length} nuevas, ${skipped} ya existían (no duplicadas)`
+        : `✓ ${results.length} fotos subidas e indexadas`;
+      setUploadMsg(msg);
       setRefreshKey(k => k + 1);
     } catch (err) { setUploadMsg("Error: " + err.message); }
     setUploading(false); e.target.value = "";
-    setTimeout(() => setUploadMsg(""), 5000);
+    setTimeout(() => setUploadMsg(""), 6000);
   };
 
   return (
