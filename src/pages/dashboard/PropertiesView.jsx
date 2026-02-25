@@ -45,11 +45,15 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
 
     setUploadMsg(`Subiendo ${files.length} fotos...`);
     try {
-      const { results } = await drive.uploadPhotos(
+      const { results, skipped = 0 } = await drive.uploadPhotos(
         files, folder.google_drive_id, uploadTarget.address,
         (i, total, name) => setUploadMsg(`Subiendo ${i}/${total}: ${name}`)
       );
-      setUploadMsg(`✓ ${results.length} fotos subidas a ${uploadTarget.address}`);
+      const newUploads = results.filter(r => !r.skipped).length;
+      const msg = skipped > 0
+        ? `✓ ${newUploads} nuevas, ${skipped} ya existían`
+        : `✓ ${results.length} fotos subidas a ${uploadTarget.address}`;
+      setUploadMsg(msg);
       setTimeout(() => setUploadMsg(""), 6000);
     } catch (err) {
       setUploadMsg(`Error: ${err.message}`);
