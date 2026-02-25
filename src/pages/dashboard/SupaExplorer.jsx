@@ -23,12 +23,13 @@ const SupaExplorer = ({ rootFolderId, mob, drive, propertyAddress }) => {
 
   useEffect(() => {
     const load = async () => {
+      if (!currentFolder || currentFolder === "undefined") { setLoading(false); return; }
       setLoading(true);
       try {
         // If connected to Drive, use API directly (always up-to-date, same as DocumentsPage)
-        if (drive?.token && drive?.listAllFiles) {
+        if (drive?.token && drive?.listAllFiles && currentFolder) {
           const allFiles = await drive.listAllFiles(currentFolder);
-          if (allFiles) {
+          if (allFiles && allFiles.length > 0) {
             const driveFolders = allFiles
               .filter(f => f.mimeType === "application/vnd.google-apps.folder")
               .map(f => ({ id: f.id, name: f.name, google_drive_id: f.id }))
