@@ -1,19 +1,19 @@
+// ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: 4.0
-// Fecha: 2026-02-20
+// Versión: 1.0
+// Fecha: 2026-02-25
+// ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef } from "react";
 import { C } from "../lib/theme";
 import { I } from "../lib/icons";
-import { getFileIcon, getFileExt } from "../lib/helpers";
+import { getFileIcon, getFileExt, isFolder } from "../lib/helpers";
 import { DRIVE_ROOT_FOLDER } from "../lib/config";
 import { supaFetch, supaUpdate, supaInsert, supaDelete, supaUpsert } from "../lib/supabase";
 import { Card, Badge, Btn, Spinner, Table } from "../components/UI";
 import { FilePreviewModal } from "../components/FilePreviewModal";
 
 // ─── Helpers ───
-const isFolder = (f) => f.mimeType === "application/vnd.google-apps.folder";
-
 const guessCategoryFromPath = (path) => {
   const p = path.toLowerCase();
   if (p.includes("seguro")) return "seguros";
@@ -25,10 +25,7 @@ const guessCategoryFromPath = (path) => {
 };
 
 // ─── Carpetas ocultas (agrega aquí las que quieras esconder) ───
-const HIDDEN_FOLDERS = [
-  // "nombre_carpeta_obsoleta",
-  // "otra_carpeta_vieja",
-];
+const HIDDEN_FOLDERS = [];
 
 // ─── Component ───
 export const DocumentsPage = ({ documents, mob, reload, drive }) => {
@@ -38,10 +35,13 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
   const [files, setFiles] = useState([]);
   const [loadingDrive, setLoadingDrive] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
-  const [previewFile, setPreviewFile] = useState(null); // { id, name }
+  const [previewFile, setPreviewFile] = useState(null);
   const { token, gisLoaded, signIn, signOut, listAllFiles } = drive;
 
   // Load folder contents
+  // FIX v1.0: Removido listAllFiles de las dependencias del useEffect.
+  // listAllFiles ahora es estable (useCallback en el hook), pero de todas formas
+  // las dependencias correctas son solo token, currentFolder y tab.
   useEffect(() => {
     if (!token || tab !== "drive") return;
     const load = async () => {
@@ -53,7 +53,7 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     load();
   }, [token, currentFolder, tab, listAllFiles]);
 
-  // ─── Incremental sync (auto, only indexes missing folders/files) ───
+  // ─── Incremental sync ───
   const [syncing, setSyncing] = useState(false);
   const syncedRef = useRef(false);
 
@@ -63,7 +63,6 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     setSyncMsg(incremental ? "Verificando cambios..." : "Sincronización completa...");
     let totalFiles = 0, totalFolders = 0, skipped = 0;
 
-    // Load existing indexed folder IDs for dedup
     let knownFolders = new Set();
     let knownFiles = new Set();
     if (incremental) {
@@ -83,7 +82,6 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
         if (isFolder(f)) {
           if (incremental && knownFolders.has(f.id)) {
             skipped++;
-            // Still recurse into known folders to find new children
             await syncFolder(f.id, path + "/" + f.name);
           } else {
             await supaUpsert("drive_folders", { google_drive_id: f.id, name: f.name, parent_drive_id: folderId, folder_path: path + "/" + f.name });
@@ -96,10 +94,24 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
           if (incremental && knownFiles.has(f.id)) {
             skipped++;
           } else {
-            const doc = { title: f.name, google_drive_file_id: f.id, google_drive_url: f.webViewLink, folder_path: path, parent_folder_drive_id: folderId, mime_type: f.mimeType, file_type: getFileExt(f.mimeType), category: guessCategoryFromPath(path), synced_from_drive: true, last_synced_at: new Date().toISOString() };
-            const existing = await supaFetch("documents", { filters: `google_drive_file_id=eq.${f.id}` });
-            if (existing && existing.length > 0) await supaUpdate("documents", existing[0].id, doc);
-            else await supaInsert("documents", doc);
+            // FIX v1.0: Usar supaUpsert en vez de query individual + insert/update.
+            // Requiere un unique constraint en google_drive_file_id en la tabla documents.
+            // Si no existe el constraint, esto inserta un nuevo row (comportamiento seguro).
+            const doc = {
+              title: f.name, google_drive_file_id: f.id,
+              google_drive_url: f.webViewLink, folder_path: path,
+              parent_folder_drive_id: folderId, mime_type: f.mimeType,
+              file_type: getFileExt(f.mimeType), category: guessCategoryFromPath(path),
+              synced_from_drive: true, last_synced_at: new Date().toISOString(),
+            };
+            try {
+              await supaUpsert("documents", doc);
+            } catch (e) {
+              // Fallback: si no hay unique constraint, intenta el método anterior
+              const existing = await supaFetch("documents", { filters: `google_drive_file_id=eq.${f.id}` });
+              if (existing && existing.length > 0) await supaUpdate("documents", existing[0].id, doc);
+              else await supaInsert("documents", doc);
+            }
             totalFiles++;
             knownFiles.add(f.id);
           }
@@ -140,7 +152,6 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
   const allFolders = files.filter(isFolder);
   const folders = allFolders.filter(f => !HIDDEN_FOLDERS.some(h => f.name.toLowerCase() === h.toLowerCase()));
   const docs = files.filter(f => !isFolder(f));
-  const currentPath = breadcrumb.map(b => b.name).join("/");
 
   const TabBtn = ({ id, label }) => (
     <button onClick={() => setTab(id)} style={{
