@@ -1,5 +1,7 @@
 // ═══════════════════════════════════════════
 // Archivo: src/lib/helpers.js
+// Versión: 1.0
+// Fecha: 2026-02-25
 // ═══════════════════════════════════════════
 
 import { useState, useEffect } from "react";
@@ -25,7 +27,7 @@ export const pct = (n) => `${(n * 100).toFixed(1)}%`;
 // ─── Fecha corta: "22 feb 26" ───
 export const fmtDateShort = (d) => {
   if (!d) return "—";
-  const dt = new Date(d + "T12:00:00");
+  const dt = new Date(d + "T12:00:00"); // mediodía para evitar problemas de timezone
   const M = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
   return `${dt.getDate()} ${M[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}`;
 };
@@ -33,7 +35,7 @@ export const fmtDateShort = (d) => {
 // ─── Fecha larga: "22 feb 2026" ───
 export const fmtDateLong = (d) => {
   if (!d) return "—";
-  const dt = new Date(d + "T00:00:00");
+  const dt = new Date(d + "T12:00:00"); // mediodía para evitar problemas de timezone
   return dt.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
 };
 
@@ -48,7 +50,12 @@ export const useIsMobile = () => {
   return m;
 };
 
-// ─── File helpers (compartidos: DocumentsPage + Dashboard) ───
+// ─── MIME helpers (compartidos: DocumentsPage + Dashboard) ───
+export const isFolder = (f) => f.mimeType === "application/vnd.google-apps.folder";
+
+export const isPersonalProperty = (addr) =>
+  addr.includes("Progreso") || addr.includes("Argo");
+
 export const getFileIcon = (mime) => {
   if (!mime) return "📄";
   if (mime.includes("pdf")) return "📕";
