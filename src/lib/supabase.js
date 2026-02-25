@@ -1,3 +1,9 @@
+// ═══════════════════════════════════════════
+// Archivo: src/lib/supabase.js
+// Versión: 1.0
+// Fecha: 2026-02-25
+// ═══════════════════════════════════════════
+
 import { SUPABASE_URL, SUPABASE_KEY } from "./config";
 
 const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` };
