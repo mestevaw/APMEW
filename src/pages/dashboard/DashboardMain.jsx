@@ -7,13 +7,14 @@ import { supaFetch } from "../../lib/supabase";
 import { Card, StatCard, Badge, MiniBar, SectionTitle, Spinner } from "../../components/UI";
 import { KIDS, PROFILE_FOLDERS, PROPERTIES, OWNER_COLORS, OWNER_SHORT, CARS, PROPERTY_VALUES_2025 } from "./constants";
 import { fmtMoney } from "./helpers";
-import { CarIcon, HouseIcon, CalendarIcon } from "./icons";
+import { CarIcon, HouseIcon, CalendarIcon, ChoresIcon } from "./icons";
 import PersonDetail from "./PersonDetail";
 import PropertyDetail from "./PropertyDetail";
 import PropertiesView from "./PropertiesView";
 import OwnerDetail from "./OwnerDetail";
 import CarsView from "./CarsView";
 import DeadlinesView from "./DeadlinesView";
+import ChoresView from "./ChoresView";
 
 export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const { profiles, income, retIncome, expenses, assets, debts, checklist, dailyExpenses } = data;
@@ -23,10 +24,12 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [showCars, setShowCars] = useState(false);
   const [showDeadlines, setShowDeadlines] = useState(false);
+  const [showChores, setShowChores] = useState(false);
   const [selectedOwner, setSelectedOwner] = useState(null);
   const [statYear, setStatYear] = useState(new Date().getFullYear());
   const [showYearlyDetail, setShowYearlyDetail] = useState(null);
   const [showPatrimonio, setShowPatrimonio] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const totalA = assets.reduce((s, a) => s + Number(a.current_value || 0), 0);
   const totalD = debts.reduce((s, d) => s + Number(d.outstanding_balance || 0), 0);
@@ -84,7 +87,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   const p1 = profiles.find(p => p.name === "Miguel") || profiles[0];
   const p2 = profiles.find(p => p.name === "AnaP") || profiles[1];
 
-  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); setShowCars(false); setShowDeadlines(false); setSelectedOwner(null); setShowYearlyDetail(null); };
+  const goBack = () => { setSelectedPerson(null); setShowProperties(false); setSelectedProperty(null); setShowCars(false); setShowDeadlines(false); setShowChores(false); setSelectedOwner(null); setShowYearlyDetail(null); };
 
   // ═══ SUBVIEWS ═══
   if (selectedPerson) return <PersonDetail person={selectedPerson} mob={mob} drive={drive} onBack={goBack} />;
@@ -93,6 +96,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   if (showProperties) return <PropertiesView mob={mob} drive={drive} onSelectProperty={(p) => { setSelectedProperty(p); setShowProperties(false); }} onBack={goBack} />;
   if (showCars) return <CarsView mob={mob} drive={drive} onBack={goBack} />;
   if (showDeadlines) return <DeadlinesView mob={mob} onBack={goBack} />;
+  if (showChores) return <ChoresView mob={mob} onBack={goBack} />;
 
   // ═══ YEARLY DETAIL VIEW ═══
   if (showYearlyDetail) {
@@ -285,42 +289,99 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
         </div>
       )}
 
-      <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: mob ? 12 : 16, flexWrap: "wrap" }}>
-        <button onClick={() => { setShowProperties(true); setShowKids(false); setShowCars(false); }} style={{
-          display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
-          background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
-        }} onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
-          <span style={{ color: C.accent }}><HouseIcon /></span>
-          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Propiedades</span>
-          <Badge color={C.textDim}>{PROPERTIES.filter(p => !p.sold).length}</Badge>
-        </button>
-        <button onClick={() => { setShowCars(true); setShowProperties(false); setShowKids(false); }} style={{
-          display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
-          background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
-        }} onMouseEnter={e => { e.currentTarget.style.borderColor = "#0EA5E9"; e.currentTarget.style.background = "#0EA5E915"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
-          <span style={{ color: "#0EA5E9" }}><CarIcon /></span>
-          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "#0EA5E9" }}>Coches</span>
-          <Badge color={C.textDim}>{CARS.length}</Badge>
-        </button>
-        <button onClick={() => { setShowDeadlines(true); setShowProperties(false); setShowCars(false); setShowKids(false); }} style={{
-          display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
-          background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
-        }} onMouseEnter={e => { e.currentTarget.style.borderColor = "#F59E0B"; e.currentTarget.style.background = "#F59E0B15"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
-          <span style={{ color: "#F59E0B" }}><CalendarIcon /></span>
-          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "#F59E0B" }}>Vencimientos</span>
-        </button>
-        {goToPage && <button onClick={() => goToPage("daily")} style={{
-          display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
-          background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
-        }} onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
-          <span style={{ color: C.accent }}>{I.expenses}</span>
-          <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Gastos Diarios</span>
-        </button>}
-      </div>
+      {/* ═══ Navigation buttons: desktop = row, mobile = dropdown ═══ */}
+      {mob ? (
+        /* ── MOBILE: Dropdown ── */
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, position: "relative" }}>
+          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "10px 20px",
+            background: mobileMenuOpen ? C.accentGlow : C.surface2,
+            border: `1px solid ${mobileMenuOpen ? C.accent : C.border}`, borderRadius: 10, cursor: "pointer",
+            transition: "all 0.2s",
+          }}>
+            <svg width="16" height="16" fill="none" stroke={C.accent} strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Secciones</span>
+            <svg width="12" height="12" fill="none" stroke={C.accent} strokeWidth="2" viewBox="0 0 24 24" style={{ transform: mobileMenuOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}><polyline points="6,9 12,15 18,9"/></svg>
+          </button>
+          {mobileMenuOpen && (
+            <>
+              <div onClick={() => setMobileMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 98 }} />
+              <div style={{
+                position: "absolute", top: "100%", marginTop: 6, background: C.surface,
+                border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
+                minWidth: 220, zIndex: 99, overflow: "hidden",
+              }}>
+                {[
+                  { label: "Propiedades", icon: <HouseIcon />, color: C.accent, badge: PROPERTIES.filter(p => !p.sold).length, action: () => { setShowProperties(true); setShowKids(false); } },
+                  { label: "Coches", icon: <CarIcon />, color: "#0EA5E9", badge: CARS.length, action: () => { setShowCars(true); setShowKids(false); } },
+                  { label: "Vencimientos", icon: <CalendarIcon />, color: "#F59E0B", action: () => { setShowDeadlines(true); setShowKids(false); } },
+                  { label: "Gastos Diarios", icon: I.expenses, color: C.accent, action: () => goToPage && goToPage("daily") },
+                  { label: "Labores Casa", icon: <ChoresIcon />, color: "#A78BFA", action: () => { setShowChores(true); setShowKids(false); } },
+                ].map((item, i) => (
+                  <button key={i} onClick={() => { item.action(); setMobileMenuOpen(false); }} style={{
+                    width: "100%", textAlign: "left", padding: "11px 16px",
+                    background: "transparent", border: "none", cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 10,
+                    borderBottom: i < 4 ? `1px solid ${C.border}` : "none",
+                  }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <span style={{ color: item.color, display: "flex" }}>{item.icon}</span>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: item.color, flex: 1 }}>{item.label}</span>
+                    {item.badge && <Badge color={C.textDim}>{item.badge}</Badge>}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      ) : (
+        /* ── DESKTOP: Row of 5 buttons ── */
+        <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+          <button onClick={() => { setShowProperties(true); setShowKids(false); setShowCars(false); }} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
+            background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
+          }} onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
+            <span style={{ color: C.accent }}><HouseIcon /></span>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Propiedades</span>
+            <Badge color={C.textDim}>{PROPERTIES.filter(p => !p.sold).length}</Badge>
+          </button>
+          <button onClick={() => { setShowCars(true); setShowProperties(false); setShowKids(false); }} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
+            background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
+          }} onMouseEnter={e => { e.currentTarget.style.borderColor = "#0EA5E9"; e.currentTarget.style.background = "#0EA5E915"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
+            <span style={{ color: "#0EA5E9" }}><CarIcon /></span>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "#0EA5E9" }}>Coches</span>
+            <Badge color={C.textDim}>{CARS.length}</Badge>
+          </button>
+          <button onClick={() => { setShowDeadlines(true); setShowProperties(false); setShowCars(false); setShowKids(false); }} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
+            background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
+          }} onMouseEnter={e => { e.currentTarget.style.borderColor = "#F59E0B"; e.currentTarget.style.background = "#F59E0B15"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
+            <span style={{ color: "#F59E0B" }}><CalendarIcon /></span>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "#F59E0B" }}>Vencimientos</span>
+          </button>
+          {goToPage && <button onClick={() => goToPage("daily")} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
+            background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
+          }} onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
+            <span style={{ color: C.accent }}>{I.expenses}</span>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Gastos Diarios</span>
+          </button>}
+          <button onClick={() => { setShowChores(true); setShowProperties(false); setShowCars(false); setShowKids(false); }} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
+            background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
+          }} onMouseEnter={e => { e.currentTarget.style.borderColor = "#A78BFA"; e.currentTarget.style.background = "#A78BFA15"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
+            <span style={{ color: "#A78BFA" }}><ChoresIcon /></span>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "#A78BFA" }}>Labores Casa</span>
+          </button>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(auto-fit, minmax(200px, 1fr))", gap: mob ? 10 : 16, marginBottom: mob ? 16 : 28 }}>
         <StatCard label="PATRIMONIO NETO" value={fmt(nw)} sub={`Activos: ${fmt(totalA)} · Props: ${fmt(totalPropValue)} ▸`} color={nw >= 0 ? C.green : C.red} icon={I.patrimony} delay={.1} mob={mob} onClick={() => setShowPatrimonio(true)} />
