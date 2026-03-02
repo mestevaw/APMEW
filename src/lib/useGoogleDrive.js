@@ -234,9 +234,9 @@ export const useGoogleDrive = () => {
   // ─── Subir fotos a carpeta de inspección ───
   // Estructura: propiedad / INSPECCION / año / "dd mmm yy"
   // Detecta duplicados comparando nombres de archivo
-  const uploadPhotos = useCallback(async (files, propertyFolderId, propertyName, onProgress) => {
+  const uploadPhotos = useCallback(async (files, propertyFolderId, propertyName, onProgress, customDate = null) => {
     if (!token) throw new Error("No token");
-    console.log("[uploadPhotos] Starting:", { propertyFolderId, propertyName, fileCount: files.length });
+    console.log("[uploadPhotos] Starting:", { propertyFolderId, propertyName, fileCount: files.length, customDate });
 
     // 1. Find or create INSPECCION folder
     let inspeccionFolder = await findSubfolder(propertyFolderId, "INSPEC");
@@ -245,15 +245,15 @@ export const useGoogleDrive = () => {
     }
 
     // 2. Find or create year folder
-    const year = new Date().getFullYear().toString();
+    const dateToUse = customDate || new Date();
+    const year = dateToUse.getFullYear().toString();
     let yearFolder = await findSubfolder(inspeccionFolder.id, year);
     if (!yearFolder) {
       yearFolder = await createFolder(year, inspeccionFolder.id);
     }
 
     // 3. Create/find date subfolder: "22 feb 26"
-    const now = new Date();
-    const dateName = `${now.getDate()} ${MONTHS_ES[now.getMonth()]} ${String(now.getFullYear()).slice(2)}`;
+    const dateName = `${dateToUse.getDate()} ${MONTHS_ES[dateToUse.getMonth()]} ${String(dateToUse.getFullYear()).slice(2)}`;
     let dateFolder = await findSubfolder(yearFolder.id, dateName);
     if (!dateFolder) {
       dateFolder = await createFolder(dateName, yearFolder.id);
