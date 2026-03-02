@@ -8,6 +8,7 @@ import { useState, useEffect, useRef } from "react";
 import { C } from "../../lib/theme";
 import { Card } from "../../components/UI";
 import PropertyExpenses from "./PropertyExpenses";
+import InspectionPanel from "./InspectionPanel";
 import { PROPERTY_VALUES_2025 } from "./constants";
 import { fmtMoney } from "./helpers";
 
@@ -78,13 +79,7 @@ const PropertyTabs = ({ property, mob, drive, onInspectionPhotos }) => {
 
 // ── Pestaña de Inspecciones ──
 const InspectionTab = ({ property, mob, drive, onPhotos }) => {
-  return (
-    <Card>
-      <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, textAlign: "center", padding: 40 }}>
-        Contenido de inspecciones se mostrará aquí
-      </div>
-    </Card>
-  );
+  return <InspectionPanel property={property} mob={mob} drive={drive} />;
 };
 
 // ── Pestaña de Gastos ──
