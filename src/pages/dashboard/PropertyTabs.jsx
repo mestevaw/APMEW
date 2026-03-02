@@ -9,6 +9,7 @@ import { C } from "../../lib/theme";
 import { Card } from "../../components/UI";
 import PropertyExpenses from "./PropertyExpenses";
 import InspectionPanel from "./InspectionPanel";
+import GastosPanel from "./GastosPanel";
 import SupaExplorer from "./SupaExplorer";
 import { PROPERTY_VALUES_2025 } from "./constants";
 import { fmtMoney } from "./helpers";
@@ -95,7 +96,7 @@ const PropertyTabs = ({ property, mob, drive, onInspectionPhotos, folderId }) =>
         )}
         
         {activeTab === "gastos" && (
-          <GastosTab property={property} mob={mob} />
+          <GastosTab property={property} mob={mob} drive={drive} />
         )}
         
         {activeTab === "valor" && (
@@ -134,11 +135,16 @@ const DocumentosTab = ({ property, mob, drive, folderId }) => {
 };
 
 // ── Pestaña de Gastos ──
-const GastosTab = ({ property, mob }) => {
+const GastosTab = ({ property, mob, drive }) => {
   const [searchTerm, setSearchTerm] = useState("");
 
   return (
     <div>
+      {/* Panel de folders de gastos */}
+      <div style={{ marginBottom: 16 }}>
+        <GastosPanel property={property} mob={mob} drive={drive} />
+      </div>
+
       {/* Búsqueda por proveedor */}
       <div style={{ marginBottom: 16 }}>
         <div style={{
