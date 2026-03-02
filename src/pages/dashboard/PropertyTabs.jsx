@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/PropertyTabs.jsx
-// Versión: 1.0
+// Versión: 2.0 - CORREGIDO
 // Fecha: 2026-03-02
 // ═══════════════════════════════════════════
 
@@ -9,6 +9,7 @@ import { C } from "../../lib/theme";
 import { Card } from "../../components/UI";
 import PropertyExpenses from "./PropertyExpenses";
 import InspectionPanel from "./InspectionPanel";
+import GastosPanel from "./GastosPanel";
 import SupaExplorer from "./SupaExplorer";
 import { PROPERTY_VALUES_2025 } from "./constants";
 import { fmtMoney } from "./helpers";
@@ -95,7 +96,7 @@ const PropertyTabs = ({ property, mob, drive, onInspectionPhotos, folderId }) =>
         )}
         
         {activeTab === "gastos" && (
-          <GastosTab property={property} mob={mob} drive={drive} />
+          <GastosDirectorioTab property={property} mob={mob} drive={drive} />
         )}
         
         {activeTab === "valor" && (
@@ -133,12 +134,68 @@ const DocumentosTab = ({ property, mob, drive, folderId }) => {
   return <SupaExplorer rootFolderId={folderId} mob={mob} drive={drive} propertyAddress={property.address} />;
 };
 
-// ── Pestaña de Gastos ──
-const GastosTab = ({ property, mob, drive }) => {
+// ── Pestaña de Gastos (DIRECTORIO) ──
+const GastosDirectorioTab = ({ property, mob, drive }) => {
+  return (
+    <div>
+      <div style={{ marginBottom: 12, padding: "8px 12px", background: `${C.accent}10`, borderRadius: 8, border: `1px solid ${C.accent}40` }}>
+        <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.accent, fontWeight: 600 }}>
+          💰 Directorio de GASTOS
+        </div>
+        <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim, marginTop: 2 }}>
+          Documentos organizados por año en la carpeta GASTOS de Drive
+        </div>
+      </div>
+      <GastosPanel property={property} mob={mob} drive={drive} />
+    </div>
+  );
+};
+
+// ── Pestaña de Valor ──
+const ValorTab = ({ property, mob }) => {
+  const value = PROPERTY_VALUES_2025[property.address];
+
+  return (
+    <div>
+      {value ? (
+        <Card>
+          <div style={{ textAlign: "center", padding: mob ? 30 : 40 }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🏠</div>
+            <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, marginBottom: 8 }}>
+              Valor Estimado 2025
+            </div>
+            <div style={{ fontFamily: "DM Sans", fontSize: mob ? 28 : 36, fontWeight: 700, color: C.accent }}>
+              {fmtMoney(value)}
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <Card style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🏠</div>
+          <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
+            No hay valor estimado para esta propiedad
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+};
+
+// ── Pestaña de Ingresos/Egresos (TABLA PROPERTYEXPENSES) ──
+const IngresosEgresosTab = ({ property, mob }) => {
   const [searchTerm, setSearchTerm] = useState("");
 
   return (
     <div>
+      <div style={{ marginBottom: 12, padding: "8px 12px", background: `${C.green}10`, borderRadius: 8, border: `1px solid ${C.green}40` }}>
+        <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.green, fontWeight: 600 }}>
+          📊 Tabla de Ingresos y Egresos
+        </div>
+        <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim, marginTop: 2 }}>
+          Dashboard financiero con gastos registrados en Supabase
+        </div>
+      </div>
+
       {/* Búsqueda por proveedor */}
       <div style={{ marginBottom: 16 }}>
         <div style={{
@@ -203,60 +260,6 @@ const GastosTab = ({ property, mob, drive }) => {
       {/* Component de gastos con filtro */}
       <PropertyExpenses address={property.address} mob={mob} searchFilter={searchTerm} />
     </div>
-  );
-};
-
-// ── Pestaña de Valor ──
-const ValorTab = ({ property, mob }) => {
-  const value = PROPERTY_VALUES_2025[property.address];
-
-  return (
-    <div>
-      {value ? (
-        <Card>
-          <div style={{ textAlign: "center", padding: mob ? 30 : 40 }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🏠</div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, marginBottom: 8 }}>
-              Valor Estimado 2025
-            </div>
-            <div style={{
-              fontFamily: "JetBrains Mono",
-              fontSize: mob ? 28 : 36,
-              fontWeight: 700,
-              color: C.accent,
-            }}>
-              {fmtMoney(value)}
-            </div>
-          </div>
-        </Card>
-      ) : (
-        <Card>
-          <div style={{ textAlign: "center", padding: 40 }}>
-            <div style={{ fontSize: 36, marginBottom: 12 }}>📊</div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
-              No hay valor estimado para esta propiedad
-            </div>
-          </div>
-        </Card>
-      )}
-    </div>
-  );
-};
-
-// ── Pestaña de Ingresos y Egresos ──
-const IngresosEgresosTab = ({ property, mob }) => {
-  return (
-    <Card>
-      <div style={{ textAlign: "center", padding: 40 }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
-        <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, marginBottom: 4 }}>
-          Reporte de Ingresos y Egresos
-        </div>
-        <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textMuted }}>
-          Próximamente
-        </div>
-      </div>
-    </Card>
   );
 };
 
