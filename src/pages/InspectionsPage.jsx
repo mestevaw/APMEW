@@ -75,38 +75,45 @@ export const InspectionsPage = ({ mob, drive }) => {
           return;
         }
 
-        // 3. Year folder
-        const year = new Date().getFullYear().toString();
-        setStatus(`Buscando carpeta ${year}...`);
-        const yearFolder = await findSubfolder(inspecFolder.id, year);
-        if (cancelled) return;
-        if (!yearFolder) {
-          setStatus(`No hay carpeta de inspecciones para ${year}.`);
-          setLoading(false);
-          return;
-        }
-
-        // 3.5. Cargar todas las fechas disponibles
+        // 3. Cargar TODOS los años disponibles
         setStatus("Cargando historial de inspecciones...");
-        const allDates = await listAllFiles(yearFolder.id);
+        const allYears = await listAllFiles(inspecFolder.id);
         if (cancelled) return;
-        const dateFolders = (allDates || [])
-          .filter(f => f.mimeType === "application/vnd.google-apps.folder")
-          .sort((a, b) => b.name.localeCompare(a.name));
         
-        setAvailableDates(dateFolders);
+        const yearFolders = (allYears || [])
+          .filter(f => f.mimeType === "application/vnd.google-apps.folder" && /^\d{4}$/.test(f.name))
+          .sort((a, b) => b.name.localeCompare(a.name)); // Años más recientes primero
+
+        // 3.5. Cargar todas las fechas de todos los años
+        let allDateFolders = [];
+        for (const yearFolder of yearFolders) {
+          const datesInYear = await listAllFiles(yearFolder.id);
+          if (cancelled) return;
+          const dateFolders = (datesInYear || [])
+            .filter(f => f.mimeType === "application/vnd.google-apps.folder")
+            .map(f => ({ ...f, year: yearFolder.name })); // Agregar info del año
+          allDateFolders = [...allDateFolders, ...dateFolders];
+        }
+        
+        // Ordenar todas las fechas por nombre (más reciente primero)
+        allDateFolders.sort((a, b) => b.name.localeCompare(a.name));
+        setAvailableDates(allDateFolders);
 
         // 4. Determinar qué fecha mostrar
+        const currentYear = new Date().getFullYear().toString();
         const today = todayFolderName();
         let targetDateFolder = null;
 
         if (selectedDate) {
           // Usar fecha seleccionada del dropdown
-          targetDateFolder = dateFolders.find(f => f.id === selectedDate);
+          targetDateFolder = allDateFolders.find(f => f.id === selectedDate);
         } else {
-          // Buscar inspección de hoy
-          setStatus(`Buscando inspección de hoy (${today})...`);
-          targetDateFolder = await findSubfolder(yearFolder.id, today);
+          // Buscar inspección de hoy en el año actual
+          const currentYearFolder = yearFolders.find(y => y.name === currentYear);
+          if (currentYearFolder) {
+            setStatus(`Buscando inspección de hoy (${today})...`);
+            targetDateFolder = await findSubfolder(currentYearFolder.id, today);
+          }
         }
 
         const loadPhotosFromFolder = async (folderId) => {
@@ -126,17 +133,17 @@ export const InspectionsPage = ({ mob, drive }) => {
           const imgs = await loadPhotosFromFolder(targetDateFolder.id);
           if (!cancelled) setPhotos(imgs);
         } else if (!selectedDate) {
-          // No hay inspección de hoy — mostrar la más reciente
+          // No hay inspección de hoy — mostrar la más reciente de cualquier año
           setStatus("No hay inspección de hoy. Mostrando la más reciente...");
           
-          if (dateFolders.length > 0) {
-            const recentFolder = dateFolders[0];
+          if (allDateFolders.length > 0) {
+            const recentFolder = allDateFolders[0];
             setDateFolderId(recentFolder.id);
-            setStatus(`Mostrando: ${recentFolder.name}`);
+            setStatus(`Mostrando: ${recentFolder.name} (${recentFolder.year})`);
             const imgs = await loadPhotosFromFolder(recentFolder.id);
             if (!cancelled) setPhotos(imgs);
           } else {
-            setStatus("No hay inspecciones registradas este año.");
+            setStatus("No hay inspecciones registradas.");
           }
         } else {
           setStatus("No se encontró la inspección seleccionada.");
@@ -254,7 +261,15 @@ export const InspectionsPage = ({ mob, drive }) => {
         />
       )}
 
-      <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, marginBottom: 4 }}>Inspecciones</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, margin: 0 }}>Inspecciones</h1>
+        <button onClick={() => setShowBulkUpload(true)} style={{
+          padding: "8px 16px", background: C.accent, color: "white",
+          border: "none", borderRadius: 8, cursor: "pointer", 
+          fontFamily: "DM Sans", fontSize: 13, fontWeight: 600,
+          display: "flex", alignItems: "center", gap: 6,
+        }}>📤 Subir Fotos</button>
+      </div>
       <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 20 }}>
         Fotos y notas de inspecciones · {todayFolderName()}
       </p>
@@ -299,10 +314,6 @@ export const InspectionsPage = ({ mob, drive }) => {
               padding: "6px 12px", background: `${C.accent}15`, border: `1px solid ${C.accent}40`,
               borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.accent,
             }}>📸 Subir</button>
-            <button onClick={() => setShowBulkUpload(true)} style={{
-              padding: "6px 12px", background: `${C.blue}15`, border: `1px solid ${C.blue}40`,
-              borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.blue,
-            }}>📤 Subir Masivo</button>
             <button onClick={handleAddNote} style={{
               padding: "6px 12px", background: `${C.green}15`, border: `1px solid ${C.green}40`,
               borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.green,
@@ -332,7 +343,7 @@ export const InspectionsPage = ({ mob, drive }) => {
                 <option value="">Hoy / Más reciente</option>
                 {availableDates.map(folder => (
                   <option key={folder.id} value={folder.id}>
-                    {folder.name}
+                    {folder.name} {folder.year ? `(${folder.year})` : ''}
                   </option>
                 ))}
               </select>
