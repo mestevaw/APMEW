@@ -14,6 +14,7 @@ import { Card, Spinner } from "../components/UI";
 import { PROPERTIES, OWNER_COLORS } from "./dashboard/constants";
 import AuthImage from "./dashboard/AuthImage";
 import PhotoGallery from "./dashboard/PhotoGallery";
+import { BulkPhotoUpload } from "../components/BulkPhotoUpload";
 
 export const InspectionsPage = ({ mob, drive }) => {
   const activeProps = PROPERTIES.filter(p => !p.sold);
@@ -28,6 +29,9 @@ export const InspectionsPage = ({ mob, drive }) => {
   const [uploading, setUploading]         = useState(false);
   const [uploadMsg, setUploadMsg]         = useState("");
   const uploadRef = useRef(null);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [availableDates, setAvailableDates] = useState([]);
+  const [selectedDate, setSelectedDate]     = useState(null);
 
   // Extraemos token para evitar que el objeto `drive` (nueva ref cada render)
   // dispare el efecto innecesariamente.
@@ -49,6 +53,7 @@ export const InspectionsPage = ({ mob, drive }) => {
       setDateFolderId(null);
       setPhotos([]);
       setNotes([]);
+      setAvailableDates([]);
 
       try {
         // 1. Find property folder in Drive
@@ -81,11 +86,28 @@ export const InspectionsPage = ({ mob, drive }) => {
           return;
         }
 
-        // 4. Today's date folder
-        const today = todayFolderName();
-        setStatus(`Buscando inspección de hoy (${today})...`);
-        const dateFolder = await findSubfolder(yearFolder.id, today);
+        // 3.5. Cargar todas las fechas disponibles
+        setStatus("Cargando historial de inspecciones...");
+        const allDates = await listAllFiles(yearFolder.id);
         if (cancelled) return;
+        const dateFolders = (allDates || [])
+          .filter(f => f.mimeType === "application/vnd.google-apps.folder")
+          .sort((a, b) => b.name.localeCompare(a.name));
+        
+        setAvailableDates(dateFolders);
+
+        // 4. Determinar qué fecha mostrar
+        const today = todayFolderName();
+        let targetDateFolder = null;
+
+        if (selectedDate) {
+          // Usar fecha seleccionada del dropdown
+          targetDateFolder = dateFolders.find(f => f.id === selectedDate);
+        } else {
+          // Buscar inspección de hoy
+          setStatus(`Buscando inspección de hoy (${today})...`);
+          targetDateFolder = await findSubfolder(yearFolder.id, today);
+        }
 
         const loadPhotosFromFolder = async (folderId) => {
           const files = await listAllFiles(folderId);
@@ -98,22 +120,17 @@ export const InspectionsPage = ({ mob, drive }) => {
             }));
         };
 
-        if (dateFolder) {
-          setDateFolderId(dateFolder.id);
-          setStatus("");
-          const imgs = await loadPhotosFromFolder(dateFolder.id);
+        if (targetDateFolder) {
+          setDateFolderId(targetDateFolder.id);
+          setStatus(selectedDate ? `Mostrando: ${targetDateFolder.name}` : "");
+          const imgs = await loadPhotosFromFolder(targetDateFolder.id);
           if (!cancelled) setPhotos(imgs);
-        } else {
-          // No folder for today — show most recent
+        } else if (!selectedDate) {
+          // No hay inspección de hoy — mostrar la más reciente
           setStatus("No hay inspección de hoy. Mostrando la más reciente...");
-          const allDates = await listAllFiles(yearFolder.id);
-          if (cancelled) return;
-          const folders = (allDates || [])
-            .filter(f => f.mimeType === "application/vnd.google-apps.folder")
-            .sort((a, b) => b.name.localeCompare(a.name));
-
-          if (folders.length > 0) {
-            const recentFolder = folders[0];
+          
+          if (dateFolders.length > 0) {
+            const recentFolder = dateFolders[0];
             setDateFolderId(recentFolder.id);
             setStatus(`Mostrando: ${recentFolder.name}`);
             const imgs = await loadPhotosFromFolder(recentFolder.id);
@@ -121,6 +138,8 @@ export const InspectionsPage = ({ mob, drive }) => {
           } else {
             setStatus("No hay inspecciones registradas este año.");
           }
+        } else {
+          setStatus("No se encontró la inspección seleccionada.");
         }
 
         // 6. Fetch notes from Supabase
@@ -139,7 +158,7 @@ export const InspectionsPage = ({ mob, drive }) => {
 
     navigate();
     return () => { cancelled = true; };
-  }, [selected, driveToken, searchFolderByAddress, findSubfolder, listAllFiles]);
+  }, [selected, driveToken, searchFolderByAddress, findSubfolder, listAllFiles, selectedDate]);
 
   // ─── Upload handler ───
   const handleUpload = async (e) => {
@@ -221,6 +240,20 @@ export const InspectionsPage = ({ mob, drive }) => {
         />
       )}
 
+      {showBulkUpload && (
+        <BulkPhotoUpload
+          drive={drive}
+          onClose={() => setShowBulkUpload(false)}
+          onComplete={(results) => {
+            setUploadMsg(`✓ ${results.success} fotos subidas, ${results.failed} fallidas`);
+            setTimeout(() => setUploadMsg(""), 6000);
+            // Refresh la vista
+            if (selected) setSelected({ ...selected });
+          }}
+          mob={mob}
+        />
+      )}
+
       <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, marginBottom: 4 }}>Inspecciones</h1>
       <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 20 }}>
         Fotos y notas de inspecciones · {todayFolderName()}
@@ -265,12 +298,46 @@ export const InspectionsPage = ({ mob, drive }) => {
             <button onClick={() => uploadRef.current?.click()} disabled={uploading} style={{
               padding: "6px 12px", background: `${C.accent}15`, border: `1px solid ${C.accent}40`,
               borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.accent,
-            }}>📸 Subir fotos</button>
-            <button onClick={handleAddNote} style={{
+            }}>📸 Subir</button>
+            <button onClick={() => setShowBulkUpload(true)} style={{
               padding: "6px 12px", background: `${C.blue}15`, border: `1px solid ${C.blue}40`,
               borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.blue,
+            }}>📤 Subir Masivo</button>
+            <button onClick={handleAddNote} style={{
+              padding: "6px 12px", background: `${C.green}15`, border: `1px solid ${C.green}40`,
+              borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.green,
             }}>📝 Nota</button>
           </div>
+
+          {/* Dropdown de fechas de inspección */}
+          {availableDates.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
+                Ver inspección:
+              </label>
+              <select
+                value={selectedDate || ""}
+                onChange={(e) => setSelectedDate(e.target.value || null)}
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  fontFamily: "DM Sans",
+                  fontSize: 13,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  background: C.surface2,
+                  color: C.text,
+                }}
+              >
+                <option value="">Hoy / Más reciente</option>
+                {availableDates.map(folder => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Upload message */}
           {uploadMsg && (
