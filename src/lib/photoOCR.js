@@ -111,14 +111,24 @@ export const extractPhotoMetadata = async (imageFile, properties) => {
       const propNum = p.address.match(/^\d+/);
       const propStreet = p.address.replace(/^\d+\s*/, "").trim().toUpperCase();
       
-      // Match si el número coincide Y (la calle de OCR está en la propiedad O viceversa)
+      // Match si el número coincide
       if (propNum && propNum[0] === (numMatch ? numMatch[0] : "")) {
-        // Comparar ambas direcciones para ver si hay match parcial
-        const streetWords = streetFromOCR.split(/\s+/);
+        // Comparar palabras de la calle
+        const streetWordsOCR = streetFromOCR.split(/\s+/);
         const propWords = propStreet.split(/[\s,]/);
         
-        // Si la primera palabra de la calle coincide, es un match
-        return streetWords[0] === propWords[0];
+        // Si alguna palabra coincide, es un match
+        // Ejemplo: "MIDNIGHT" match con "MIDNIGHT RAIN"
+        for (const wordOCR of streetWordsOCR) {
+          for (const wordProp of propWords) {
+            if (wordOCR.length >= 3 && wordProp.includes(wordOCR)) {
+              return true;
+            }
+            if (wordProp.length >= 3 && wordOCR.includes(wordProp)) {
+              return true;
+            }
+          }
+        }
       }
       return false;
     });
