@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/InspectionPanel.jsx  
-// Versión: 3.0 - Ultra-rápido con Supabase
+// Versión: 4.0 - Busca en Drive como SupaExplorer
 // Fecha: 2026-03-02
 // ═══════════════════════════════════════════
 
@@ -9,6 +9,7 @@ import { C } from "../../lib/theme";
 import { Card, Spinner } from "../../components/UI";
 import { supaFetch, supaInsert } from "../../lib/supabase";
 import { todayFolderName } from "../../lib/helpers";
+import { DRIVE_ROOT_FOLDER } from "../../lib/config";
 import AuthImage from "./AuthImage";
 import PhotoGallery from "./PhotoGallery";
 
@@ -26,56 +27,68 @@ const InspectionPanel = ({ property, mob, drive }) => {
   const [status, setStatus] = useState("");
   const uploadRef = useRef(null);
 
-  // ─── Cargar años desde Supabase (ULTRA RÁPIDO) ───
+  // ─── Cargar años desde Drive DIRECTAMENTE (como SupaExplorer) ───
   useEffect(() => {
     const loadYears = async () => {
       setLoading(true);
       try {
-        // Buscar folders que contengan INSPECC en el path de esta propiedad
-        const folders = await supaFetch("drive_folders", {
-          filters: `folder_path.ilike.%${encodeURIComponent(property.address)}%INSPECC%`,
-          order: "folder_path.desc",
-        });
-
-        if (!folders || folders.length === 0) {
+        if (!drive?.token || !drive?.listAllFiles || !drive?.searchFolderByAddress || !drive?.findSubfolder) {
           setYearFolders([]);
           setLoading(false);
           return;
         }
 
-        // Filtrar solo folders de años (formato: 4 dígitos)
-        const years = folders.filter(f => {
-          const pathParts = f.folder_path.split('/');
-          const folderName = pathParts[pathParts.length - 1];
-          return /^\d{4}$/.test(folderName);
-        }).map(f => ({
-          id: f.google_drive_id,
-          name: f.folder_path.split('/').pop(),
-          path: f.folder_path,
-        }));
+        // 1. Buscar carpeta de la propiedad
+        const propFolder = await drive.searchFolderByAddress(
+          property.address,
+          property.owner,
+          DRIVE_ROOT_FOLDER
+        );
 
-        // Eliminar duplicados y ordenar
-        const uniqueYears = Array.from(new Map(years.map(y => [y.name, y])).values())
+        if (!propFolder) {
+          setStatus("No se encontró la carpeta de la propiedad");
+          setYearFolders([]);
+          setLoading(false);
+          return;
+        }
+
+        // 2. Buscar carpeta INSPECCIONES (busca con "INSPEC" para detectar tanto INSPECCION como INSPECCIONES)
+        const inspecFolder = await drive.findSubfolder(propFolder.id, "INSPEC");
+
+        if (!inspecFolder) {
+          setStatus("No existe carpeta INSPECCIONES para esta propiedad");
+          setYearFolders([]);
+          setLoading(false);
+          return;
+        }
+
+        // 3. Listar años dentro de INSPECCIONES (busca directamente en Drive API)
+        const allFiles = await drive.listAllFiles(inspecFolder.id);
+        
+        const years = (allFiles || [])
+          .filter(f => f.mimeType === "application/vnd.google-apps.folder" && /^\d{4}$/.test(f.name))
+          .map(f => ({ id: f.id, name: f.name }))
           .sort((a, b) => b.name.localeCompare(a.name));
 
-        setYearFolders(uniqueYears);
+        setYearFolders(years);
 
         // Auto-seleccionar año actual
         const currentYear = new Date().getFullYear().toString();
-        const current = uniqueYears.find(y => y.name === currentYear);
+        const current = years.find(y => y.name === currentYear);
         if (current) {
           setSelectedYear(current.id);
-        } else if (uniqueYears.length > 0) {
-          setSelectedYear(uniqueYears[0].id);
+        } else if (years.length > 0) {
+          setSelectedYear(years[0].id);
         }
       } catch (err) {
         console.error("[InspectionPanel] Error loading years:", err);
+        setStatus("Error al cargar años: " + err.message);
       }
       setLoading(false);
     };
 
     loadYears();
-  }, [property.address]);
+  }, [property.address, property.owner, drive?.token, drive?.listAllFiles, drive?.searchFolderByAddress, drive?.findSubfolder]);
 
   // ─── Cargar fechas cuando se selecciona un año ───
   useEffect(() => {
@@ -98,9 +111,12 @@ const InspectionPanel = ({ property, mob, drive }) => {
           setSelectedDate(todayFolder.id);
         } else if (dates.length > 0) {
           setSelectedDate(dates[0].id);
+        } else {
+          setSelectedDate(null);
         }
       } catch (err) {
         console.error("[InspectionPanel] Error loading dates:", err);
+        setDateFolders([]);
       }
       setLoading(false);
     };
@@ -163,7 +179,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
       const propFolder = await drive.searchFolderByAddress(
         property.address,
         property.owner,
-        drive.DRIVE_ROOT_FOLDER || "1xME_your_folder_id"
+        DRIVE_ROOT_FOLDER
       );
 
       if (!propFolder) {
@@ -236,7 +252,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
         <div style={{ textAlign: "center", padding: 30 }}>
           <Spinner />
           <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>
-            Cargando inspecciones...
+            {status || "Cargando inspecciones..."}
           </p>
         </div>
       </Card>
@@ -248,7 +264,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
       <Card style={{ textAlign: "center", padding: 40 }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>📸</div>
         <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
-          No hay inspecciones registradas
+          {status || "No hay inspecciones registradas"}
         </div>
       </Card>
     );
