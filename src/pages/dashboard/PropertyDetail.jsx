@@ -160,16 +160,14 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
             {property.sold ? " · Vendida" : ""}
           </span>
         </div>
-        {folderId && (
-          <div style={{ position: "relative" }}>
-            <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
-            <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
-              <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>📤 Subir fotos</MenuBtn>
-              <MenuBtn onClick={() => { setInspPanel(true); setMenuOpen(false); }}>📸 Inspección</MenuBtn>
-              <MenuBtn onClick={() => { setShowDocs(!showDocs); setMenuOpen(false); }}>{showDocs ? "📂 Ocultar docs" : "📂 Ver docs"}</MenuBtn>
-            </DropMenu>
-          </div>
-        )}
+        <div style={{ position: "relative" }}>
+          <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
+          <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
+            <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>📤 Subir fotos</MenuBtn>
+            {folderId && <MenuBtn onClick={() => { setInspPanel(true); setMenuOpen(false); }}>📸 Inspección</MenuBtn>}
+            {folderId && <MenuBtn onClick={() => { setShowDocs(!showDocs); setMenuOpen(false); }}>{showDocs ? "📂 Ocultar docs" : "📂 Ver docs"}</MenuBtn>}
+          </DropMenu>
+        </div>
       </div>
 
       {uploadMsg && (
