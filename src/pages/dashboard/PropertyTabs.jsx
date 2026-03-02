@@ -9,7 +9,6 @@ import { C } from "../../lib/theme";
 import { Card } from "../../components/UI";
 import PropertyExpenses from "./PropertyExpenses";
 import InspectionPanel from "./InspectionPanel";
-import GastosPanel from "./GastosPanel";
 import SupaExplorer from "./SupaExplorer";
 import { PROPERTY_VALUES_2025 } from "./constants";
 import { fmtMoney } from "./helpers";
@@ -140,11 +139,6 @@ const GastosTab = ({ property, mob, drive }) => {
 
   return (
     <div>
-      {/* Panel de folders de gastos */}
-      <div style={{ marginBottom: 16 }}>
-        <GastosPanel property={property} mob={mob} drive={drive} />
-      </div>
-
       {/* Búsqueda por proveedor */}
       <div style={{ marginBottom: 16 }}>
         <div style={{
