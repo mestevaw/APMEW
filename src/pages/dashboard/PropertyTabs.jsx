@@ -9,14 +9,16 @@ import { C } from "../../lib/theme";
 import { Card } from "../../components/UI";
 import PropertyExpenses from "./PropertyExpenses";
 import InspectionPanel from "./InspectionPanel";
+import SupaExplorer from "./SupaExplorer";
 import { PROPERTY_VALUES_2025 } from "./constants";
 import { fmtMoney } from "./helpers";
 
-const PropertyTabs = ({ property, mob, drive, onInspectionPhotos }) => {
+const PropertyTabs = ({ property, mob, drive, onInspectionPhotos, folderId }) => {
   const [activeTab, setActiveTab] = useState("inspecciones");
 
   const tabs = [
     { id: "inspecciones", label: "📸 Inspecciones", icon: "📸" },
+    { id: "documentos", label: "📂 Documentos", icon: "📂" },
     { id: "gastos", label: "💰 Gastos", icon: "💰" },
     { id: "valor", label: "🏠 Valor", icon: "🏠" },
     { id: "ingresos", label: "📊 Ingresos/Egresos", icon: "📊" },
@@ -24,41 +26,72 @@ const PropertyTabs = ({ property, mob, drive, onInspectionPhotos }) => {
 
   return (
     <div>
-      {/* Tabs */}
-      <div style={{
-        display: "flex",
-        gap: 4,
-        marginBottom: 16,
-        borderBottom: `1px solid ${C.border}`,
-        overflowX: "auto",
-      }}>
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+      {/* Tabs para desktop, dropdown para mobile */}
+      {mob ? (
+        <div style={{ marginBottom: 16 }}>
+          <select
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value)}
             style={{
-              padding: mob ? "10px 16px" : "12px 20px",
-              background: "none",
-              border: "none",
-              borderBottom: activeTab === tab.id ? `2px solid ${C.accent}` : "2px solid transparent",
-              cursor: "pointer",
+              width: "100%",
+              padding: "12px 16px",
               fontFamily: "DM Sans",
-              fontSize: mob ? 12 : 13,
-              fontWeight: activeTab === tab.id ? 600 : 500,
-              color: activeTab === tab.id ? C.accent : C.textDim,
-              transition: "all 0.2s",
-              whiteSpace: "nowrap",
+              fontSize: 14,
+              fontWeight: 600,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              background: C.surface2,
+              color: C.text,
+              cursor: "pointer",
             }}
           >
-            {mob ? tab.icon : tab.label}
-          </button>
-        ))}
-      </div>
+            {tabs.map(tab => (
+              <option key={tab.id} value={tab.id}>
+                {tab.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div style={{
+          display: "flex",
+          gap: 4,
+          marginBottom: 16,
+          borderBottom: `1px solid ${C.border}`,
+          overflowX: "auto",
+        }}>
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                padding: "12px 20px",
+                background: "none",
+                border: "none",
+                borderBottom: activeTab === tab.id ? `2px solid ${C.accent}` : "2px solid transparent",
+                cursor: "pointer",
+                fontFamily: "DM Sans",
+                fontSize: 13,
+                fontWeight: activeTab === tab.id ? 600 : 500,
+                color: activeTab === tab.id ? C.accent : C.textDim,
+                transition: "all 0.2s",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Tab Content */}
       <div>
         {activeTab === "inspecciones" && (
           <InspectionTab property={property} mob={mob} drive={drive} onPhotos={onInspectionPhotos} />
+        )}
+        
+        {activeTab === "documentos" && (
+          <DocumentosTab property={property} mob={mob} drive={drive} folderId={folderId} />
         )}
         
         {activeTab === "gastos" && (
@@ -80,6 +113,24 @@ const PropertyTabs = ({ property, mob, drive, onInspectionPhotos }) => {
 // ── Pestaña de Inspecciones ──
 const InspectionTab = ({ property, mob, drive, onPhotos }) => {
   return <InspectionPanel property={property} mob={mob} drive={drive} />;
+};
+
+// ── Pestaña de Documentos ──
+const DocumentosTab = ({ property, mob, drive, folderId }) => {
+  if (!folderId) {
+    return (
+      <Card>
+        <div style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>📂</div>
+          <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
+            No se encontró carpeta de Drive para esta propiedad
+          </div>
+        </div>
+      </Card>
+    );
+  }
+  
+  return <SupaExplorer rootFolderId={folderId} mob={mob} drive={drive} propertyAddress={property.address} />;
 };
 
 // ── Pestaña de Gastos ──
