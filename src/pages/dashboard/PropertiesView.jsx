@@ -8,11 +8,13 @@ import { PROPERTIES, OWNER_COLORS, OWNER_SHORT } from "./constants";
 import { fmtMoney, getNumber, getStreet, findFolderByAddress } from "./helpers";
 import { HouseIcon } from "./icons";
 import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuComponents";
+import BulkPhotoUpload from "../../components/BulkPhotoUpload";
 
 const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [filter, setFilter] = useState("all");
   const [sortBy, setSortBy] = useState("number");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [uploadTarget, setUploadTarget] = useState(null); // property for upload
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
@@ -66,6 +68,19 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
     <div>
       <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFilesSelected} style={{ display: "none" }} />
 
+      {/* BulkPhotoUpload Modal */}
+      {showBulkUpload && (
+        <BulkPhotoUpload
+          drive={drive}
+          onClose={() => setShowBulkUpload(false)}
+          onComplete={(results) => {
+            setUploadMsg(`✓ ${results.success} fotos subidas, ${results.failed} fallidas`);
+            setTimeout(() => setUploadMsg(""), 6000);
+          }}
+          mob={mob}
+        />
+      )}
+
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
@@ -85,6 +100,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             <MenuDivider />
             <MenuLabel>Fotos</MenuLabel>
             {drive?.token && <MenuBtn onClick={() => setMenuOpen(false)}>✅ Drive conectado</MenuBtn>}
+            {drive?.token && <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>📤 Subir Fotos</MenuBtn>}
           </DropMenu>
         </div>
       </div>
