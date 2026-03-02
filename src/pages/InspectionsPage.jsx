@@ -1,252 +1,295 @@
 // ═══════════════════════════════════════════
-// Archivo: src/pages/InspectionsPage.jsx
-// Versión: 1
+// Archivo: src/pages/dashboard/PropertyDetail.jsx
+// Versión: 1.1
 // Fecha: 2026-02-25
 // ═══════════════════════════════════════════
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { C } from "../lib/theme";
-import { I } from "../lib/icons";
-import { DRIVE_ROOT_FOLDER } from "../lib/config";
-import { supaFetch, supaInsert } from "../lib/supabase";
-import { isImage, todayFolderName } from "../lib/helpers";
-import { Card, Spinner } from "../components/UI";
-import { PROPERTIES, OWNER_COLORS } from "./dashboard/constants";
-import AuthImage from "./dashboard/AuthImage";
-import PhotoGallery from "./dashboard/PhotoGallery";
-import { BulkPhotoUpload } from "../components/BulkPhotoUpload";
+import { useState, useEffect, useRef } from "react";
+import { C } from "../../lib/theme";
+import { I } from "../../lib/icons";
+import { supaFetch, supaInsert } from "../../lib/supabase";
+import { Card, Badge, Spinner } from "../../components/UI";
+import { OWNER_COLORS, PROPERTY_VALUES_2025 } from "./constants";
+import { fmtMoney, findFolderByAddress, isPersonalProperty } from "./helpers";
+import { DRIVE_ROOT_FOLDER } from "../../lib/config";
+import { HouseIcon } from "./icons";
+import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuComponents";
+import SupaExplorer from "./SupaExplorer";
+import PropertyExpenses from "./PropertyExpenses";
+import PropertyTabs from "./PropertyTabs";
+import { BulkPhotoUpload } from "../../components/BulkPhotoUpload";
 
-export const InspectionsPage = ({ mob, drive }) => {
-  const activeProps = PROPERTIES.filter(p => !p.sold);
-  const [selected, setSelected]           = useState(null);
-  const [loading, setLoading]             = useState(false);
-  const [status, setStatus]               = useState("");
-  const [dateFolderId, setDateFolderId]   = useState(null);
-  const [photos, setPhotos]               = useState([]);
-  const [notes, setNotes]                 = useState([]);
-  const [galleryImages, setGalleryImages] = useState(null);
-  const [galleryStart, setGalleryStart]   = useState(0);
-  const [uploading, setUploading]         = useState(false);
-  const [uploadMsg, setUploadMsg]         = useState("");
+const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
+  const [folderId, setFolderId] = useState(null);
+  const [searching, setSearching] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [showDocs, setShowDocs] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [inspPanel, setInspPanel] = useState(false);
+  const [tenant, setTenant] = useState(null);
   const uploadRef = useRef(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const personal = isPersonalProperty(property.address);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
-  const [availableDates, setAvailableDates] = useState([]);
-  const [selectedDate, setSelectedDate]     = useState(null);
 
-  // Extraemos token para evitar que el objeto `drive` (nueva ref cada render)
-  // dispare el efecto innecesariamente.
-  const driveToken = drive?.token;
-
-  // ─── Stable references a funciones de drive ───
-  const searchFolderByAddress = drive?.searchFolderByAddress;
-  const findSubfolder         = drive?.findSubfolder;
-  const listAllFiles          = drive?.listAllFiles;
-
-  // ─── Navigate to INSPECCION/year/today para la propiedad seleccionada ───
   useEffect(() => {
-    if (!selected || !driveToken) return;
-    let cancelled = false;
+    setSearching(true); setNotFound(false); setFolderId(null); setTenant(null);
 
-    const navigate = async () => {
-      setLoading(true);
-      setStatus("Buscando carpeta de la propiedad...");
-      setDateFolderId(null);
-      setPhotos([]);
-      setNotes([]);
-      setAvailableDates([]);
-
-      try {
-        // 1. Find property folder in Drive
-        const propFolder = await searchFolderByAddress(selected.address, selected.owner, DRIVE_ROOT_FOLDER);
-        if (cancelled) return;
-        if (!propFolder) {
-          setStatus("No se encontró la carpeta de la propiedad en Drive.");
-          setLoading(false);
-          return;
-        }
-
-        // 2. INSPECCION subfolder
-        setStatus("Buscando carpeta INSPECCION...");
-        const inspecFolder = await findSubfolder(propFolder.id, "INSPEC");
-        if (cancelled) return;
-        if (!inspecFolder) {
-          setStatus("No existe carpeta INSPECCION para esta propiedad.");
-          setLoading(false);
-          return;
-        }
-
-        // 3. Cargar TODOS los años disponibles
-        setStatus("Cargando historial de inspecciones...");
-        const allYears = await listAllFiles(inspecFolder.id);
-        if (cancelled) return;
-        
-        const yearFolders = (allYears || [])
-          .filter(f => f.mimeType === "application/vnd.google-apps.folder" && /^\d{4}$/.test(f.name))
-          .sort((a, b) => b.name.localeCompare(a.name)); // Años más recientes primero
-
-        // 3.5. Cargar todas las fechas de todos los años
-        let allDateFolders = [];
-        for (const yearFolder of yearFolders) {
-          const datesInYear = await listAllFiles(yearFolder.id);
-          if (cancelled) return;
-          const dateFolders = (datesInYear || [])
-            .filter(f => f.mimeType === "application/vnd.google-apps.folder")
-            .map(f => ({ ...f, year: yearFolder.name })); // Agregar info del año
-          allDateFolders = [...allDateFolders, ...dateFolders];
-        }
-        
-        // Ordenar todas las fechas por nombre (más reciente primero)
-        allDateFolders.sort((a, b) => b.name.localeCompare(a.name));
-        setAvailableDates(allDateFolders);
-
-        // 4. Determinar qué fecha mostrar
-        const currentYear = new Date().getFullYear().toString();
-        const today = todayFolderName();
-        let targetDateFolder = null;
-
-        if (selectedDate) {
-          // Usar fecha seleccionada del dropdown
-          targetDateFolder = allDateFolders.find(f => f.id === selectedDate);
-        } else {
-          // Buscar inspección de hoy en el año actual
-          const currentYearFolder = yearFolders.find(y => y.name === currentYear);
-          if (currentYearFolder) {
-            setStatus(`Buscando inspección de hoy (${today})...`);
-            targetDateFolder = await findSubfolder(currentYearFolder.id, today);
+    const findFolder = async () => {
+      // Strategy 1: Search directly in Drive API (works even if Supabase index is incomplete)
+      if (drive?.token && drive?.searchFolderByAddress) {
+        try {
+          console.log("[PropertyDetail] Searching Drive API for:", property.address);
+          const driveResult = await drive.searchFolderByAddress(property.address, property.owner, DRIVE_ROOT_FOLDER);
+          if (driveResult?.id) {
+            console.log("[PropertyDetail] Found via Drive API:", driveResult);
+            setFolderId(driveResult.id);
+            setSearching(false);
+            return;
           }
+          console.log("[PropertyDetail] Not found via Drive API, trying Supabase...");
+        } catch (err) {
+          console.error("[PropertyDetail] Drive search failed:", err);
         }
-
-        const loadPhotosFromFolder = async (folderId) => {
-          const files = await listAllFiles(folderId);
-          if (cancelled) return [];
-          return (files || [])
-            .filter(f => isImage(f.mimeType))
-            .map(f => ({
-              id: f.id, title: f.name, google_drive_file_id: f.id,
-              mime_type: f.mimeType, file_type: (f.name || "").split(".").pop().toLowerCase(),
-            }));
-        };
-
-        if (targetDateFolder) {
-          setDateFolderId(targetDateFolder.id);
-          setStatus(selectedDate ? `Mostrando: ${targetDateFolder.name}` : "");
-          const imgs = await loadPhotosFromFolder(targetDateFolder.id);
-          if (!cancelled) setPhotos(imgs);
-        } else if (!selectedDate) {
-          // No hay inspección de hoy — mostrar la más reciente de cualquier año
-          setStatus("No hay inspección de hoy. Mostrando la más reciente...");
-          
-          if (allDateFolders.length > 0) {
-            const recentFolder = allDateFolders[0];
-            setDateFolderId(recentFolder.id);
-            setStatus(`Mostrando: ${recentFolder.name} (${recentFolder.year})`);
-            const imgs = await loadPhotosFromFolder(recentFolder.id);
-            if (!cancelled) setPhotos(imgs);
-          } else {
-            setStatus("No hay inspecciones registradas.");
-          }
-        } else {
-          setStatus("No se encontró la inspección seleccionada.");
-        }
-
-        // 6. Fetch notes from Supabase
-        const notesData = await supaFetch("inspection_notes", {
-          filters: `property_address=eq.${encodeURIComponent(selected.address)}`,
-          order: "note_date.desc",
-        });
-        if (!cancelled) setNotes(notesData || []);
-
-      } catch (err) {
-        console.error("[InspectionsPage]", err);
-        if (!cancelled) setStatus("Error: " + err.message);
       }
-      if (!cancelled) setLoading(false);
+      // Strategy 2: Fallback to Supabase index
+      try {
+        const folder = await findFolderByAddress(property.address, property.owner);
+        console.log("[PropertyDetail] Supabase result:", folder ? { name: folder.name, id: folder.google_drive_id } : "NOT FOUND");
+        if (folder?.google_drive_id) setFolderId(folder.google_drive_id);
+        else setNotFound(true);
+      } catch (err) {
+        console.error("[PropertyDetail] Supabase search failed:", err);
+        setNotFound(true);
+      }
+      setSearching(false);
     };
 
-    navigate();
-    return () => { cancelled = true; };
-  }, [selected, driveToken, searchFolderByAddress, findSubfolder, listAllFiles, selectedDate]);
+    findFolder();
+    if (!personal) {
+      supaFetch("tenants", { filters: `property_address=eq.${encodeURIComponent(property.address)}`, limit: 1 })
+        .then(rows => { if (rows && rows[0]) setTenant(rows[0]); });
+    }
+  }, [property.address, drive?.token]);
 
-  // ─── Upload handler ───
+  const handleCameraClick = () => {
+    if (!drive?.token) {
+      setUploadMsg("Conecta Google Drive primero (botón en la barra lateral)");
+      setTimeout(() => setUploadMsg(""), 4000);
+      return;
+    }
+    uploadRef.current?.click();
+  };
+
+  const registerInSupabase = async (dateFolder, yearFolder, inspeccionFolder, results) => {
+    let basePath = "";
+    try {
+      const parentRows = await supaFetch("drive_folders", { filters: `google_drive_id=eq.${folderId}` });
+      if (parentRows && parentRows[0]) basePath = parentRows[0].folder_path;
+    } catch (e) { console.error("lookup parent path:", e); }
+    if (!basePath) basePath = `PROPERTY > ${property.address}`;
+
+    const inspecPath = `${basePath}/${inspeccionFolder.name}`;
+    const yearPath = `${inspecPath}/${yearFolder.name}`;
+    const datePath = `${yearPath}/${dateFolder.name}`;
+
+    for (const f of [
+      { name: inspeccionFolder.name, id: inspeccionFolder.id, parent: folderId, path: inspecPath },
+      { name: yearFolder.name, id: yearFolder.id, parent: inspeccionFolder.id, path: yearPath },
+      { name: dateFolder.name, id: dateFolder.id, parent: yearFolder.id, path: datePath },
+    ]) {
+      try {
+        const exists = await supaFetch("drive_folders", { filters: `google_drive_id=eq.${f.id}` });
+        if (!exists || exists.length === 0) {
+          await supaInsert("drive_folders", { name: f.name, google_drive_id: f.id, parent_drive_id: f.parent, folder_path: f.path });
+        }
+      } catch (e) { console.error("folder register:", e); }
+    }
+    for (const r of results) {
+      try {
+        const ext = (r.name || "").split(".").pop().toLowerCase();
+        const mimeMap = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", heic: "image/heic", webp: "image/webp" };
+        await supaInsert("documents", {
+          title: r.name, google_drive_file_id: r.id,
+          parent_folder_drive_id: dateFolder.id,
+          folder_path: datePath,
+          category: "inspeccion",
+          mime_type: mimeMap[ext] || r.mimeType || "image/jpeg",
+          file_type: ext || "jpg",
+        });
+      } catch (e) { console.error("doc register:", e); }
+    }
+  };
+
   const handleUpload = async (e) => {
     const files = Array.from(e.target.files || []);
-    if (!files.length || !driveToken || !drive?.uploadPhotos || !selected) return;
-
-    setUploading(true);
-    setUploadMsg(`Subiendo ${files.length} fotos...`);
-
+    if (!files.length || !drive?.token || !drive?.uploadPhotos || !folderId) return;
+    console.log("[PropertyDetail] handleUpload using folderId:", folderId, "for property:", property.address);
+    setUploading(true); setUploadMsg(`Subiendo ${files.length} fotos...`);
     try {
-      const propFolder = await searchFolderByAddress(selected.address, selected.owner, DRIVE_ROOT_FOLDER);
-      if (!propFolder) throw new Error("No se encontró la carpeta de la propiedad");
-
-      const { results, skipped = 0 } = await drive.uploadPhotos(
-        files, propFolder.id, selected.address,
+      const { dateFolder, results, yearFolder, inspeccionFolder, skipped = 0 } = await drive.uploadPhotos(
+        files, folderId, property.address,
         (cur, total, name) => setUploadMsg(`Subiendo ${cur}/${total}... ${name}`)
       );
-      const newUploads = results.filter(r => !r.skipped).length;
-      setUploadMsg(skipped > 0
-        ? `✓ ${newUploads} nuevas, ${skipped} ya existían`
-        : `✓ ${results.length} fotos subidas`
-      );
-
-      // Refresh
-      setSelected({ ...selected });
-    } catch (err) {
-      setUploadMsg("Error: " + err.message);
-    }
-    setUploading(false);
-    e.target.value = "";
+      const newUploads = results.filter(r => !r.skipped);
+      setUploadMsg(`Indexando ${newUploads.length} fotos...`);
+      await registerInSupabase(dateFolder, yearFolder, inspeccionFolder, newUploads);
+      const msg = skipped > 0
+        ? `✓ ${newUploads.length} nuevas, ${skipped} ya existían (no duplicadas)`
+        : `✓ ${results.length} fotos subidas e indexadas`;
+      setUploadMsg(msg);
+      setRefreshKey(k => k + 1);
+    } catch (err) { setUploadMsg("Error: " + err.message); }
+    setUploading(false); e.target.value = "";
     setTimeout(() => setUploadMsg(""), 6000);
   };
 
-  // ─── Add note ───
-  const handleAddNote = useCallback(() => {
-    const note = prompt("Nota de inspección:");
-    if (!note?.trim() || !selected) return;
-    const dateStr = new Date().toISOString().slice(0, 10);
-    supaInsert("inspection_notes", {
-      property_address: selected.address,
-      note_date: dateStr,
-      note_text: note.trim(),
-      created_by: "MEW",
-    })
-      .then(() => {
-        setUploadMsg("✓ Nota guardada");
-        supaFetch("inspection_notes", {
-          filters: `property_address=eq.${encodeURIComponent(selected.address)}`,
-          order: "note_date.desc",
-        }).then(rows => setNotes(rows || []));
-      })
-      .catch(err => setUploadMsg("Error: " + err.message));
-    setTimeout(() => setUploadMsg(""), 4000);
-  }, [selected]);
-
-  // ─── Render: sin token ───
-  if (!driveToken) {
-    return (
-      <div>
-        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, marginBottom: 4 }}>Inspecciones</h1>
-        <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 20 }}>Conecta Google Drive para ver inspecciones.</p>
-        <Card style={{ textAlign: "center", padding: 40 }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>📸</div>
-          <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>Inicia sesión con Google Drive primero</p>
-        </Card>
-      </div>
-    );
-  }
-
-  // ─── Render principal ───
   return (
     <div>
-      {galleryImages && (
-        <PhotoGallery
-          images={galleryImages} startIndex={galleryStart}
-          onClose={() => setGalleryImages(null)}
-          mob={mob} token={driveToken}
-          propertyAddress={selected?.address}
-        />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 }}>
+          <span style={{ color: OWNER_COLORS[property.owner] || C.accent }}><HouseIcon /></span>
+        </button>
+        <div style={{ flex: 1, cursor: "pointer" }} onClick={onBack}>
+          <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{property.address}</h1>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim, cursor: onOwnerClick ? "pointer" : "default" }} onClick={e => { if (onOwnerClick) { e.stopPropagation(); onOwnerClick(property.owner); } }}>
+            {property.owner}
+            {property.sold ? " · Vendida" : ""}
+          </span>
+        </div>
+        {folderId && (
+          <div style={{ position: "relative" }}>
+            <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
+            <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
+              <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>📤 Importar fotos</MenuBtn>
+              <MenuBtn onClick={() => { setInspPanel(true); setMenuOpen(false); }}>📸 Inspección</MenuBtn>
+              <MenuBtn onClick={() => { setShowDocs(!showDocs); setMenuOpen(false); }}>{showDocs ? "📂 Ocultar docs" : "📂 Ver docs"}</MenuBtn>
+            </DropMenu>
+          </div>
+        )}
+      </div>
+
+      {uploadMsg && (
+        <div style={{ padding: "8px 14px", marginBottom: 12, borderRadius: 8, background: uploadMsg.startsWith("✓") ? `${C.green}15` : `${C.accent}15`, border: `1px solid ${uploadMsg.startsWith("✓") ? C.green : C.accent}40` }}>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent }}>{uploadMsg}</span>
+        </div>
       )}
 
+      {/* ── Inspection Panel ── */}
+      <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
+      {inspPanel && (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>📋 Inspección</span>
+            <button onClick={() => setInspPanel(false)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.textMuted }}>✕ Cerrar</button>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={handleCameraClick} disabled={uploading} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "12px 20px",
+              background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer",
+              fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, minWidth: 140,
+            }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+              onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
+              <span style={{ fontSize: 20 }}>📸</span>
+              <div>
+                <div style={{ fontWeight: 600 }}>Fotos</div>
+                <div style={{ fontSize: 10, color: C.textDim }}>Subir fotos de inspección</div>
+              </div>
+            </button>
+            <button onClick={() => {
+              const note = prompt("Nota de inspección:");
+              if (note && note.trim()) {
+                const now = new Date();
+                const dateStr = now.toISOString().slice(0, 10);
+                supaInsert("inspection_notes", { property_address: property.address, note_date: dateStr, note_text: note.trim(), created_by: "MEW" })
+                  .then(() => setUploadMsg("✓ Nota guardada"))
+                  .catch(err => setUploadMsg("Error: " + err.message));
+                setTimeout(() => setUploadMsg(""), 4000);
+              }
+            }} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "12px 20px",
+              background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer",
+              fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, minWidth: 140,
+            }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+              onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
+              <span style={{ fontSize: 20 }}>📝</span>
+              <div>
+                <div style={{ fontWeight: 600 }}>Nota</div>
+                <div style={{ fontSize: 10, color: C.textDim }}>Agregar apunte</div>
+              </div>
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {/* Tenant Info */}
+      {tenant && !personal && (() => {
+        const leaseTo = tenant.lease_to ? new Date(tenant.lease_to) : null;
+        const now = new Date();
+        const mtm = tenant.month_to_month || !leaseTo;
+        const expired = leaseTo && leaseTo < now;
+        const soonDays = leaseTo ? Math.ceil((leaseTo - now) / 86400000) : null;
+        const soon = soonDays != null && soonDays > 0 && soonDays <= 90;
+        const statusColor = expired ? C.red : soon ? "#F59E0B" : mtm ? C.blue : C.green;
+        const statusText = expired ? "Vencido" : mtm ? "Mes a mes" : soon ? `Vence en ${soonDays}d` : `Hasta ${leaseTo.toLocaleDateString("es-MX", { month: "short", year: "numeric" })}`;
+        return (
+          <Card style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>👤 Inquilino</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${statusColor}18`, color: statusColor, fontWeight: 600 }}>{statusText}</span>
+            </div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 600, color: C.text }}>{tenant.tenant_name}</div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginTop: 2 }}>
+                  {tenant.bd_ba && `${tenant.bd_ba}`}{tenant.sqft ? ` · ${tenant.sqft.toLocaleString()} sqft` : ""}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontFamily: "JetBrains Mono", fontSize: 16, fontWeight: 700, color: C.green }}>{fmtMoney(tenant.monthly_rent)}</div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim }}>/mes</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 12, marginTop: 8, fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>
+              <span>Desde: {new Date(tenant.lease_from).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}</span>
+              {Number(tenant.deposit) > 0 && <span>Depósito: {fmtMoney(tenant.deposit)}</span>}
+            </div>
+          </Card>
+        );
+      })()}
+
+      {/* Property Tabs (solo en desktop) */}
+      {!mob && <PropertyTabs property={property} mob={mob} drive={drive} onInspectionPhotos={() => setInspPanel(true)} />}
+
+      {/* Mobile: mantener vista original */}
+      {mob && (
+        <>
+          {/* Property Value 2025 */}
+          {PROPERTY_VALUES_2025[property.address] && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 16 }}>
+              <div style={{
+                padding: "10px 12px", background: `${C.accent}10`, borderRadius: 8,
+                border: `1px solid ${C.accent}40`, textAlign: "left",
+              }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent }}>🏠 Valor 2025</div>
+                <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: C.accent, marginTop: 4 }}>
+                  {fmtMoney(PROPERTY_VALUES_2025[property.address])}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Property Expenses */}
+          <PropertyExpenses address={property.address} mob={mob} />
+        </>
+      )}
+
+      {/* Bulk Upload Modal */}
       {showBulkUpload && (
         <BulkPhotoUpload
           drive={drive}
@@ -254,179 +297,32 @@ export const InspectionsPage = ({ mob, drive }) => {
           onComplete={(results) => {
             setUploadMsg(`✓ ${results.success} fotos subidas, ${results.failed} fallidas`);
             setTimeout(() => setUploadMsg(""), 6000);
-            // Refresh la vista
-            if (selected) setSelected({ ...selected });
+            setRefreshKey(k => k + 1);
           }}
           mob={mob}
         />
       )}
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, margin: 0 }}>Inspecciones</h1>
-        <button onClick={() => setShowBulkUpload(true)} style={{
-          padding: "8px 16px", background: C.accent, color: "white",
-          border: "none", borderRadius: 8, cursor: "pointer", 
-          fontFamily: "DM Sans", fontSize: 13, fontWeight: 600,
-          display: "flex", alignItems: "center", gap: 6,
-        }}>📤 Subir Fotos</button>
-      </div>
-      <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 20 }}>
-        Fotos y notas de inspecciones · {todayFolderName()}
-      </p>
-
-      {/* Selector de propiedad */}
-      {!selected ? (
-        <Card>
-          <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.textDim, marginBottom: 12 }}>Selecciona una propiedad:</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {activeProps.map(p => (
-              <button key={p.address} onClick={() => setSelected(p)} style={{
-                display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
-                background: "transparent", border: "none", cursor: "pointer", borderRadius: 8,
-                width: "100%", textAlign: "left",
-              }}
-                onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <span style={{ color: OWNER_COLORS[p.owner] || C.accent, fontSize: 16 }}>🏠</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 500, color: C.text }}>{p.address}</div>
-                  <div style={{ fontFamily: "DM Sans", fontSize: 11, color: OWNER_COLORS[p.owner] || C.textDim }}>{p.owner}</div>
-                </div>
-                <span style={{ color: C.textMuted, fontSize: 12 }}>→</span>
-              </button>
-            ))}
-          </div>
-        </Card>
-      ) : (
-        <div>
-          {/* Back + header */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-            <button onClick={() => { setSelected(null); setDateFolderId(null); setPhotos([]); setNotes([]); setStatus(""); }}
-              style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>
-              {I.back}
-            </button>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: "DM Sans", fontSize: mob ? 16 : 18, fontWeight: 700, color: C.text }}>{selected.address}</div>
-              <div style={{ fontFamily: "DM Sans", fontSize: 11, color: OWNER_COLORS[selected.owner] || C.textDim }}>{selected.owner}</div>
-            </div>
-            <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
-            <button onClick={() => uploadRef.current?.click()} disabled={uploading} style={{
-              padding: "6px 12px", background: `${C.accent}15`, border: `1px solid ${C.accent}40`,
-              borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.accent,
-            }}>📸 Subir</button>
-            <button onClick={handleAddNote} style={{
-              padding: "6px 12px", background: `${C.green}15`, border: `1px solid ${C.green}40`,
-              borderRadius: 8, cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.green,
-            }}>📝 Nota</button>
-          </div>
-
-          {/* Dropdown de fechas de inspección */}
-          {availableDates.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
-                Ver inspección:
-              </label>
-              <select
-                value={selectedDate || ""}
-                onChange={(e) => setSelectedDate(e.target.value || null)}
-                style={{
-                  width: "100%",
-                  padding: "8px 12px",
-                  fontFamily: "DM Sans",
-                  fontSize: 13,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 8,
-                  background: C.surface2,
-                  color: C.text,
-                }}
-              >
-                <option value="">Hoy / Más reciente</option>
-                {availableDates.map(folder => (
-                  <option key={folder.id} value={folder.id}>
-                    {folder.name} {folder.year ? `(${folder.year})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Upload message */}
-          {uploadMsg && (
-            <div style={{
-              padding: "8px 14px", marginBottom: 12, borderRadius: 8,
-              background: uploadMsg.startsWith("✓") ? `${C.green}15` : `${C.accent}15`,
-              border: `1px solid ${uploadMsg.startsWith("✓") ? C.green : C.accent}40`,
-            }}>
-              <span style={{ fontFamily: "DM Sans", fontSize: 12, color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent }}>{uploadMsg}</span>
-            </div>
-          )}
-
-          {loading && (
-            <Card style={{ textAlign: "center", padding: 30 }}>
-              <Spinner />
-              <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>{status || "Cargando..."}</p>
-            </Card>
-          )}
-
-          {!loading && status && !dateFolderId && (
-            <Card style={{ textAlign: "center", padding: 30 }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
-              <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>{status}</p>
-            </Card>
-          )}
-
-          {/* Notas */}
-          {!loading && notes.length > 0 && (
-            <Card style={{ marginBottom: 16 }}>
-              <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>📝 Notas de Inspección</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {notes.map((n, i) => (
-                  <div key={n.id || i} style={{
-                    background: C.surface2, borderRadius: 8, padding: "8px 12px",
-                    borderLeft: `3px solid ${C.accent}`,
-                  }}>
-                    <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginBottom: 4 }}>
-                      {n.note_date ? new Date(n.note_date + "T00:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }) : ""}
-                      {n.created_by ? ` · ${n.created_by}` : ""}
-                    </div>
-                    <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, lineHeight: 1.5 }}>{n.note_text}</div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
-
-          {/* Fotos */}
-          {!loading && dateFolderId && (
-            <Card>
-              {status && <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent, marginBottom: 10 }}>{status}</div>}
-              {photos.length > 0 ? (
-                <div>
-                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, marginBottom: 8 }}>🖼️ {photos.length} fotos</div>
-                  <div style={{ display: "grid", gridTemplateColumns: mob ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 6 }}>
-                    {photos.map((img, idx) => (
-                      <button key={img.id} onClick={() => { setGalleryImages(photos); setGalleryStart(idx); }} style={{
-                        background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8,
-                        cursor: "pointer", overflow: "hidden", aspectRatio: "1", display: "flex",
-                        alignItems: "center", justifyContent: "center", padding: 0, transition: "border-color 0.2s",
-                      }}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-                        <AuthImage fileId={img.google_drive_file_id} token={driveToken} alt={img.title}
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ textAlign: "center", padding: 20 }}>
-                  <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No hay fotos en esta inspección</p>
-                </div>
-              )}
-            </Card>
-          )}
-        </div>
+      {/* Documents toggle */}
+      {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando carpeta...</p></Card>}
+      {notFound && !searching && (
+        <Card style={{ textAlign: "center", padding: 30 }}><div style={{ fontSize: 36, marginBottom: 12 }}>📂</div><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta de Drive</p></Card>
+      )}
+      {folderId && (
+        <>
+          <button onClick={() => setShowDocs(!showDocs)} style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", marginBottom: 12,
+            background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10,
+            cursor: "pointer", width: "100%", fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.accent,
+          }}>
+            <span>{showDocs ? "▼" : "▶"}</span>
+            <span>📂 Documentos en Drive</span>
+          </button>
+          {showDocs && <SupaExplorer key={refreshKey} rootFolderId={folderId} mob={mob} drive={drive} propertyAddress={property.address} />}
+        </>
       )}
     </div>
   );
 };
+
+export default PropertyDetail;
