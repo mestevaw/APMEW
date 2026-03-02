@@ -16,6 +16,8 @@ import { HouseIcon } from "./icons";
 import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuComponents";
 import SupaExplorer from "./SupaExplorer";
 import PropertyExpenses from "./PropertyExpenses";
+import PropertyTabs from "./PropertyTabs";
+import { BulkPhotoUpload } from "../../components/BulkPhotoUpload";
 
 const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   const [folderId, setFolderId] = useState(null);
@@ -30,6 +32,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   const uploadRef = useRef(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const personal = isPersonalProperty(property.address);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null); setTenant(null);
@@ -161,6 +164,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
           <div style={{ position: "relative" }}>
             <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
             <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
+              <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>📤 Importar fotos</MenuBtn>
               <MenuBtn onClick={() => { setInspPanel(true); setMenuOpen(false); }}>📸 Inspección</MenuBtn>
               <MenuBtn onClick={() => { setShowDocs(!showDocs); setMenuOpen(false); }}>{showDocs ? "📂 Ocultar docs" : "📂 Ver docs"}</MenuBtn>
             </DropMenu>
@@ -259,23 +263,45 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         );
       })()}
 
-      {/* Property Value 2025 */}
-      {PROPERTY_VALUES_2025[property.address] && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 16 }}>
-          <div style={{
-            padding: "10px 12px", background: `${C.accent}10`, borderRadius: 8,
-            border: `1px solid ${C.accent}40`, textAlign: "left",
-          }}>
-            <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent }}>🏠 Valor 2025</div>
-            <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: C.accent, marginTop: 4 }}>
-              {fmtMoney(PROPERTY_VALUES_2025[property.address])}
+      {/* Property Tabs (solo en desktop) */}
+      {!mob && <PropertyTabs property={property} mob={mob} drive={drive} onInspectionPhotos={() => setInspPanel(true)} />}
+
+      {/* Mobile: mantener vista original */}
+      {mob && (
+        <>
+          {/* Property Value 2025 */}
+          {PROPERTY_VALUES_2025[property.address] && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 16 }}>
+              <div style={{
+                padding: "10px 12px", background: `${C.accent}10`, borderRadius: 8,
+                border: `1px solid ${C.accent}40`, textAlign: "left",
+              }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent }}>🏠 Valor 2025</div>
+                <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: C.accent, marginTop: 4 }}>
+                  {fmtMoney(PROPERTY_VALUES_2025[property.address])}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          )}
+
+          {/* Property Expenses */}
+          <PropertyExpenses address={property.address} mob={mob} />
+        </>
       )}
 
-      {/* Property Expenses */}
-      <PropertyExpenses address={property.address} mob={mob} />
+      {/* Bulk Upload Modal */}
+      {showBulkUpload && (
+        <BulkPhotoUpload
+          drive={drive}
+          onClose={() => setShowBulkUpload(false)}
+          onComplete={(results) => {
+            setUploadMsg(`✓ ${results.success} fotos subidas, ${results.failed} fallidas`);
+            setTimeout(() => setUploadMsg(""), 6000);
+            setRefreshKey(k => k + 1);
+          }}
+          mob={mob}
+        />
+      )}
 
       {/* Documents toggle */}
       {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando carpeta...</p></Card>}
