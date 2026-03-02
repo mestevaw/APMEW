@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/InspectionPanel.jsx  
-// Versión: 2.0 - Basado en InspectionsPage
+// Versión: 3.0 - Ultra-rápido con Supabase
 // Fecha: 2026-03-02
 // ═══════════════════════════════════════════
 
@@ -8,177 +8,194 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { C } from "../../lib/theme";
 import { Card, Spinner } from "../../components/UI";
 import { supaFetch, supaInsert } from "../../lib/supabase";
-import { isImage, todayFolderName } from "../../lib/helpers";
-import { DRIVE_ROOT_FOLDER } from "../../lib/config";
+import { todayFolderName } from "../../lib/helpers";
 import AuthImage from "./AuthImage";
 import PhotoGallery from "./PhotoGallery";
 
 const InspectionPanel = ({ property, mob, drive }) => {
-  const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState("");
-  const [dateFolderId, setDateFolderId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [yearFolders, setYearFolders] = useState([]);
+  const [selectedYear, setSelectedYear] = useState(null);
+  const [dateFolders, setDateFolders] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [notes, setNotes] = useState([]);
   const [galleryImages, setGalleryImages] = useState(null);
   const [galleryStart, setGalleryStart] = useState(0);
-  const [availableDates, setAvailableDates] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState("");
   const uploadRef = useRef(null);
 
-  const driveToken = drive?.token;
-  const searchFolderByAddress = drive?.searchFolderByAddress;
-  const findSubfolder = drive?.findSubfolder;
-  const listAllFiles = drive?.listAllFiles;
-  const uploadPhotos = drive?.uploadPhotos;
-
-  // ─── Navigate to INSPECCION ───
+  // ─── Cargar años desde Supabase (ULTRA RÁPIDO) ───
   useEffect(() => {
-    if (!driveToken) return;
-    let cancelled = false;
-
-    const navigate = async () => {
+    const loadYears = async () => {
       setLoading(true);
-      setStatus("Buscando carpeta de la propiedad...");
-      setDateFolderId(null);
-      setPhotos([]);
-      setNotes([]);
-      setAvailableDates([]);
-
       try {
-        const propFolder = await searchFolderByAddress(property.address, property.owner, DRIVE_ROOT_FOLDER);
-        if (cancelled) return;
-        if (!propFolder) {
-          setStatus("No se encontró la carpeta de la propiedad en Drive.");
+        // Buscar folders que contengan INSPECC en el path de esta propiedad
+        const folders = await supaFetch("drive_folders", {
+          filters: `folder_path.ilike.%${encodeURIComponent(property.address)}%INSPECC%`,
+          order: "folder_path.desc",
+        });
+
+        if (!folders || folders.length === 0) {
+          setYearFolders([]);
           setLoading(false);
           return;
         }
 
-        setStatus("Buscando carpeta INSPECCION...");
-        const inspecFolder = await findSubfolder(propFolder.id, "INSPEC");
-        if (cancelled) return;
-        if (!inspecFolder) {
-          setStatus("No existe carpeta INSPECCION para esta propiedad.");
-          setLoading(false);
-          return;
-        }
+        // Filtrar solo folders de años (formato: 4 dígitos)
+        const years = folders.filter(f => {
+          const pathParts = f.folder_path.split('/');
+          const folderName = pathParts[pathParts.length - 1];
+          return /^\d{4}$/.test(folderName);
+        }).map(f => ({
+          id: f.google_drive_id,
+          name: f.folder_path.split('/').pop(),
+          path: f.folder_path,
+        }));
 
-        setStatus("Cargando historial de inspecciones...");
-        const allYears = await listAllFiles(inspecFolder.id);
-        if (cancelled) return;
-        
-        const yearFolders = (allYears || [])
-          .filter(f => f.mimeType === "application/vnd.google-apps.folder" && /^\d{4}$/.test(f.name))
+        // Eliminar duplicados y ordenar
+        const uniqueYears = Array.from(new Map(years.map(y => [y.name, y])).values())
           .sort((a, b) => b.name.localeCompare(a.name));
 
-        let allDateFolders = [];
-        for (const yearFolder of yearFolders) {
-          const datesInYear = await listAllFiles(yearFolder.id);
-          if (cancelled) return;
-          const dateFolders = (datesInYear || [])
-            .filter(f => f.mimeType === "application/vnd.google-apps.folder")
-            .map(f => ({ ...f, year: yearFolder.name }));
-          allDateFolders = [...allDateFolders, ...dateFolders];
-        }
-        
-        allDateFolders.sort((a, b) => b.name.localeCompare(a.name));
-        setAvailableDates(allDateFolders);
+        setYearFolders(uniqueYears);
 
+        // Auto-seleccionar año actual
         const currentYear = new Date().getFullYear().toString();
+        const current = uniqueYears.find(y => y.name === currentYear);
+        if (current) {
+          setSelectedYear(current.id);
+        } else if (uniqueYears.length > 0) {
+          setSelectedYear(uniqueYears[0].id);
+        }
+      } catch (err) {
+        console.error("[InspectionPanel] Error loading years:", err);
+      }
+      setLoading(false);
+    };
+
+    loadYears();
+  }, [property.address]);
+
+  // ─── Cargar fechas cuando se selecciona un año ───
+  useEffect(() => {
+    if (!selectedYear || !drive?.listAllFiles) return;
+
+    const loadDates = async () => {
+      setLoading(true);
+      try {
+        const files = await drive.listAllFiles(selectedYear);
+        const dates = (files || [])
+          .filter(f => f.mimeType === "application/vnd.google-apps.folder")
+          .sort((a, b) => b.name.localeCompare(a.name));
+
+        setDateFolders(dates);
+
+        // Auto-seleccionar fecha de hoy o más reciente
         const today = todayFolderName();
-        let targetDateFolder = null;
-
-        if (selectedDate) {
-          targetDateFolder = allDateFolders.find(f => f.id === selectedDate);
-        } else {
-          const currentYearFolder = yearFolders.find(y => y.name === currentYear);
-          if (currentYearFolder) {
-            setStatus(`Buscando inspección de hoy (${today})...`);
-            targetDateFolder = await findSubfolder(currentYearFolder.id, today);
-          }
+        const todayFolder = dates.find(d => d.name === today);
+        if (todayFolder) {
+          setSelectedDate(todayFolder.id);
+        } else if (dates.length > 0) {
+          setSelectedDate(dates[0].id);
         }
+      } catch (err) {
+        console.error("[InspectionPanel] Error loading dates:", err);
+      }
+      setLoading(false);
+    };
 
-        const loadPhotosFromFolder = async (folderId) => {
-          const files = await listAllFiles(folderId);
-          if (cancelled) return [];
-          return (files || [])
-            .filter(f => isImage(f.mimeType))
-            .map(f => ({
-              id: f.id, title: f.name, google_drive_file_id: f.id,
-              mime_type: f.mimeType, file_type: (f.name || "").split(".").pop().toLowerCase(),
-            }));
-        };
+    loadDates();
+  }, [selectedYear, drive?.listAllFiles]);
 
-        if (targetDateFolder) {
-          setDateFolderId(targetDateFolder.id);
-          setStatus(selectedDate ? `Mostrando: ${targetDateFolder.name}` : "");
-          const imgs = await loadPhotosFromFolder(targetDateFolder.id);
-          if (!cancelled) setPhotos(imgs);
-        } else if (!selectedDate) {
-          setStatus("No hay inspección de hoy. Mostrando la más reciente...");
-          
-          if (allDateFolders.length > 0) {
-            const recentFolder = allDateFolders[0];
-            setDateFolderId(recentFolder.id);
-            setStatus(`Mostrando: ${recentFolder.name} (${recentFolder.year})`);
-            const imgs = await loadPhotosFromFolder(recentFolder.id);
-            if (!cancelled) setPhotos(imgs);
-          } else {
-            setStatus("No hay inspecciones registradas.");
-          }
-        } else {
-          setStatus("No se encontró la inspección seleccionada.");
-        }
+  // ─── Cargar fotos cuando se selecciona fecha ───
+  useEffect(() => {
+    if (!selectedDate || !drive?.listAllFiles) return;
 
+    const loadPhotos = async () => {
+      try {
+        const files = await drive.listAllFiles(selectedDate);
+        const images = (files || [])
+          .filter(f => f.mimeType && f.mimeType.startsWith('image/'))
+          .map(f => ({
+            id: f.id,
+            title: f.name,
+            google_drive_file_id: f.id,
+            mime_type: f.mimeType,
+            file_type: (f.name || "").split(".").pop().toLowerCase(),
+          }));
+        setPhotos(images);
+      } catch (err) {
+        console.error("[InspectionPanel] Error loading photos:", err);
+        setPhotos([]);
+      }
+    };
+
+    loadPhotos();
+  }, [selectedDate, drive?.listAllFiles]);
+
+  // ─── Cargar notas ───
+  useEffect(() => {
+    const loadNotes = async () => {
+      try {
         const notesData = await supaFetch("inspection_notes", {
           filters: `property_address=eq.${encodeURIComponent(property.address)}`,
           order: "note_date.desc",
         });
-        if (!cancelled) setNotes(notesData || []);
-
+        setNotes(notesData || []);
       } catch (err) {
-        console.error("[InspectionPanel]", err);
-        if (!cancelled) setStatus("Error: " + err.message);
+        console.error("[InspectionPanel] Error loading notes:", err);
       }
-      if (!cancelled) setLoading(false);
     };
 
-    navigate();
-    return () => { cancelled = true; };
-  }, [driveToken, searchFolderByAddress, findSubfolder, listAllFiles, selectedDate, property.address, property.owner]);
+    loadNotes();
+  }, [property.address]);
 
+  // ─── Upload fotos ───
   const handleUpload = async (e) => {
     const files = Array.from(e.target.files || []);
-    if (!files.length || !driveToken || !uploadPhotos) return;
-    
+    if (!files.length || !drive?.uploadPhotos || !drive?.searchFolderByAddress) return;
+
     setUploading(true);
     setStatus(`Subiendo ${files.length} fotos...`);
-    
+
     try {
-      const propFolder = await searchFolderByAddress(property.address, property.owner, DRIVE_ROOT_FOLDER);
+      const propFolder = await drive.searchFolderByAddress(
+        property.address,
+        property.owner,
+        drive.DRIVE_ROOT_FOLDER || "1xME_your_folder_id"
+      );
+
       if (!propFolder) {
         setStatus("No se encontró carpeta de la propiedad");
         setUploading(false);
         return;
       }
 
-      const result = await uploadPhotos(files, propFolder.id, property.address, 
-        (cur, total, name) => setStatus(`Subiendo ${cur}/${total}... ${name}`)
+      const result = await drive.uploadPhotos(
+        files,
+        propFolder.id,
+        property.address,
+        (cur, total, name) => setStatus(`Subiendo ${cur}/${total}...`)
       );
 
       setStatus(`✓ ${result.results.length} fotos subidas`);
-      
-      if (dateFolderId) {
-        const imgs = await listAllFiles(dateFolderId);
-        const filtered = (imgs || [])
-          .filter(f => isImage(f.mimeType))
+
+      // Refresh fotos si estamos viendo una fecha
+      if (selectedDate && drive.listAllFiles) {
+        const refreshed = await drive.listAllFiles(selectedDate);
+        const images = (refreshed || [])
+          .filter(f => f.mimeType && f.mimeType.startsWith('image/'))
           .map(f => ({
-            id: f.id, title: f.name, google_drive_file_id: f.id,
-            mime_type: f.mimeType, file_type: (f.name || "").split(".").pop().toLowerCase(),
+            id: f.id,
+            title: f.name,
+            google_drive_file_id: f.id,
+            mime_type: f.mimeType,
+            file_type: (f.name || "").split(".").pop().toLowerCase(),
           }));
-        setPhotos(filtered);
+        setPhotos(images);
       }
-      
+
       setTimeout(() => setStatus(""), 4000);
     } catch (err) {
       console.error(err);
@@ -187,9 +204,11 @@ const InspectionPanel = ({ property, mob, drive }) => {
     setUploading(false);
   };
 
+  // ─── Agregar nota ───
   const handleAddNote = useCallback(() => {
     const note = prompt("Nota de inspección:");
     if (!note?.trim()) return;
+
     const dateStr = new Date().toISOString().slice(0, 10);
     supaInsert("inspection_notes", {
       property_address: property.address,
@@ -205,28 +224,35 @@ const InspectionPanel = ({ property, mob, drive }) => {
         setStatus("✓ Nota guardada");
         setTimeout(() => setStatus(""), 3000);
       })
-      .catch(err => console.error(err));
+      .catch(err => {
+        console.error(err);
+        setStatus("Error al guardar nota");
+      });
   }, [property.address]);
 
-  if (loading) {
+  if (loading && yearFolders.length === 0) {
     return (
       <Card>
         <div style={{ textAlign: "center", padding: 30 }}>
           <Spinner />
           <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>
-            {status || "Cargando..."}
+            Cargando inspecciones...
           </p>
         </div>
       </Card>
     );
   }
 
-  const byYear = {};
-  availableDates.forEach(folder => {
-    if (!byYear[folder.year]) byYear[folder.year] = [];
-    byYear[folder.year].push(folder);
-  });
-  const years = Object.keys(byYear).sort((a, b) => b.localeCompare(a));
+  if (yearFolders.length === 0) {
+    return (
+      <Card style={{ textAlign: "center", padding: 40 }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>📸</div>
+        <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
+          No hay inspecciones registradas
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <div>
@@ -236,14 +262,14 @@ const InspectionPanel = ({ property, mob, drive }) => {
           startIndex={galleryStart}
           onClose={() => setGalleryImages(null)}
           mob={mob}
-          token={driveToken}
+          token={drive?.token}
           propertyAddress={property.address}
         />
       )}
 
       <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
 
-      {/* Botones de acción */}
+      {/* Botones */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, justifyContent: "flex-end" }}>
         <button onClick={() => uploadRef.current?.click()} disabled={uploading} style={{
           padding: "8px 16px",
@@ -279,15 +305,43 @@ const InspectionPanel = ({ property, mob, drive }) => {
         </div>
       )}
 
-      {/* Dropdown de fechas */}
-      {availableDates.length > 0 && (
+      {/* Selector de Año */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
+          Año:
+        </label>
+        <select
+          value={selectedYear || ""}
+          onChange={(e) => setSelectedYear(e.target.value)}
+          style={{
+            width: "100%",
+            padding: "10px 12px",
+            fontFamily: "DM Sans",
+            fontSize: 13,
+            border: `1px solid ${C.border}`,
+            borderRadius: 8,
+            background: C.surface2,
+            color: C.text,
+            cursor: "pointer",
+          }}
+        >
+          {yearFolders.map(year => (
+            <option key={year.id} value={year.id}>
+              {year.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Selector de Fecha */}
+      {dateFolders.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
-            Ver inspección:
+            Fecha:
           </label>
           <select
             value={selectedDate || ""}
-            onChange={(e) => setSelectedDate(e.target.value || null)}
+            onChange={(e) => setSelectedDate(e.target.value)}
             style={{
               width: "100%",
               padding: "10px 12px",
@@ -300,15 +354,10 @@ const InspectionPanel = ({ property, mob, drive }) => {
               cursor: "pointer",
             }}
           >
-            <option value="">Hoy / Más reciente</option>
-            {years.map(year => (
-              <optgroup key={year} label={year}>
-                {byYear[year].map(folder => (
-                  <option key={folder.id} value={folder.id}>
-                    {folder.name}
-                  </option>
-                ))}
-              </optgroup>
+            {dateFolders.map(date => (
+              <option key={date.id} value={date.id}>
+                {date.name}
+              </option>
             ))}
           </select>
         </div>
@@ -323,7 +372,9 @@ const InspectionPanel = ({ property, mob, drive }) => {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {notes.map((n, i) => (
               <div key={n.id || i} style={{
-                background: C.surface2, borderRadius: 8, padding: "8px 12px",
+                background: C.surface2,
+                borderRadius: 8,
+                padding: "8px 12px",
                 borderLeft: `3px solid ${C.accent}`,
               }}>
                 <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginBottom: 4 }}>
@@ -337,16 +388,12 @@ const InspectionPanel = ({ property, mob, drive }) => {
       )}
 
       {/* Fotos */}
-      {!loading && dateFolderId && (
+      {selectedDate && (
         <Card>
           <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>
-            {selectedDate ? (
-              <span>🖼️ {photos.length} fotos</span>
-            ) : (
-              <span>Mostrando: {photos.length > 0 ? `${photos.length} fotos` : "Sin fotos"}</span>
-            )}
+            🖼️ {photos.length} fotos
           </div>
-          
+
           {photos.length > 0 ? (
             <div style={{ display: "grid", gridTemplateColumns: mob ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 6 }}>
               {photos.map((img, idx) => (
@@ -374,7 +421,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
                 >
                   <AuthImage
                     fileId={img.google_drive_file_id}
-                    token={driveToken}
+                    token={drive?.token}
                     alt={img.title}
                     style={{ width: "100%", height: "100%", objectFit: "cover" }}
                   />
@@ -384,17 +431,10 @@ const InspectionPanel = ({ property, mob, drive }) => {
           ) : (
             <div style={{ textAlign: "center", padding: 20 }}>
               <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
-                {status || "No hay fotos en esta inspección"}
+                No hay fotos en esta fecha
               </p>
             </div>
           )}
-        </Card>
-      )}
-
-      {!loading && !dateFolderId && status && (
-        <Card style={{ textAlign: "center", padding: 30 }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
-          <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>{status}</p>
         </Card>
       )}
     </div>
