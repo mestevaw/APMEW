@@ -238,7 +238,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
         }}>
           <div>
             <h2 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 20, fontWeight: 700, color: C.text, margin: 0 }}>
-              📸 Subir Fotos Masivamente
+              📸 Subir Fotos
             </h2>
             <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, margin: "4px 0 0" }}>
               {currentStep === "select" && "Selecciona múltiples fotos con sello de agua"}
