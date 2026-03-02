@@ -25,9 +25,10 @@ const InspectionPanel = ({ property, mob, drive }) => {
     const loadInspections = async () => {
       setLoading(true);
       try {
-        // Buscar todos los folders que tengan el path de INSPECCION para esta propiedad
+        // Buscar todos los folders que tengan el path de INSPECCIONES para esta propiedad
+        // Usar búsqueda flexible para encontrar tanto INSPECCION como INSPECCIONES
         const folders = await supaFetch("drive_folders", {
-          filters: `folder_path.ilike.%${encodeURIComponent(property.address)}%INSPECCION%`,
+          filters: `folder_path.ilike.%${encodeURIComponent(property.address)}%INSPECC%`,
           order: "folder_path.desc",
         });
 
