@@ -164,7 +164,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
           <div style={{ position: "relative" }}>
             <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
             <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
-              <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>📤 Importar fotos</MenuBtn>
+              <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>📤 Subir fotos</MenuBtn>
               <MenuBtn onClick={() => { setInspPanel(true); setMenuOpen(false); }}>📸 Inspección</MenuBtn>
               <MenuBtn onClick={() => { setShowDocs(!showDocs); setMenuOpen(false); }}>{showDocs ? "📂 Ocultar docs" : "📂 Ver docs"}</MenuBtn>
             </DropMenu>
@@ -264,7 +264,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
       })()}
 
       {/* Property Tabs (solo en desktop) */}
-      {!mob && <PropertyTabs property={property} mob={mob} drive={drive} onInspectionPhotos={() => setInspPanel(true)} />}
+      {!mob && <PropertyTabs property={property} mob={mob} drive={drive} onInspectionPhotos={() => setInspPanel(true)} folderId={folderId} />}
 
       {/* Mobile: mantener vista original */}
       {mob && (
