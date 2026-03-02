@@ -11,6 +11,7 @@ import { extractPhotoMetadata } from "../lib/photoOCR";
 import { Card, Spinner } from "./UI";
 import { PROPERTIES } from "../pages/dashboard/constants";
 import { DRIVE_ROOT_FOLDER } from "../lib/config";
+import { supaFetch, supaInsert } from "../lib/supabase";
 
 export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
   const [processing, setProcessing] = useState(false);
@@ -53,6 +54,78 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     setProcessStatus("");
   };
 
+  // Registrar folders y archivos en Supabase
+  const registerInSupabase = async (dateFolder, yearFolder, inspeccionFolder, results, propertyAddress, propFolderId) => {
+    try {
+      // Obtener base path
+      let basePath = "";
+      try {
+        const parentRows = await supaFetch("drive_folders", { 
+          filters: `google_drive_id=eq.${propFolderId}` 
+        });
+        if (parentRows && parentRows[0]) basePath = parentRows[0].folder_path;
+      } catch (e) { 
+        console.error("[BulkUpload] lookup parent path:", e); 
+      }
+      if (!basePath) basePath = `PROPERTY > ${propertyAddress}`;
+
+      const inspecPath = `${basePath}/${inspeccionFolder.name}`;
+      const yearPath = `${inspecPath}/${yearFolder.name}`;
+      const datePath = `${yearPath}/${dateFolder.name}`;
+
+      // Registrar folders
+      for (const f of [
+        { name: inspeccionFolder.name, id: inspeccionFolder.id, parent: propFolderId, path: inspecPath },
+        { name: yearFolder.name, id: yearFolder.id, parent: inspeccionFolder.id, path: yearPath },
+        { name: dateFolder.name, id: dateFolder.id, parent: yearFolder.id, path: datePath },
+      ]) {
+        try {
+          const exists = await supaFetch("drive_folders", { 
+            filters: `google_drive_id=eq.${f.id}` 
+          });
+          if (!exists || exists.length === 0) {
+            await supaInsert("drive_folders", { 
+              name: f.name, 
+              google_drive_id: f.id, 
+              parent_drive_id: f.parent, 
+              folder_path: f.path 
+            });
+          }
+        } catch (e) { 
+          console.error("[BulkUpload] folder register:", e); 
+        }
+      }
+
+      // Registrar archivos
+      for (const r of results) {
+        if (r.skipped) continue; // No registrar duplicados
+        try {
+          const ext = (r.name || "").split(".").pop().toLowerCase();
+          const mimeMap = { 
+            jpg: "image/jpeg", 
+            jpeg: "image/jpeg", 
+            png: "image/png", 
+            heic: "image/heic", 
+            webp: "image/webp" 
+          };
+          await supaInsert("documents", {
+            title: r.name, 
+            google_drive_file_id: r.id,
+            parent_folder_drive_id: dateFolder.id,
+            folder_path: datePath,
+            category: "inspeccion",
+            mime_type: mimeMap[ext] || r.mimeType || "image/jpeg",
+            file_type: ext || "jpg",
+          });
+        } catch (e) { 
+          console.error("[BulkUpload] doc register:", e); 
+        }
+      }
+    } catch (err) {
+      console.error("[BulkUpload] registerInSupabase error:", err);
+    }
+  };
+
   // Subir fotos confirmadas
   const handleUploadAll = async () => {
     if (!drive?.uploadPhotos || !drive?.searchFolderByAddress) return;
@@ -89,13 +162,26 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
         }
 
         // Subir foto con fecha custom
-        await drive.uploadPhotos(
+        const uploadResult = await drive.uploadPhotos(
           [photo.file],
           propFolder.id,
           photo.selectedProperty.address,
           null, // onProgress
           photo.selectedDate
         );
+
+        // Registrar en Supabase
+        if (uploadResult?.dateFolder && uploadResult?.yearFolder && uploadResult?.inspeccionFolder && uploadResult?.results) {
+          setUploadStatus(`Indexando ${i + 1}/${photos.length}...`);
+          await registerInSupabase(
+            uploadResult.dateFolder,
+            uploadResult.yearFolder,
+            uploadResult.inspeccionFolder,
+            uploadResult.results,
+            photo.selectedProperty.address,
+            propFolder.id
+          );
+        }
 
         results.success++;
       } catch (err) {
