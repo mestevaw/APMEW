@@ -60,14 +60,19 @@ export const parsePhotoDate = (text) => {
  * @returns {string|null} Dirección o null
  */
 export const parsePhotoAddress = (text) => {
-  // Buscar patrón: número (4-6 dígitos) seguido de nombre de calle (1-3 palabras)
-  // Formato 1: "10731 Shaencrossing"
-  // Formato 2: "11636 Midnight Rain"
-  const pattern = /(\d{4,6})\s+([A-Za-z]+(?: [A-Za-z]+){0,2})/;
-  const match = text.match(pattern);
+  // Dividir en líneas y buscar la que tiene el patrón de dirección
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
   
-  if (match) {
-    return `${match[1]} ${match[2].trim()}`;
+  for (const line of lines) {
+    // Buscar patrón: número (4-6 dígitos) seguido de nombre de calle (1-3 palabras)
+    // Formato 1: "10731 Shaencrossing"
+    // Formato 2: "11636 Midnight Rain"
+    const pattern = /^(\d{4,6})\s+([A-Za-z]+(?: [A-Za-z]+){0,2})(?:\s|$)/;
+    const match = line.match(pattern);
+    
+    if (match) {
+      return `${match[1]} ${match[2].trim()}`;
+    }
   }
   
   return null;
