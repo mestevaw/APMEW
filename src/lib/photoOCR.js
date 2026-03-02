@@ -55,17 +55,19 @@ export const parsePhotoDate = (text) => {
 };
 
 /**
- * Extrae dirección del formato: "10731 Shaencrossing"
+ * Extrae dirección del formato: "10731 Shaencrossing" o "11636 Midnight Rain"
  * @param {string} text - Texto extraído del OCR
  * @returns {string|null} Dirección o null
  */
 export const parsePhotoAddress = (text) => {
-  // Buscar patrón: número seguido de nombre de calle
-  const pattern = /(\d{4,6})\s+([A-Za-z]+)/;
+  // Buscar patrón: número (4-6 dígitos) seguido de nombre de calle (1-3 palabras)
+  // Formato 1: "10731 Shaencrossing"
+  // Formato 2: "11636 Midnight Rain"
+  const pattern = /(\d{4,6})\s+([A-Za-z]+(?: [A-Za-z]+){0,2})/;
   const match = text.match(pattern);
   
   if (match) {
-    return `${match[1]} ${match[2]}`;
+    return `${match[1]} ${match[2].trim()}`;
   }
   
   return null;
@@ -98,12 +100,22 @@ export const extractPhotoMetadata = async (imageFile, properties) => {
   let matchedProperty = null;
   if (addressFromOCR) {
     const numMatch = addressFromOCR.match(/^\d+/);
-    const streetMatch = addressFromOCR.replace(/^\d+\s*/, "").trim().toUpperCase();
+    const streetFromOCR = addressFromOCR.replace(/^\d+\s*/, "").trim().toUpperCase();
     
     matchedProperty = properties.find(p => {
       const propNum = p.address.match(/^\d+/);
-      const propStreet = p.address.replace(/^\d+\s*/, "").trim().split(/[\s,]/)[0].toUpperCase();
-      return propNum && propNum[0] === numMatch[0] && propStreet.includes(streetMatch);
+      const propStreet = p.address.replace(/^\d+\s*/, "").trim().toUpperCase();
+      
+      // Match si el número coincide Y (la calle de OCR está en la propiedad O viceversa)
+      if (propNum && propNum[0] === (numMatch ? numMatch[0] : "")) {
+        // Comparar ambas direcciones para ver si hay match parcial
+        const streetWords = streetFromOCR.split(/\s+/);
+        const propWords = propStreet.split(/[\s,]/);
+        
+        // Si la primera palabra de la calle coincide, es un match
+        return streetWords[0] === propWords[0];
+      }
+      return false;
     });
   }
   
