@@ -175,6 +175,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
   const [processStatus, setProcessStatus] = useState("");
   const [debugInfo, setDebugInfo] = useState(null);
   const [uploadStatus, setUploadStatus] = useState("");
+  const [uploadDebug, setUploadDebug] = useState(null); // ✅ Debug info durante upload
   
   const [groupProperty, setGroupProperty] = useState(null);
   const [groupDate, setGroupDate] = useState(new Date().toISOString().slice(0, 10));
@@ -183,9 +184,18 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
   const activeProps = PROPERTIES.filter(p => !p.sold);
 
   // ✅ Helper: Buscar o crear folder en Google Drive
-  const getOrCreateFolder = async (folderName, parentId) => {
+  const getOrCreateFolder = async (folderName, parentId, updateDebug = true) => {
     try {
       console.log(`[getOrCreateFolder] Buscando: ${folderName} en parent: ${parentId}`);
+      
+      if (updateDebug) {
+        setUploadDebug(prev => ({
+          ...prev,
+          action: "Buscando carpeta",
+          folder: folderName,
+          status: "searching",
+        }));
+      }
       
       // Buscar si ya existe
       const query = `name='${folderName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
@@ -197,11 +207,33 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
 
       if (response.result.files && response.result.files.length > 0) {
         console.log(`[getOrCreateFolder] ✅ Encontrado: ${response.result.files[0].id}`);
+        
+        if (updateDebug) {
+          setUploadDebug(prev => ({
+            ...prev,
+            action: "Carpeta encontrada",
+            folder: folderName,
+            folderId: response.result.files[0].id,
+            status: "found",
+          }));
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
         return response.result.files[0];
       }
 
       // Crear si no existe
       console.log(`[getOrCreateFolder] ❌ No existe, creando...`);
+      
+      if (updateDebug) {
+        setUploadDebug(prev => ({
+          ...prev,
+          action: "Creando carpeta",
+          folder: folderName,
+          status: "creating",
+        }));
+      }
+      
       const fileMetadata = {
         name: folderName,
         mimeType: 'application/vnd.google-apps.folder',
@@ -212,9 +244,32 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
         fields: 'id, name',
       });
       console.log(`[getOrCreateFolder] ✅ Creado: ${createResponse.result.id}`);
+      
+      if (updateDebug) {
+        setUploadDebug(prev => ({
+          ...prev,
+          action: "Carpeta creada",
+          folder: folderName,
+          folderId: createResponse.result.id,
+          status: "created",
+        }));
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
       return createResponse.result;
     } catch (err) {
       console.error("[getOrCreateFolder] error:", err);
+      
+      if (updateDebug) {
+        setUploadDebug(prev => ({
+          ...prev,
+          action: "Error en carpeta",
+          folder: folderName,
+          error: err.message,
+          status: "error",
+        }));
+      }
+      
       throw err;
     }
   };
@@ -223,6 +278,14 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
   const uploadFileToDrive = async (file, folderId) => {
     try {
       console.log(`[uploadFileToDrive] Subiendo: ${file.name} a folder: ${folderId}`);
+      
+      setUploadDebug(prev => ({
+        ...prev,
+        action: "Subiendo archivo",
+        fileName: file.name,
+        folderId: folderId,
+        status: "uploading",
+      }));
       
       const metadata = {
         name: file.name,
@@ -249,9 +312,28 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
       
       const result = await response.json();
       console.log(`[uploadFileToDrive] ✅ Subido: ${result.id}`);
+      
+      setUploadDebug(prev => ({
+        ...prev,
+        action: "Archivo subido",
+        fileName: file.name,
+        fileId: result.id,
+        status: "uploaded",
+      }));
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
       return result;
     } catch (err) {
       console.error("[uploadFileToDrive] error:", err);
+      
+      setUploadDebug(prev => ({
+        ...prev,
+        action: "Error al subir",
+        fileName: file.name,
+        error: err.message,
+        status: "error",
+      }));
+      
       throw err;
     }
   };
@@ -401,6 +483,12 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
 
     setUploading(true);
     setCurrentStep("upload");
+    setUploadDebug({
+      property: "",
+      path: "",
+      action: "Iniciando...",
+      status: "starting",
+    });
 
     // Agrupar fotos por propiedad y fecha
     const groupedByProperty = {};
@@ -424,11 +512,23 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
       const propFolderId = property.folderId;
 
       console.log(`[BulkUpload] Procesando propiedad: ${propAddress} (${propFolderId})`);
+      
+      setUploadDebug(prev => ({
+        ...prev,
+        property: propAddress,
+        propertyId: propFolderId,
+        path: propAddress,
+      }));
 
       try {
         // ✅ Crear estructura: INSPECCION > AÑO > FECHA
         const inspeccionFolderName = "INSPECCION";
         let inspeccionFolder = await getOrCreateFolder(inspeccionFolderName, propFolderId);
+        
+        setUploadDebug(prev => ({
+          ...prev,
+          path: `${propAddress} > ${inspeccionFolderName}`,
+        }));
 
         for (const dateStr in photosByDate) {
           const photosForDate = photosByDate[dateStr];
@@ -445,8 +545,18 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
           // ✅ Crear carpeta de año si no existe
           let yearFolder = await getOrCreateFolder(yearFolderName, inspeccionFolder.id);
           
+          setUploadDebug(prev => ({
+            ...prev,
+            path: `${propAddress} > ${inspeccionFolderName} > ${yearFolderName}`,
+          }));
+          
           // ✅ Crear carpeta de fecha si no existe
           let dateFolder = await getOrCreateFolder(dateFolderName, yearFolder.id);
+          
+          setUploadDebug(prev => ({
+            ...prev,
+            path: `${propAddress} > ${inspeccionFolderName} > ${yearFolderName} > ${dateFolderName}`,
+          }));
 
           setUploadStatus(`Subiendo ${photosForDate.length} fotos a ${propAddress} (${dateFolderName})...`);
 
@@ -840,13 +950,150 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
             </div>
           )}
 
-          {/* Step 5: Upload */}
+          {/* Step 5: Upload con DEBUG */}
           {currentStep === "upload" && (
             <div style={{ textAlign: "center", padding: "40px 20px" }}>
               <Spinner />
-              <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, marginTop: 16 }}>
+              <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, marginTop: 16, marginBottom: 20 }}>
                 {uploadStatus}
               </p>
+              
+              {/* ✅ DEBUG INFO en tiempo real */}
+              {uploadDebug && (
+                <div style={{ 
+                  maxWidth: 600, 
+                  margin: "0 auto",
+                  padding: 16, 
+                  background: C.surface2, 
+                  borderRadius: 8,
+                  border: `1px solid ${
+                    uploadDebug.status === "error" ? C.red : 
+                    uploadDebug.status === "uploaded" ? C.green : 
+                    uploadDebug.status === "created" ? C.green : 
+                    C.border
+                  }`,
+                  textAlign: "left",
+                }}>
+                  {/* Propiedad */}
+                  {uploadDebug.property && (
+                    <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 12 }}>
+                      🏠 {uploadDebug.property}
+                    </div>
+                  )}
+                  
+                  {/* Path completo */}
+                  {uploadDebug.path && (
+                    <div style={{ 
+                      fontFamily: "DM Sans", 
+                      fontSize: 11, 
+                      color: C.textDim, 
+                      marginBottom: 12,
+                      padding: "8px 10px",
+                      background: `${C.accent}10`,
+                      borderRadius: 6,
+                    }}>
+                      📂 {uploadDebug.path}
+                    </div>
+                  )}
+                  
+                  {/* Acción actual */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontFamily: "DM Sans" }}>
+                      <span style={{ color: C.textDim }}>Acción:</span>
+                      <span style={{ fontWeight: 600, color: C.text }}>
+                        {uploadDebug.action}
+                      </span>
+                    </div>
+                    
+                    {/* Carpeta */}
+                    {uploadDebug.folder && (
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontFamily: "DM Sans" }}>
+                        <span style={{ color: C.textDim }}>Carpeta:</span>
+                        <span style={{ fontWeight: 600, color: C.text }}>
+                          {uploadDebug.folder}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* Archivo */}
+                    {uploadDebug.fileName && (
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontFamily: "DM Sans" }}>
+                        <span style={{ color: C.textDim }}>Archivo:</span>
+                        <span style={{ fontWeight: 600, color: C.text }}>
+                          {uploadDebug.fileName}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* Status */}
+                    <div style={{ 
+                      marginTop: 8, 
+                      padding: "8px 10px", 
+                      background: uploadDebug.status === "error" ? `${C.red}15` : 
+                                  uploadDebug.status === "uploaded" ? `${C.green}15` : 
+                                  uploadDebug.status === "created" ? `${C.green}15` : 
+                                  uploadDebug.status === "found" ? `${C.green}15` : 
+                                  `${C.accent}15`,
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontFamily: "DM Sans",
+                    }}>
+                      {uploadDebug.status === "searching" && (
+                        <div style={{ fontWeight: 600, color: C.accent }}>
+                          🔍 Buscando...
+                        </div>
+                      )}
+                      {uploadDebug.status === "found" && (
+                        <div style={{ fontWeight: 600, color: C.green }}>
+                          ✅ Carpeta encontrada
+                        </div>
+                      )}
+                      {uploadDebug.status === "creating" && (
+                        <div style={{ fontWeight: 600, color: C.accent }}>
+                          📁 Creando carpeta...
+                        </div>
+                      )}
+                      {uploadDebug.status === "created" && (
+                        <div style={{ fontWeight: 600, color: C.green }}>
+                          ✅ Carpeta creada
+                        </div>
+                      )}
+                      {uploadDebug.status === "uploading" && (
+                        <div style={{ fontWeight: 600, color: C.accent }}>
+                          ⬆️ Subiendo archivo...
+                        </div>
+                      )}
+                      {uploadDebug.status === "uploaded" && (
+                        <div style={{ fontWeight: 600, color: C.green }}>
+                          ✅ Archivo subido
+                        </div>
+                      )}
+                      {uploadDebug.status === "error" && (
+                        <>
+                          <div style={{ fontWeight: 600, color: C.red, marginBottom: 4 }}>
+                            ❌ Error
+                          </div>
+                          <div style={{ color: C.red, fontSize: 11 }}>
+                            {uploadDebug.error}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    
+                    {/* IDs (solo para debug técnico) */}
+                    {uploadDebug.folderId && (
+                      <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>
+                        ID: {uploadDebug.folderId.substring(0, 20)}...
+                      </div>
+                    )}
+                    {uploadDebug.fileId && (
+                      <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>
+                        File ID: {uploadDebug.fileId.substring(0, 20)}...
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
