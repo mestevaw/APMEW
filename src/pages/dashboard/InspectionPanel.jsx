@@ -110,21 +110,10 @@ const InspectionPanel = ({ property, mob, drive }) => {
 
         setAllFolders(yearGroups);
 
-        // Auto-seleccionar año actual o más reciente
-        const currentYear = new Date().getFullYear().toString();
-        if (yearGroups[currentYear]) {
-          setSelectedYear(currentYear);
-          setDateFolders(yearGroups[currentYear]);
-        } else {
-          const years = Object.keys(yearGroups).filter(y => y !== "Sin año").sort().reverse();
-          if (years.length > 0) {
-            setSelectedYear(years[0]);
-            setDateFolders(yearGroups[years[0]]);
-          } else if (yearGroups["Sin año"]) {
-            setSelectedYear("Sin año");
-            setDateFolders(yearGroups["Sin año"]);
-          }
-        }
+        // ✅ Por defecto: Mostrar TODAS las inspecciones (sin filtro de año)
+        const allDates = Object.values(yearGroups).flat().sort((a, b) => b.name.localeCompare(a.name));
+        setDateFolders(allDates);
+        setSelectedYear("all"); // Indicador de "todas"
 
         setStatus("");
       } catch (err) {
@@ -141,7 +130,13 @@ const InspectionPanel = ({ property, mob, drive }) => {
   // ─── Cambiar año seleccionado ───
   const handleYearChange = (year) => {
     setSelectedYear(year);
-    setDateFolders(allFolders[year] || []);
+    if (year === "all") {
+      // Mostrar todas las inspecciones sin filtro
+      const allDates = Object.values(allFolders).flat().sort((a, b) => b.name.localeCompare(a.name));
+      setDateFolders(allDates);
+    } else {
+      setDateFolders(allFolders[year] || []);
+    }
     setSelectedDate(null);
     setPhotos([]);
   };
@@ -211,11 +206,15 @@ const InspectionPanel = ({ property, mob, drive }) => {
     e.target.value = "";
   };
 
-  const years = Object.keys(allFolders).sort((a, b) => {
+  const years = ["all", ...Object.keys(allFolders).sort((a, b) => {
     if (a === "Sin año") return 1;
     if (b === "Sin año") return -1;
     return b.localeCompare(a);
-  });
+  })];
+
+  const getTotalCount = () => {
+    return Object.values(allFolders).flat().length;
+  };
 
   return (
     <div>
@@ -277,7 +276,10 @@ const InspectionPanel = ({ property, mob, drive }) => {
           >
             {years.map(year => (
               <option key={year} value={year}>
-                {year} ({allFolders[year].length} inspecciones)
+                {year === "all" 
+                  ? `Todas (${getTotalCount()} inspecciones)` 
+                  : `${year} (${allFolders[year]?.length || 0} inspecciones)`
+                }
               </option>
             ))}
           </select>
