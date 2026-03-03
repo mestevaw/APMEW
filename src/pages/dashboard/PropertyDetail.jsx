@@ -160,7 +160,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {/* ✅ Flecha de regreso - VERIFICADA */}
           <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.accent, padding: 4, display: "flex" }}>
-            {I.arrowLeft}
+            {I.back}
           </button>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
