@@ -24,7 +24,26 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [uploadTarget, setUploadTarget] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
+  const [rents, setRents] = useState({}); // ✅ Rentas por dirección
   const fileInputRef = useRef(null);
+
+  // ✅ Cargar rentas de Supabase
+  useEffect(() => {
+    const loadRents = async () => {
+      try {
+        const tenants = await supaFetch("tenants", {});
+        const rentMap = {};
+        (tenants || []).forEach(t => {
+          rentMap[t.property_address] = t.monthly_rent;
+        });
+        setRents(rentMap);
+        console.log("[PropertiesView] Rentas cargadas:", Object.keys(rentMap).length);
+      } catch (err) {
+        console.error("[PropertiesView] Error loading rents:", err);
+      }
+    };
+    loadRents();
+  }, []);
 
   // Filtrar y ordenar propiedades
   let filtered = [...PROPERTIES];
@@ -50,8 +69,8 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
       valA = a.owner.toLowerCase();
       valB = b.owner.toLowerCase();
     } else if (sortBy === "rent") {
-      valA = a.rent || 0;
-      valB = b.rent || 0;
+      valA = rents[a.address] || 0; // ✅ Usar rentas del estado
+      valB = rents[b.address] || 0;
     }
     
     if (sortDir === "asc") {
@@ -323,11 +342,11 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
                     <td style={{ 
                       padding: "12px 16px",
                       fontSize: 14,
-                      color: prop.rent ? C.green : C.textDim,
+                      color: rents[prop.address] ? C.green : C.textDim, // ✅ Usar rentas del estado
                       textAlign: "right",
-                      fontWeight: prop.rent ? 600 : 400,
+                      fontWeight: rents[prop.address] ? 600 : 400,
                     }}>
-                      {prop.rent ? fmtMoney(prop.rent) : "N/A"}
+                      {rents[prop.address] ? fmtMoney(rents[prop.address]) : "N/A"}
                     </td>
                     <td style={{ 
                       padding: "12px 16px",
