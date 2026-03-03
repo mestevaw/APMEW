@@ -1,13 +1,14 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/BulkPhotoUpload.jsx
-// Versión: V4 Simple
+// Versión: V4 Final
 // Fecha: 2026-03-03
 // ═══════════════════════════════════════════
-// CAMBIOS EN V4:
+// CAMBIOS EN V4 Final:
 // - Asignación grupal para fotos sin match
-// - Autocomplete (typeahead search) para buscar propiedades
-// - Date picker con botones "Hoy" y "Ayer"
-// - Flujo optimizado: 85% menos clicks
+// - Autocomplete para buscar propiedades
+// - Date picker con botones Hoy/Ayer
+// - FIXED: Uso correcto de Google Drive API (gapi)
+// - Crea carpetas automáticamente si no existen
 // ═══════════════════════════════════════════
 
 import { useState, useRef } from "react";
@@ -170,17 +171,90 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
   const [processing, setProcessing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [photos, setPhotos] = useState([]);
-  const [currentStep, setCurrentStep] = useState("select"); // select, processing, group-assign, review, upload
+  const [currentStep, setCurrentStep] = useState("select");
   const [processStatus, setProcessStatus] = useState("");
   const [debugInfo, setDebugInfo] = useState(null);
   const [uploadStatus, setUploadStatus] = useState("");
   
-  // ✅ Estados para asignación grupal
   const [groupProperty, setGroupProperty] = useState(null);
   const [groupDate, setGroupDate] = useState(new Date().toISOString().slice(0, 10));
   
   const fileInputRef = useRef(null);
   const activeProps = PROPERTIES.filter(p => !p.sold);
+
+  // ✅ Helper: Buscar o crear folder en Google Drive
+  const getOrCreateFolder = async (folderName, parentId) => {
+    try {
+      console.log(`[getOrCreateFolder] Buscando: ${folderName} en parent: ${parentId}`);
+      
+      // Buscar si ya existe
+      const query = `name='${folderName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      const response = await window.gapi.client.drive.files.list({
+        q: query,
+        fields: 'files(id, name)',
+        spaces: 'drive',
+      });
+
+      if (response.result.files && response.result.files.length > 0) {
+        console.log(`[getOrCreateFolder] ✅ Encontrado: ${response.result.files[0].id}`);
+        return response.result.files[0];
+      }
+
+      // Crear si no existe
+      console.log(`[getOrCreateFolder] ❌ No existe, creando...`);
+      const fileMetadata = {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentId],
+      };
+      const createResponse = await window.gapi.client.drive.files.create({
+        resource: fileMetadata,
+        fields: 'id, name',
+      });
+      console.log(`[getOrCreateFolder] ✅ Creado: ${createResponse.result.id}`);
+      return createResponse.result;
+    } catch (err) {
+      console.error("[getOrCreateFolder] error:", err);
+      throw err;
+    }
+  };
+
+  // ✅ Helper: Upload file a Google Drive
+  const uploadFileToDrive = async (file, folderId) => {
+    try {
+      console.log(`[uploadFileToDrive] Subiendo: ${file.name} a folder: ${folderId}`);
+      
+      const metadata = {
+        name: file.name,
+        mimeType: file.type,
+        parents: [folderId],
+      };
+
+      const formData = new FormData();
+      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      formData.append('file', file);
+
+      const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${window.gapi.auth.getToken().access_token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Upload failed: ${errorText}`);
+      }
+      
+      const result = await response.json();
+      console.log(`[uploadFileToDrive] ✅ Subido: ${result.id}`);
+      return result;
+    } catch (err) {
+      console.error("[uploadFileToDrive] error:", err);
+      throw err;
+    }
+  };
 
   // Procesar fotos con OCR
   const handleFilesSelected = async (e) => {
@@ -224,7 +298,6 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     setProcessing(false);
     setDebugInfo(null);
 
-    // ✅ Decidir siguiente paso
     const photosWithoutMatch = processed.filter(p => !p.selectedProperty);
     if (photosWithoutMatch.length > 0) {
       setCurrentStep("group-assign");
@@ -233,7 +306,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     }
   };
 
-  // ✅ Aplicar propiedad y fecha a todas las fotos sin match
+  // Aplicar propiedad y fecha a todas las fotos sin match
   const handleApplyToAll = () => {
     if (!groupProperty) {
       alert("Selecciona una propiedad primero");
@@ -318,7 +391,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     }
   };
 
-  // Subir todas las fotos
+  // ✅ Subir todas las fotos (CORREGIDO)
   const handleUploadAll = async () => {
     const hasInvalid = photos.some(p => !p.selectedProperty || !p.selectedDate);
     if (hasInvalid) {
@@ -329,6 +402,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     setUploading(true);
     setCurrentStep("upload");
 
+    // Agrupar fotos por propiedad y fecha
     const groupedByProperty = {};
     photos.forEach(photo => {
       const key = photo.selectedProperty.address;
@@ -349,9 +423,12 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
       const { property, photosByDate } = groupedByProperty[propAddress];
       const propFolderId = property.folderId;
 
+      console.log(`[BulkUpload] Procesando propiedad: ${propAddress} (${propFolderId})`);
+
       try {
+        // ✅ Crear estructura: INSPECCION > AÑO > FECHA
         const inspeccionFolderName = "INSPECCION";
-        let inspeccionFolder = await drive.getOrCreateFolder(inspeccionFolderName, propFolderId);
+        let inspeccionFolder = await getOrCreateFolder(inspeccionFolderName, propFolderId);
 
         for (const dateStr in photosByDate) {
           const photosForDate = photosByDate[dateStr];
@@ -363,24 +440,35 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
           const dateFolderName = `${day} ${month} ${year}`;
           const yearFolderName = String(dateObj.getFullYear());
 
-          let yearFolder = await drive.getOrCreateFolder(yearFolderName, inspeccionFolder.id);
-          let dateFolder = await drive.getOrCreateFolder(dateFolderName, yearFolder.id);
+          console.log(`[BulkUpload] Estructura: ${inspeccionFolderName} > ${yearFolderName} > ${dateFolderName}`);
+
+          // ✅ Crear carpeta de año si no existe
+          let yearFolder = await getOrCreateFolder(yearFolderName, inspeccionFolder.id);
+          
+          // ✅ Crear carpeta de fecha si no existe
+          let dateFolder = await getOrCreateFolder(dateFolderName, yearFolder.id);
 
           setUploadStatus(`Subiendo ${photosForDate.length} fotos a ${propAddress} (${dateFolderName})...`);
 
           const results = [];
           for (const photo of photosForDate) {
             try {
-              const existing = await drive.listFiles({ 
-                folderId: dateFolder.id, 
-                nameContains: photo.file.name 
+              // Verificar si ya existe
+              const query = `name='${photo.file.name}' and '${dateFolder.id}' in parents and trashed=false`;
+              const existingResponse = await window.gapi.client.drive.files.list({
+                q: query,
+                fields: 'files(id, name)',
+                spaces: 'drive',
               });
-              if (existing && existing.length > 0) {
+
+              if (existingResponse.result.files && existingResponse.result.files.length > 0) {
+                console.log(`[BulkUpload] ⚠️ Ya existe: ${photo.file.name}`);
                 results.push({ skipped: true, name: photo.file.name });
                 continue;
               }
 
-              const uploaded = await drive.uploadFile(photo.file, dateFolder.id);
+              // ✅ Subir archivo
+              const uploaded = await uploadFileToDrive(photo.file, dateFolder.id);
               if (uploaded && uploaded.id) {
                 results.push({ id: uploaded.id, name: photo.file.name, mimeType: photo.file.type });
                 successCount++;
@@ -393,11 +481,12 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
             }
           }
 
+          // Registrar en Supabase
           await registerInSupabase(dateFolder, yearFolder, inspeccionFolder, results, propAddress, propFolderId);
         }
       } catch (propErr) {
         console.error("[BulkUpload] property error:", propErr);
-        failCount += photosByDate[Object.keys(photosByDate)[0]].length;
+        failCount += Object.values(photosByDate).reduce((sum, arr) => sum + arr.length, 0);
       }
     }
 
