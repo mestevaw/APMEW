@@ -108,10 +108,20 @@ const DatePickerEnhanced = ({ value, onChange }) => {
   const today = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
+  const handleToday = (e) => {
+    e.preventDefault();
+    onChange(today);
+  };
+
+  const handleYesterday = (e) => {
+    e.preventDefault();
+    onChange(yesterday);
+  };
+
   return (
     <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <button onClick={() => onChange(today)} style={{
+        <button onClick={handleToday} type="button" style={{
           padding: "6px 12px",
           background: C.accent,
           color: "white",
@@ -124,7 +134,7 @@ const DatePickerEnhanced = ({ value, onChange }) => {
         }}>
           Hoy
         </button>
-        <button onClick={() => onChange(yesterday)} style={{
+        <button onClick={handleYesterday} type="button" style={{
           padding: "6px 12px",
           background: C.surface2,
           color: C.text,
