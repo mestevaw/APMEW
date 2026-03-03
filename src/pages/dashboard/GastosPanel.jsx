@@ -50,7 +50,7 @@ const GastosPanel = ({ property, mob, drive }) => {
         // ⚡ PASO 1: Intentar cargar desde SUPABASE (rápido)
         setStatus("Cargando desde índice...");
         const folders = await supaFetch("drive_folders", {
-          filters: `folder_path.ilike.%${encodeURIComponent(property.address)}%GASTO%`,
+          filters: `folder_path.ilike.%${property.address}%GASTO%`,
           order: "folder_path.desc"
         });
 
