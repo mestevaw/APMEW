@@ -1,44 +1,38 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/InspectionPanel.jsx  
-// Versión: V7
+// Versión: V8
 // Fecha: 2026-03-02
 // ═══════════════════════════════════════════
-// CAMBIOS EN V7:
-// - USA SUPABASE PRIMERO (10-20x más rápido) ⚡
-// - Fallback a Drive API si Supabase está vacío
-// - Dropdown con inspecciones separadas por año
-// - Formato corto "2 mar 26"
+// CAMBIOS EN V8:
+// - Eliminado badge "Supabase"
+// - Eliminados botones "📸 Subir" y "📝 Nota"
+// - En espacio del badge: muestra nota si existe, o botón "Meter Nota"
 // - Notas filtradas por fecha específica
 // ═══════════════════════════════════════════
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { C } from "../../lib/theme";
 import { Card, Spinner } from "../../components/UI";
 import { supaFetch, supaInsert } from "../../lib/supabase";
-import { todayFolderName } from "../../lib/helpers";
 import { DRIVE_ROOT_FOLDER } from "../../lib/config";
 import AuthImage from "./AuthImage";
 import PhotoGallery from "./PhotoGallery";
 
-// ─── Helper: parsear folder_path de Supabase ───
-// Formato: "APMEW/PROPERTY/5275 Charolais/INSPECCIONES/2025/2 mar 26"
 const parseInspectionPath = (folderPath) => {
   const parts = folderPath.split('/');
   if (parts.length < 6) return null;
   
-  // Buscar índice de INSPECCIONES
   const inspIdx = parts.findIndex(p => p.toLowerCase().includes('inspeccion'));
   if (inspIdx === -1 || inspIdx + 2 >= parts.length) return null;
   
-  const year = parts[inspIdx + 1]; // Después de INSPECCIONES
-  const date = parts[inspIdx + 2]; // Después del año
+  const year = parts[inspIdx + 1];
+  const date = parts[inspIdx + 2];
   
   if (!/^\d{4}$/.test(year)) return null;
   
   return { year, date, folderPath };
 };
 
-// ─── Helper: parsear fecha para ordenamiento ───
 const parseFolderDate = (folderName, year) => {
   const parts = folderName.split(" ");
   if (parts.length !== 3) return null;
@@ -62,21 +56,17 @@ const InspectionPanel = ({ property, mob, drive }) => {
   const [selectedInspection, setSelectedInspection] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
   const [photos, setPhotos] = useState([]);
-  const [notes, setNotes] = useState([]);
+  const [note, setNote] = useState(null); // Solo UNA nota por fecha
   const [galleryImages, setGalleryImages] = useState(null);
   const [galleryStart, setGalleryStart] = useState(0);
-  const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState("");
-  const [loadMethod, setLoadMethod] = useState(""); // Para debug
-  const uploadRef = useRef(null);
 
-  // ─── ESTRATEGIA HÍBRIDA: Supabase primero, Drive fallback ───
+  // ─── Cargar inspecciones desde Supabase ───
   useEffect(() => {
     const loadAllInspections = async () => {
       setLoading(true);
       
       try {
-        // ⚡ PASO 1: Intentar cargar desde SUPABASE (rápido)
         setStatus("Cargando desde índice...");
         const folders = await supaFetch("drive_folders", {
           filters: `folder_path=ilike.*${property.address}*INSPECCION*`,
@@ -84,25 +74,22 @@ const InspectionPanel = ({ property, mob, drive }) => {
         });
 
         if (folders && folders.length > 0) {
-          // Parsear carpetas de inspecciones
           const parsed = folders
             .map(f => parseInspectionPath(f.folder_path))
             .filter(Boolean);
 
           if (parsed.length > 0) {
-            // Agrupar por año
             const byYear = {};
             parsed.forEach(p => {
               if (!byYear[p.year]) byYear[p.year] = [];
               byYear[p.year].push({
-                id: p.folderPath, // Usar folderPath como ID único
+                id: p.folderPath,
                 folderName: p.date,
                 year: p.year,
                 sortDate: parseFolderDate(p.date, p.year) || new Date(0),
               });
             });
 
-            // Ordenar años descendente y fechas dentro de cada año
             const inspectionsByYear = Object.entries(byYear)
               .sort(([a], [b]) => b.localeCompare(a))
               .map(([year, inspections]) => ({
@@ -111,9 +98,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
               }));
 
             setAllInspections(inspectionsByYear);
-            setLoadMethod("✅ Supabase");
 
-            // Auto-seleccionar más reciente
             if (inspectionsByYear.length > 0 && inspectionsByYear[0].inspections.length > 0) {
               const first = inspectionsByYear[0].inspections[0];
               setSelectedInspection(first.id);
@@ -122,13 +107,11 @@ const InspectionPanel = ({ property, mob, drive }) => {
 
             setLoading(false);
             setStatus("");
-            return; // ← Salir, ya tenemos los datos
+            return;
           }
         }
 
-        // 🔄 PASO 2: Fallback a Drive API (si Supabase está vacío)
-        console.log("[InspectionPanel] Índice vacío, usando Drive API...");
-        setLoadMethod("⚠️ Drive API (considerar re-indexar)");
+        // Fallback a Drive API
         await loadFromDrive();
 
       } catch (err) {
@@ -200,16 +183,14 @@ const InspectionPanel = ({ property, mob, drive }) => {
     loadAllInspections();
   }, [property.address, property.owner, drive?.token]);
 
-  // ─── Cargar fotos cuando se selecciona inspección ───
+  // ─── Cargar fotos ───
   useEffect(() => {
     if (!selectedInspection || !drive?.listAllFiles) return;
 
     const loadPhotos = async () => {
       try {
-        // Si selectedInspection es un folderPath (de Supabase), necesitamos el google_drive_id
         let folderId = selectedInspection;
         
-        // Si viene de Supabase (es un path), buscar el google_drive_id
         if (selectedInspection.includes('/')) {
           const folder = await supaFetch("drive_folders", {
             filters: `folder_path=eq.${encodeURIComponent(selectedInspection)}`
@@ -239,11 +220,11 @@ const InspectionPanel = ({ property, mob, drive }) => {
     loadPhotos();
   }, [selectedInspection, drive?.listAllFiles]);
 
-  // ─── Cargar notas filtradas por fecha ───
+  // ─── Cargar nota de esta fecha ───
   useEffect(() => {
-    const loadNotes = async () => {
+    const loadNote = async () => {
       if (!selectedDate) {
-        setNotes([]);
+        setNote(null);
         return;
       }
 
@@ -252,69 +233,17 @@ const InspectionPanel = ({ property, mob, drive }) => {
         const notesData = await supaFetch("inspection_notes", {
           filters: `property_address=eq.${encodeURIComponent(property.address)}&note_date=eq.${dateStr}`,
           order: "created_at.desc",
+          limit: 1
         });
-        setNotes(notesData || []);
+        setNote(notesData && notesData[0] ? notesData[0] : null);
       } catch (err) {
-        console.error("[InspectionPanel] Error loading notes:", err);
-        setNotes([]);
+        console.error("[InspectionPanel] Error loading note:", err);
+        setNote(null);
       }
     };
 
-    loadNotes();
+    loadNote();
   }, [property.address, selectedDate]);
-
-  // ─── Upload fotos ───
-  const handleUpload = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length || !drive?.uploadPhotos || !drive?.searchFolderByAddress) return;
-
-    setUploading(true);
-    setStatus(`Subiendo ${files.length} fotos...`);
-
-    try {
-      const propFolder = await drive.searchFolderByAddress(property.address, property.owner, DRIVE_ROOT_FOLDER);
-      if (!propFolder) {
-        setStatus("No se encontró carpeta de la propiedad");
-        setUploading(false);
-        return;
-      }
-
-      const result = await drive.uploadPhotos(files, propFolder.id, property.address, (cur, total) => 
-        setStatus(`Subiendo ${cur}/${total}...`)
-      );
-
-      setStatus(`✓ ${result.results.length} fotos subidas`);
-      
-      // Refresh fotos
-      if (selectedInspection && drive.listAllFiles) {
-        let folderId = selectedInspection;
-        if (selectedInspection.includes('/')) {
-          const folder = await supaFetch("drive_folders", {
-            filters: `folder_path=eq.${encodeURIComponent(selectedInspection)}`
-          });
-          if (folder && folder[0]) folderId = folder[0].google_drive_id;
-        }
-        
-        const refreshed = await drive.listAllFiles(folderId);
-        const images = (refreshed || [])
-          .filter(f => f.mimeType && f.mimeType.startsWith('image/'))
-          .map(f => ({
-            id: f.id,
-            title: f.name,
-            google_drive_file_id: f.id,
-            mime_type: f.mimeType,
-            file_type: (f.name || "").split(".").pop().toLowerCase(),
-          }));
-        setPhotos(images);
-      }
-
-      setTimeout(() => setStatus(""), 4000);
-    } catch (err) {
-      console.error(err);
-      setStatus("Error: " + err.message);
-    }
-    setUploading(false);
-  };
 
   // ─── Agregar nota ───
   const handleAddNote = useCallback(() => {
@@ -323,21 +252,23 @@ const InspectionPanel = ({ property, mob, drive }) => {
       return;
     }
 
-    const note = prompt("Nota de inspección:");
-    if (!note?.trim()) return;
+    const noteText = prompt("Nota de inspección:");
+    if (!noteText?.trim()) return;
 
     const dateStr = selectedDate.toISOString().split('T')[0];
     supaInsert("inspection_notes", {
       property_address: property.address,
       note_date: dateStr,
-      note_text: note.trim(),
+      note_text: noteText.trim(),
       created_by: "MEW",
     })
       .then(() => {
+        // Recargar nota
         supaFetch("inspection_notes", {
           filters: `property_address=eq.${encodeURIComponent(property.address)}&note_date=eq.${dateStr}`,
           order: "created_at.desc",
-        }).then(rows => setNotes(rows || []));
+          limit: 1
+        }).then(rows => setNote(rows && rows[0] ? rows[0] : null));
         setStatus("✓ Nota guardada");
         setTimeout(() => setStatus(""), 3000);
       })
@@ -347,7 +278,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
       });
   }, [property.address, selectedDate]);
 
-  // ─── Manejar cambio de inspección ───
+  // ─── Cambiar inspección ───
   const handleInspectionChange = (inspectionId) => {
     setSelectedInspection(inspectionId);
     
@@ -380,14 +311,6 @@ const InspectionPanel = ({ property, mob, drive }) => {
         <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
           {status || "No hay inspecciones registradas"}
         </div>
-        {loadMethod && (
-          <div style={{ 
-            fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, marginTop: 8,
-            padding: "4px 8px", background: C.surface2, borderRadius: 4, display: "inline-block"
-          }}>
-            {loadMethod}
-          </div>
-        )}
       </Card>
     );
   }
@@ -405,57 +328,13 @@ const InspectionPanel = ({ property, mob, drive }) => {
         />
       )}
 
-      <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
-
-      {/* Debug info */}
-      {loadMethod && (
-        <div style={{ 
-          marginBottom: 12, padding: "6px 10px", background: loadMethod.includes("Supabase") ? `${C.green}10` : `${C.orange}10`,
-          borderRadius: 6, border: `1px solid ${loadMethod.includes("Supabase") ? C.green : C.orange}40`
-        }}>
-          <span style={{ fontFamily: "DM Sans", fontSize: 11, color: loadMethod.includes("Supabase") ? C.green : C.orange }}>
-            {loadMethod}
-          </span>
-        </div>
-      )}
-
-      {/* Botones */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, justifyContent: "flex-end" }}>
-        <button onClick={() => uploadRef.current?.click()} disabled={uploading} style={{
-          padding: "8px 16px",
-          background: uploading ? C.surface2 : C.accent,
-          color: uploading ? C.textMuted : "white",
-          border: "none",
-          borderRadius: 8,
-          cursor: uploading ? "default" : "pointer",
-          fontFamily: "DM Sans",
-          fontSize: 13,
-          fontWeight: 600,
-        }}>
-          📸 Subir
-        </button>
-        <button onClick={handleAddNote} style={{
-          padding: "8px 16px",
-          background: `${C.green}15`,
-          border: `1px solid ${C.green}40`,
-          borderRadius: 8,
-          cursor: "pointer",
-          fontFamily: "DM Sans",
-          fontSize: 13,
-          color: C.green,
-          fontWeight: 600,
-        }}>
-          📝 Nota
-        </button>
-      </div>
-
       {status && (
         <div style={{ padding: "8px 14px", marginBottom: 12, borderRadius: 8, background: status.startsWith("✓") ? `${C.green}15` : `${C.accent}15`, border: `1px solid ${status.startsWith("✓") ? C.green : C.accent}40` }}>
           <span style={{ fontFamily: "DM Sans", fontSize: 12, color: status.startsWith("✓") ? C.green : status.startsWith("Error") ? C.red : C.accent }}>{status}</span>
         </div>
       )}
 
-      {/* Dropdown con inspecciones separadas por año */}
+      {/* Dropdown de inspección */}
       <div style={{ marginBottom: 12 }}>
         <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
           Inspección:
@@ -487,28 +366,50 @@ const InspectionPanel = ({ property, mob, drive }) => {
         </select>
       </div>
 
-      {/* Notas */}
-      {notes.length > 0 && (
-        <Card style={{ marginBottom: 16 }}>
-          <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>
-            📝 Notas de esta inspección
+      {/* ✅ NUEVO: Nota o botón "Meter Nota" en espacio del badge */}
+      {note ? (
+        <Card style={{ marginBottom: 16, background: `${C.accent}05`, border: `1px solid ${C.accent}30` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>
+              📝 Nota · {new Date(note.note_date + "T00:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}
+            </div>
+            <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>
+              {note.created_by}
+            </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {notes.map((n, i) => (
-              <div key={n.id || i} style={{
-                background: C.surface2,
-                borderRadius: 8,
-                padding: "8px 12px",
-                borderLeft: `3px solid ${C.accent}`,
-              }}>
-                <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginBottom: 4 }}>
-                  {new Date(n.note_date + "T00:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })} · {n.created_by}
-                </div>
-                <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text }}>{n.note_text}</div>
-              </div>
-            ))}
+          <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text }}>
+            {note.note_text}
           </div>
         </Card>
+      ) : (
+        <div style={{ marginBottom: 16 }}>
+          <button
+            onClick={handleAddNote}
+            style={{
+              width: "100%",
+              padding: "10px 14px",
+              background: `${C.green}10`,
+              border: `1px dashed ${C.green}60`,
+              borderRadius: 8,
+              cursor: "pointer",
+              fontFamily: "DM Sans",
+              fontSize: 13,
+              color: C.green,
+              fontWeight: 600,
+              transition: "all 0.2s",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = `${C.green}20`;
+              e.currentTarget.style.borderStyle = "solid";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = `${C.green}10`;
+              e.currentTarget.style.borderStyle = "dashed";
+            }}
+          >
+            + Meter Nota
+          </button>
+        </div>
       )}
 
       {/* Fotos */}
