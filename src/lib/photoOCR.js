@@ -1,17 +1,19 @@
 // ═══════════════════════════════════════════
 // Archivo: src/lib/photoOCR.js
-// Versión: V2
+// Versión: V3
 // Fecha: 2026-03-02
 // ═══════════════════════════════════════════
-// CAMBIOS EN V2:
-// - Patrón de fecha mejorado para "Mar 2, 2026 at..."
-// - Mejor detección de dirección (lee línea 2)
-// - Skip línea de fecha al buscar dirección
-// - Busca en primeras 5 líneas
+// CAMBIOS EN V3:
+// - Agregado fuzzy matching para compensar errores OCR
+// - Usa librería 'fastest-levenshtein' para similitud
+// - Tolerancia de 5 caracteres de diferencia
+// - "Midnight Naines" → Match con "Midnight Rain" ✅
+// REQUIERE: npm install fastest-levenshtein
 // ═══════════════════════════════════════════
 
 import Tesseract from "tesseract.js";
 import { MONTHS_ES } from "./helpers";
+import { distance } from "fastest-levenshtein";
 
 /**
  * Extrae texto de una imagen usando OCR
@@ -133,7 +135,7 @@ export const extractPhotoMetadata = async (imageFile, properties) => {
   const date = parsePhotoDate(rawText);
   const addressFromOCR = parsePhotoAddress(rawText);
   
-  // Intentar hacer match con propiedades
+  // Intentar hacer match con propiedades (exacto)
   let matchedProperty = null;
   if (addressFromOCR) {
     const numMatch = addressFromOCR.match(/^\d+/);
@@ -164,6 +166,42 @@ export const extractPhotoMetadata = async (imageFile, properties) => {
       }
       return false;
     });
+    
+    // ✅ NUEVO: Si no hay match exacto, usar fuzzy matching
+    if (!matchedProperty) {
+      console.log("[OCR] No match exacto, usando fuzzy matching...");
+      
+      const numMatch = addressFromOCR.match(/^\d+/);
+      if (numMatch) {
+        // Filtrar propiedades con mismo número
+        const samNum = properties.filter(p => {
+          const propNum = p.address.match(/^\d+/);
+          return propNum && propNum[0] === numMatch[0];
+        });
+        
+        // Calcular similitud con cada una
+        let bestMatch = null;
+        let bestSimilarity = Infinity;
+        
+        samNum.forEach(prop => {
+          const similarity = distance(
+            addressFromOCR.toUpperCase(),
+            prop.address.toUpperCase()
+          );
+          
+          if (similarity < bestSimilarity) {
+            bestSimilarity = similarity;
+            bestMatch = prop;
+          }
+        });
+        
+        // Tolerancia: máximo 5 caracteres de diferencia
+        if (bestMatch && bestSimilarity <= 5) {
+          console.log(`[OCR] Fuzzy match: "${addressFromOCR}" → "${bestMatch.address}" (diff: ${bestSimilarity})`);
+          matchedProperty = bestMatch;
+        }
+      }
+    }
   }
   
   return {
