@@ -323,11 +323,11 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
                     <td style={{ 
                       padding: "12px 16px",
                       fontSize: 14,
-                      color: C.green,
+                      color: prop.rent ? C.green : C.textDim,
                       textAlign: "right",
-                      fontWeight: 600,
+                      fontWeight: prop.rent ? 600 : 400,
                     }}>
-                      {prop.rent ? fmtMoney(prop.rent) : "-"}
+                      {prop.rent ? fmtMoney(prop.rent) : "N/A"}
                     </td>
                     <td style={{ 
                       padding: "12px 16px",
