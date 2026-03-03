@@ -1,7 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/PropertyDetail.jsx
-// Versión: 1.1
-// Fecha: 2026-02-25
+// Versión: V2
+// Fecha: 2026-03-02
+// ═══════════════════════════════════════════
+// CAMBIOS EN V2:
+// - Eliminada sección "Documentos en Drive" (líneas 309-320 de V1)
+//   porque esos documentos ya están disponibles en el tab "Documentos"
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef } from "react";
@@ -105,148 +109,120 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         if (!exists || exists.length === 0) {
           await supaInsert("drive_folders", { name: f.name, google_drive_id: f.id, parent_drive_id: f.parent, folder_path: f.path });
         }
-      } catch (e) { console.error("folder register:", e); }
+      } catch (e) { console.error("supa folder insert:", e); }
     }
+
     for (const r of results) {
-      try {
-        const ext = (r.name || "").split(".").pop().toLowerCase();
-        const mimeMap = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", heic: "image/heic", webp: "image/webp" };
-        await supaInsert("documents", {
-          title: r.name, google_drive_file_id: r.id,
-          parent_folder_drive_id: dateFolder.id,
-          folder_path: datePath,
-          category: "inspeccion",
-          mime_type: mimeMap[ext] || r.mimeType || "image/jpeg",
-          file_type: ext || "jpg",
-        });
-      } catch (e) { console.error("doc register:", e); }
+      if (r.id) {
+        try {
+          await supaInsert("documents", {
+            title: r.name, google_drive_file_id: r.id,
+            mime_type: r.mimeType, file_type: (r.name || "").split(".").pop().toLowerCase(),
+            folder_path: datePath, parent_folder_drive_id: dateFolder.id,
+            synced_from_drive: true,
+          });
+        } catch (e) { console.error("supa doc insert:", e); }
+      }
     }
   };
 
   const handleUpload = async (e) => {
     const files = Array.from(e.target.files || []);
-    if (!files.length || !drive?.token || !drive?.uploadPhotos || !folderId) return;
-    console.log("[PropertyDetail] handleUpload using folderId:", folderId, "for property:", property.address);
-    setUploading(true); setUploadMsg(`Subiendo ${files.length} fotos...`);
+    if (!files.length) return;
+    setUploading(true);
+    setUploadMsg(`Subiendo ${files.length} fotos...`);
     try {
-      const { dateFolder, results, yearFolder, inspeccionFolder, skipped = 0 } = await drive.uploadPhotos(
-        files, folderId, property.address,
-        (cur, total, name) => setUploadMsg(`Subiendo ${cur}/${total}... ${name}`)
-      );
-      const newUploads = results.filter(r => !r.skipped);
-      setUploadMsg(`Indexando ${newUploads.length} fotos...`);
-      await registerInSupabase(dateFolder, yearFolder, inspeccionFolder, newUploads);
-      const msg = skipped > 0
-        ? `✓ ${newUploads.length} nuevas, ${skipped} ya existían (no duplicadas)`
-        : `✓ ${results.length} fotos subidas e indexadas`;
-      setUploadMsg(msg);
-      setRefreshKey(k => k + 1);
-    } catch (err) { setUploadMsg("Error: " + err.message); }
-    setUploading(false); e.target.value = "";
-    setTimeout(() => setUploadMsg(""), 6000);
+      const result = await drive.uploadPhotos(files, folderId, property.address, (cur, total, name) => {
+        setUploadMsg(`Subiendo ${cur}/${total}: ${name.slice(0, 30)}...`);
+      });
+      setUploadMsg(`✓ ${result.results.length} fotos subidas`);
+      if (result.results.length > 0) {
+        await registerInSupabase(result.dateFolder, result.yearFolder, result.inspeccionFolder, result.results);
+      }
+      setTimeout(() => setUploadMsg(""), 6000);
+    } catch (err) {
+      console.error(err);
+      setUploadMsg("Error: " + err.message);
+    }
+    setUploading(false);
+    e.target.value = "";
   };
+
+  const ownerColor = OWNER_COLORS[property.owner] || C.accent;
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
-        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", padding: 0 }}>
-          <span style={{ color: OWNER_COLORS[property.owner] || C.accent }}><HouseIcon /></span>
-        </button>
-        <div style={{ flex: 1, cursor: "pointer" }} onClick={onBack}>
-          <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 22, fontWeight: 700, color: C.text }}>{property.address}</h1>
-          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: OWNER_COLORS[property.owner] || C.textDim, cursor: onOwnerClick ? "pointer" : "default" }} onClick={e => { if (onOwnerClick) { e.stopPropagation(); onOwnerClick(property.owner); } }}>
-            {property.owner}
-            {property.sold ? " · Vendida" : ""}
-          </span>
+      <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.accent, padding: 4, display: "flex" }}>
+            {I.arrowLeft}
+          </button>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <HouseIcon size={24} color={ownerColor} />
+              <h2 style={{ fontFamily: "DM Sans", fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+                {property.address}
+              </h2>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button onClick={() => onOwnerClick(property.owner)} style={{
+                background: "none", border: "none", cursor: "pointer", padding: 0,
+                fontFamily: "DM Sans", fontSize: 13, color: ownerColor, textDecoration: "underline",
+              }}>{property.owner}</button>
+              {personal && (
+                <Badge color={C.green} style={{ fontSize: 10 }}>Personal</Badge>
+              )}
+            </div>
+          </div>
         </div>
+
+        {/* Menu hamburguesa */}
         <div style={{ position: "relative" }}>
-          <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
-          <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
-            <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>📤 Subir fotos</MenuBtn>
-            {folderId && <MenuBtn onClick={() => { setInspPanel(true); setMenuOpen(false); }}>📸 Inspección</MenuBtn>}
-            {folderId && <MenuBtn onClick={() => { setShowDocs(!showDocs); setMenuOpen(false); }}>{showDocs ? "📂 Ocultar docs" : "📂 Ver docs"}</MenuBtn>}
-          </DropMenu>
+          <HamburgerBtn onClick={() => setMenuOpen(!menuOpen)} />
+          {menuOpen && (
+            <DropMenu onClose={() => setMenuOpen(false)}>
+              <MenuLabel>📸 Inspecciones</MenuLabel>
+              <MenuBtn icon="📷" onClick={() => { handleCameraClick(); setMenuOpen(false); }}>
+                Subir Fotos
+              </MenuBtn>
+              <MenuBtn icon="📦" onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>
+                Subida Masiva
+              </MenuBtn>
+              <MenuDivider />
+              <MenuLabel>📂 Documentos</MenuLabel>
+              <MenuBtn icon="🔍" onClick={() => { setShowDocs(true); setMenuOpen(false); }}>
+                Ver Documentos
+              </MenuBtn>
+            </DropMenu>
+          )}
         </div>
       </div>
 
       {uploadMsg && (
-        <div style={{ padding: "8px 14px", marginBottom: 12, borderRadius: 8, background: uploadMsg.startsWith("✓") ? `${C.green}15` : `${C.accent}15`, border: `1px solid ${uploadMsg.startsWith("✓") ? C.green : C.accent}40` }}>
-          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent }}>{uploadMsg}</span>
+        <div style={{
+          padding: "8px 12px", marginBottom: 16, borderRadius: 8,
+          background: uploadMsg.startsWith("✓") ? `${C.green}15` : uploadMsg.startsWith("Error") ? `${C.red}15` : `${C.accent}15`,
+          border: `1px solid ${uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent}40`,
+        }}>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent }}>
+            {uploadMsg}
+          </span>
         </div>
       )}
 
-      {/* ── Inspection Panel ── */}
-      <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
-      {inspPanel && (
-        <Card style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>📋 Inspección</span>
-            <button onClick={() => setInspPanel(false)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "DM Sans", fontSize: 12, color: C.textMuted }}>✕ Cerrar</button>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button onClick={handleCameraClick} disabled={uploading} style={{
-              display: "flex", alignItems: "center", gap: 8, padding: "12px 20px",
-              background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer",
-              fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, minWidth: 140,
-            }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
-              onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-              <span style={{ fontSize: 20 }}>📸</span>
-              <div>
-                <div style={{ fontWeight: 600 }}>Fotos</div>
-                <div style={{ fontSize: 10, color: C.textDim }}>Subir fotos de inspección</div>
-              </div>
-            </button>
-            <button onClick={() => {
-              const note = prompt("Nota de inspección:");
-              if (note && note.trim()) {
-                const now = new Date();
-                const dateStr = now.toISOString().slice(0, 10);
-                supaInsert("inspection_notes", { property_address: property.address, note_date: dateStr, note_text: note.trim(), created_by: "MEW" })
-                  .then(() => setUploadMsg("✓ Nota guardada"))
-                  .catch(err => setUploadMsg("Error: " + err.message));
-                setTimeout(() => setUploadMsg(""), 4000);
-              }
-            }} style={{
-              display: "flex", alignItems: "center", gap: 8, padding: "12px 20px",
-              background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer",
-              fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, minWidth: 140,
-            }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
-              onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-              <span style={{ fontSize: 20 }}>📝</span>
-              <div>
-                <div style={{ fontWeight: 600 }}>Nota</div>
-                <div style={{ fontSize: 10, color: C.textDim }}>Agregar apunte</div>
-              </div>
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {/* Tenant Info */}
-      {tenant && !personal && (() => {
-        const leaseTo = tenant.lease_to ? new Date(tenant.lease_to) : null;
-        const now = new Date();
-        const mtm = tenant.month_to_month || !leaseTo;
-        const expired = leaseTo && leaseTo < now;
-        const soonDays = leaseTo ? Math.ceil((leaseTo - now) / 86400000) : null;
-        const soon = soonDays != null && soonDays > 0 && soonDays <= 90;
-        const statusColor = expired ? C.red : soon ? "#F59E0B" : mtm ? C.blue : C.green;
-        const statusText = expired ? "Vencido" : mtm ? "Mes a mes" : soon ? `Vence en ${soonDays}d` : `Hasta ${leaseTo.toLocaleDateString("es-MX", { month: "short", year: "numeric" })}`;
+      {/* Tenant info (solo rental) */}
+      {(() => {
+        if (personal || !tenant) return null;
         return (
           <Card style={{ marginBottom: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>👤 Inquilino</span>
-              <span style={{ fontFamily: "DM Sans", fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${statusColor}18`, color: statusColor, fontWeight: 600 }}>{statusText}</span>
-            </div>
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 600, color: C.text }}>{tenant.tenant_name}</div>
-                <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginTop: 2 }}>
-                  {tenant.bd_ba && `${tenant.bd_ba}`}{tenant.sqft ? ` · ${tenant.sqft.toLocaleString()} sqft` : ""}
-                </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginBottom: 2 }}>👤 Inquilino</div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 2 }}>{tenant.tenant_name}</div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>{property.beds}/{property.baths} · {property.sqft} sqft</div>
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontFamily: "JetBrains Mono", fontSize: 16, fontWeight: 700, color: C.green }}>{fmtMoney(tenant.monthly_rent)}</div>
@@ -301,24 +277,9 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         />
       )}
 
-      {/* Documents toggle */}
-      {searching && <Card style={{ textAlign: "center", padding: 30 }}><Spinner /><p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Buscando carpeta...</p></Card>}
-      {notFound && !searching && (
-        <Card style={{ textAlign: "center", padding: 30 }}><div style={{ fontSize: 36, marginBottom: 12 }}>📂</div><p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>No se encontró carpeta de Drive</p></Card>
-      )}
-      {folderId && (
-        <>
-          <button onClick={() => setShowDocs(!showDocs)} style={{
-            display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", marginBottom: 12,
-            background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10,
-            cursor: "pointer", width: "100%", fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.accent,
-          }}>
-            <span>{showDocs ? "▼" : "▶"}</span>
-            <span>📂 Documentos en Drive</span>
-          </button>
-          {showDocs && <SupaExplorer key={refreshKey} rootFolderId={folderId} mob={mob} drive={drive} propertyAddress={property.address} />}
-        </>
-      )}
+      {/* ✅ ELIMINADO: Sección "Documentos en Drive" (líneas 304-321 de V1) */}
+      {/* Ya no es necesaria porque los documentos están en el tab "Documentos" */}
+      
     </div>
   );
 };
