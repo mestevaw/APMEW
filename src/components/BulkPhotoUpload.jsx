@@ -1,10 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/BulkPhotoUpload.jsx
-// Versión: V2
+// Versión: V3
 // Fecha: 2026-03-02
 // ═══════════════════════════════════════════
-// CAMBIOS EN V2:
-// - Título: "Subir Fotos" → "Subir un Batch de Fotos"
+// CAMBIOS EN V3:
+// - Título: "Subir un Batch de Fotos"
+// - Info de debug detallada en review
+// - Info de debug DURANTE procesamiento
+// - Se detiene si no encuentra match
 // ═══════════════════════════════════════════
 
 import { useState, useRef } from "react";
@@ -22,6 +25,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
   const [photos, setPhotos] = useState([]);
   const [currentStep, setCurrentStep] = useState("select"); // select, review, upload
   const [processStatus, setProcessStatus] = useState("");
+  const [debugInfo, setDebugInfo] = useState(null); // ✅ Nuevo: info de debug en tiempo real
   const [uploadStatus, setUploadStatus] = useState("");
   const fileInputRef = useRef(null);
 
@@ -38,9 +42,27 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      setProcessStatus(`Procesando ${i + 1}/${files.length}: ${file.name}...`);
+      setProcessStatus(`Procesando foto ${i + 1} de ${files.length}...`);
       
       const metadata = await extractPhotoMetadata(file, activeProps);
+      
+      // ✅ Extraer número para mostrar
+      const numMatch = metadata.address?.match(/^\d+/);
+      const detectedNumber = numMatch ? numMatch[0] : "No detectado";
+      
+      // ✅ Actualizar debug info en tiempo real
+      setDebugInfo({
+        fileName: file.name,
+        detectedNumber,
+        ocrAddress: metadata.address || "No se pudo leer dirección",
+        matchedProperty: metadata.matchedProperty?.address || null,
+        photoNumber: i + 1,
+        totalPhotos: files.length,
+      });
+      
+      // ✅ Pausa de 1 segundo para que se vea el debug
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
       processed.push({
         file,
         ...metadata,
@@ -55,6 +77,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     setProcessing(false);
     setCurrentStep("review");
     setProcessStatus("");
+    setDebugInfo(null);
   };
 
   // Registrar folders y archivos en Supabase
@@ -292,13 +315,73 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
             </div>
           )}
 
-          {/* Step 2: Processing */}
+          {/* Step 2: Processing con DEBUG INFO */}
           {currentStep === "processing" && (
             <div style={{ textAlign: "center", padding: "40px 20px" }}>
               <Spinner />
-              <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, marginTop: 16 }}>
+              <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, marginTop: 16, marginBottom: 20 }}>
                 {processStatus}
               </p>
+              
+              {/* ✅ DEBUG INFO en tiempo real */}
+              {debugInfo && (
+                <div style={{ 
+                  maxWidth: 500, 
+                  margin: "0 auto",
+                  padding: 16, 
+                  background: C.surface2, 
+                  borderRadius: 8,
+                  border: `1px solid ${debugInfo.matchedProperty ? C.green : C.red}`,
+                  textAlign: "left",
+                }}>
+                  <div style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 12 }}>
+                    📸 {debugInfo.fileName}
+                  </div>
+                  
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {/* Número detectado */}
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontFamily: "DM Sans" }}>
+                      <span style={{ color: C.textDim }}>🔢 Número detectado:</span>
+                      <span style={{ fontWeight: 600, color: debugInfo.detectedNumber !== "No detectado" ? C.green : C.red }}>
+                        {debugInfo.detectedNumber}
+                      </span>
+                    </div>
+                    
+                    {/* Dirección OCR */}
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontFamily: "DM Sans" }}>
+                      <span style={{ color: C.textDim }}>📍 OCR leyó:</span>
+                      <span style={{ fontWeight: 600, color: C.text }}>
+                        {debugInfo.ocrAddress}
+                      </span>
+                    </div>
+                    
+                    {/* Match encontrado */}
+                    <div style={{ 
+                      marginTop: 8, 
+                      padding: "8px 10px", 
+                      background: debugInfo.matchedProperty ? `${C.green}15` : `${C.red}15`,
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontFamily: "DM Sans",
+                    }}>
+                      {debugInfo.matchedProperty ? (
+                        <>
+                          <div style={{ fontWeight: 600, color: C.green, marginBottom: 4 }}>
+                            ✅ Match encontrado
+                          </div>
+                          <div style={{ color: C.text }}>
+                            🏠 {debugInfo.matchedProperty}
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ fontWeight: 600, color: C.red }}>
+                          ❌ No se encontró match con ninguna propiedad
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -409,13 +492,56 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
                           />
                         </div>
 
-                        {/* OCR info */}
-                        {photo.address && (
-                          <div style={{ marginTop: 8, fontSize: 11, color: C.textMuted, fontFamily: "DM Sans" }}>
-                            OCR detectó: {photo.address}
-                            {photo.matchedProperty && ` ✓ Match automático`}
+                        {/* ✅ DEBUG: Info detallada del OCR */}
+                        <div style={{ 
+                          marginTop: 8, 
+                          padding: "8px 10px", 
+                          background: photo.matchedProperty ? `${C.green}10` : `${C.red}10`,
+                          border: `1px solid ${photo.matchedProperty ? C.green : C.red}40`,
+                          borderRadius: 6 
+                        }}>
+                          <div style={{ fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: photo.matchedProperty ? C.green : C.red, marginBottom: 4 }}>
+                            {photo.matchedProperty ? "✅ Match automático encontrado" : "❌ Sin match automático"}
                           </div>
-                        )}
+                          
+                          {/* Número detectado */}
+                          {(() => {
+                            const numMatch = photo.address?.match(/^\d+/);
+                            return numMatch ? (
+                              <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginBottom: 2 }}>
+                                🔢 Número detectado: <span style={{ fontWeight: 600, color: C.text }}>{numMatch[0]}</span>
+                              </div>
+                            ) : null;
+                          })()}
+                          
+                          {/* Dirección completa OCR */}
+                          {photo.address && (
+                            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginBottom: 2 }}>
+                              📍 OCR leyó: <span style={{ fontWeight: 600, color: C.text }}>{photo.address}</span>
+                            </div>
+                          )}
+                          
+                          {/* Propiedad auto-seleccionada */}
+                          {photo.matchedProperty && (
+                            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>
+                              🏠 Auto-seleccionado: <span style={{ fontWeight: 600, color: C.green }}>{photo.matchedProperty.address}</span>
+                            </div>
+                          )}
+                          
+                          {/* Mensaje si no hay match */}
+                          {!photo.matchedProperty && photo.address && (
+                            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.red, marginTop: 4 }}>
+                              ⚠️ Selecciona manualmente la propiedad correcta
+                            </div>
+                          )}
+                          
+                          {/* Si no detectó nada */}
+                          {!photo.address && (
+                            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.red }}>
+                              ⚠️ OCR no pudo detectar dirección en la foto
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {/* Remove button */}
