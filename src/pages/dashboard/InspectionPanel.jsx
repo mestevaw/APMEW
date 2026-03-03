@@ -1,13 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/InspectionPanel.jsx  
-// Versión: V8
+// Versión: V9
 // Fecha: 2026-03-02
 // ═══════════════════════════════════════════
-// CAMBIOS EN V8:
-// - Eliminado badge "Supabase"
-// - Eliminados botones "📸 Subir" y "📝 Nota"
-// - En espacio del badge: muestra nota si existe, o botón "Meter Nota"
-// - Notas filtradas por fecha específica
+// CAMBIOS EN V9:
+// - "Inspección:" → "Inspección del:"
+// - Dropdown y nota en misma línea (layout horizontal)
+// - "+ Meter Nota" → "+ Agregar Nota"
+// - Controles más compactos
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useCallback } from "react";
@@ -334,83 +334,87 @@ const InspectionPanel = ({ property, mob, drive }) => {
         </div>
       )}
 
-      {/* Dropdown de inspección */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
-          Inspección:
-        </label>
-        <select
-          value={selectedInspection || ""}
-          onChange={(e) => handleInspectionChange(e.target.value)}
-          style={{
-            width: "100%",
-            padding: "10px 12px",
-            fontFamily: "DM Sans",
-            fontSize: 13,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            background: C.surface2,
-            color: C.text,
-            cursor: "pointer",
-          }}
-        >
-          {allInspections.map(yearGroup => (
-            <optgroup key={yearGroup.year} label={`─── ${yearGroup.year} ───`}>
-              {yearGroup.inspections.map(insp => (
-                <option key={insp.id} value={insp.id}>
-                  {insp.folderName}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </div>
-
-      {/* ✅ NUEVO: Nota o botón "Meter Nota" en espacio del badge */}
-      {note ? (
-        <Card style={{ marginBottom: 16, background: `${C.accent}05`, border: `1px solid ${C.accent}30` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>
-              📝 Nota · {new Date(note.note_date + "T00:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}
-            </div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>
-              {note.created_by}
-            </div>
-          </div>
-          <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text }}>
-            {note.note_text}
-          </div>
-        </Card>
-      ) : (
-        <div style={{ marginBottom: 16 }}>
-          <button
-            onClick={handleAddNote}
+      {/* ✅ Layout horizontal: Dropdown + Nota/Botón en misma línea */}
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
+        {/* Dropdown de inspección (izquierda) */}
+        <div style={{ flex: "0 0 auto" }}>
+          <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
+            Inspección del:
+          </label>
+          <select
+            value={selectedInspection || ""}
+            onChange={(e) => handleInspectionChange(e.target.value)}
             style={{
-              width: "100%",
-              padding: "10px 14px",
-              background: `${C.green}10`,
-              border: `1px dashed ${C.green}60`,
-              borderRadius: 8,
-              cursor: "pointer",
+              width: 200,
+              padding: "8px 10px",
               fontFamily: "DM Sans",
               fontSize: 13,
-              color: C.green,
-              fontWeight: 600,
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = `${C.green}20`;
-              e.currentTarget.style.borderStyle = "solid";
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = `${C.green}10`;
-              e.currentTarget.style.borderStyle = "dashed";
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              background: C.surface2,
+              color: C.text,
+              cursor: "pointer",
             }}
           >
-            + Meter Nota
-          </button>
+            {allInspections.map(yearGroup => (
+              <optgroup key={yearGroup.year} label={`─── ${yearGroup.year} ───`}>
+                {yearGroup.inspections.map(insp => (
+                  <option key={insp.id} value={insp.id}>
+                    {insp.folderName}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
         </div>
-      )}
+
+        {/* Nota o botón (derecha) */}
+        <div style={{ flex: 1 }}>
+          {note ? (
+            <Card style={{ background: `${C.accent}05`, border: `1px solid ${C.accent}30` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>
+                  📝 Nota · {new Date(note.note_date + "T00:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}
+                </div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>
+                  {note.created_by}
+                </div>
+              </div>
+              <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text }}>
+                {note.note_text}
+              </div>
+            </Card>
+          ) : (
+            <button
+              onClick={handleAddNote}
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                background: `${C.green}10`,
+                border: `1px dashed ${C.green}60`,
+                borderRadius: 8,
+                cursor: "pointer",
+                fontFamily: "DM Sans",
+                fontSize: 13,
+                color: C.green,
+                fontWeight: 600,
+                transition: "all 0.2s",
+                marginTop: 20,
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = `${C.green}20`;
+                e.currentTarget.style.borderStyle = "solid";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = `${C.green}10`;
+                e.currentTarget.style.borderStyle = "dashed";
+              }}
+            >
+              + Agregar Nota
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Fotos */}
       {selectedInspection && (
