@@ -13,6 +13,7 @@ import { BulkPhotoUpload } from "../../components/BulkPhotoUpload";
 const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [filter, setFilter] = useState("all");
   const [sortBy, setSortBy] = useState("number");
+  const [searchQuery, setSearchQuery] = useState(""); // ✅ Nuevo: búsqueda
   const [menuOpen, setMenuOpen] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [uploadTarget, setUploadTarget] = useState(null); // property for upload
@@ -23,6 +24,16 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const owners = [...new Set(PROPERTIES.filter(p => !p.sold).map(p => p.owner))];
   const activeProps = PROPERTIES.filter(p => !p.sold);
   let filtered = filter === "all" ? [...activeProps] : filter === "vendidas" ? PROPERTIES.filter(p => p.sold) : PROPERTIES.filter(p => p.owner === filter && !p.sold);
+  
+  // ✅ Aplicar búsqueda por nombre o número
+  if (searchQuery.trim()) {
+    const query = searchQuery.toLowerCase();
+    filtered = filtered.filter(p => 
+      p.address.toLowerCase().includes(query) || 
+      getNumber(p.address).toString().includes(query)
+    );
+  }
+  
   if (sortBy === "number") filtered.sort((a, b) => getNumber(a.address) - getNumber(b.address));
   else filtered.sort((a, b) => getStreet(a.address).localeCompare(getStreet(b.address)));
 
@@ -87,6 +98,48 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
         <span style={{ color: C.accent }}><HouseIcon /></span>
         <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent, flex: 1 }}>Propiedades</h1>
         <Badge color={C.textDim}>{activeProps.length}</Badge>
+        
+        {/* ✅ Búsqueda */}
+        <div style={{ position: "relative" }}>
+          <input
+            type="text"
+            placeholder="🔍 Buscar..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: mob ? 120 : 180,
+              padding: "6px 12px",
+              fontFamily: "DM Sans",
+              fontSize: 13,
+              border: `1px solid ${searchQuery ? C.accent : C.border}`,
+              borderRadius: 8,
+              background: C.surface2,
+              color: C.text,
+              outline: "none",
+            }}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              style={{
+                position: "absolute",
+                right: 6,
+                top: "50%",
+                transform: "translateY(-50%)",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: C.textDim,
+                padding: 2,
+                display: "flex",
+                fontSize: 16,
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        
         <div style={{ position: "relative" }}>
           <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
           <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
