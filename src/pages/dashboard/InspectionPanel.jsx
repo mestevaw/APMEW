@@ -547,6 +547,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
                     fileId={img.google_drive_file_id}
                     token={drive?.token}
                     alt={img.title}
+                    useThumbnail={true}
                     style={{ width: "100%", height: "100%", objectFit: "cover" }}
                   />
                 </button>
