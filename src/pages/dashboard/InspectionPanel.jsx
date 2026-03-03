@@ -1,58 +1,39 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/InspectionPanel.jsx  
-// Versión: V5
+// Versión: V6
 // Fecha: 2026-03-02
 // ═══════════════════════════════════════════
-// CAMBIOS EN V5:
-// - Eliminados dropdowns separados de "Año" y "Fecha"
-// - Ahora hay UN SOLO dropdown que muestra TODAS las inspecciones
-//   en formato "2025 marzo 2" (año mes día)
-// - Ordenadas de más reciente a más antiguo
+// CAMBIOS EN V6:
+// - Dropdown con inspecciones separadas por año (headers de año)
+// - Formato corto "2 mar 26" en lugar de "2025 marzo 2"
+// - Notas filtradas SOLO para la fecha de inspección seleccionada
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { C } from "../../lib/theme";
 import { Card, Spinner } from "../../components/UI";
 import { supaFetch, supaInsert } from "../../lib/supabase";
-import { todayFolderName, MONTHS_ES } from "../../lib/helpers";
+import { todayFolderName } from "../../lib/helpers";
 import { DRIVE_ROOT_FOLDER } from "../../lib/config";
 import AuthImage from "./AuthImage";
 import PhotoGallery from "./PhotoGallery";
 
-// ─── Helper: convertir nombre de carpeta "2 mar 26" a "2025 marzo 2" ───
-const formatInspectionDate = (folderName, year) => {
-  // folderName ejemplo: "2 mar 26"
-  const parts = folderName.split(" ");
-  if (parts.length !== 3) return `${year} - ${folderName}`;
-  
-  const day = parts[0];
-  const monthShort = parts[1].toLowerCase();
-  
-  // Convertir mes corto a nombre completo
-  const monthMap = {
-    ene: "enero", feb: "febrero", mar: "marzo", abr: "abril",
-    may: "mayo", jun: "junio", jul: "julio", ago: "agosto",
-    sep: "septiembre", oct: "octubre", nov: "noviembre", dic: "diciembre"
-  };
-  
-  const monthFull = monthMap[monthShort] || monthShort;
-  
-  return `${year} ${monthFull} ${day}`;
-};
-
-// ─── Helper: parsear fecha de carpeta para ordenamiento ───
+// ─── Helper: parsear fecha de carpeta a objeto Date ───
 const parseFolderDate = (folderName, year) => {
   // folderName ejemplo: "2 mar 26"
   const parts = folderName.split(" ");
   if (parts.length !== 3) return null;
   
   const day = parseInt(parts[0]);
+  const monthMap = {
+    ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5,
+    jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11
+  };
   const monthShort = parts[1].toLowerCase();
-  const monthIndex = MONTHS_ES.indexOf(monthShort);
+  const monthIndex = monthMap[monthShort];
   
-  if (monthIndex === -1) return null;
+  if (monthIndex === undefined) return null;
   
-  // Crear fecha para ordenamiento
   return new Date(parseInt(year), monthIndex, day);
 };
 
@@ -60,6 +41,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
   const [loading, setLoading] = useState(true);
   const [allInspections, setAllInspections] = useState([]); // Array de todas las inspecciones
   const [selectedInspection, setSelectedInspection] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(null); // Fecha para filtrar notas
   const [photos, setPhotos] = useState([]);
   const [notes, setNotes] = useState([]);
   const [galleryImages, setGalleryImages] = useState(null);
@@ -111,7 +93,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
           .sort((a, b) => b.name.localeCompare(a.name));
 
         // 4. Para cada año, cargar todas las fechas
-        const allDates = [];
+        const inspectionsByYear = [];
         
         for (const year of years) {
           try {
@@ -119,31 +101,34 @@ const InspectionPanel = ({ property, mob, drive }) => {
             const dates = (dateFiles || [])
               .filter(f => f.mimeType === "application/vnd.google-apps.folder");
             
-            // Agregar cada fecha al array con su info completa
-            for (const date of dates) {
-              const parsedDate = parseFolderDate(date.name, year.name);
-              allDates.push({
-                id: date.id, // ID de la carpeta de fecha
-                folderName: date.name, // Nombre original de carpeta (ej: "2 mar 26")
-                year: year.name, // Año (ej: "2025")
-                yearId: year.id, // ID de la carpeta de año
-                displayName: formatInspectionDate(date.name, year.name), // "2025 marzo 2"
-                sortDate: parsedDate || new Date(0), // Para ordenar
-              });
-            }
+            if (dates.length === 0) continue;
+
+            // Parsear y ordenar fechas dentro del año
+            const parsedDates = dates.map(date => ({
+              id: date.id,
+              folderName: date.name, // "2 mar 26"
+              year: year.name,
+              yearId: year.id,
+              sortDate: parseFolderDate(date.name, year.name) || new Date(0),
+            }))
+            .sort((a, b) => b.sortDate - a.sortDate); // Más reciente primero
+
+            inspectionsByYear.push({
+              year: year.name,
+              inspections: parsedDates,
+            });
           } catch (err) {
             console.error(`[InspectionPanel] Error loading dates for year ${year.name}:`, err);
           }
         }
 
-        // 5. Ordenar todas las fechas de más reciente a más antiguo
-        allDates.sort((a, b) => b.sortDate - a.sortDate);
+        setAllInspections(inspectionsByYear);
 
-        setAllInspections(allDates);
-
-        // 6. Auto-seleccionar la más reciente
-        if (allDates.length > 0) {
-          setSelectedInspection(allDates[0].id);
+        // 5. Auto-seleccionar la inspección más reciente
+        if (inspectionsByYear.length > 0 && inspectionsByYear[0].inspections.length > 0) {
+          const firstInspection = inspectionsByYear[0].inspections[0];
+          setSelectedInspection(firstInspection.id);
+          setSelectedDate(firstInspection.sortDate);
         }
       } catch (err) {
         console.error("[InspectionPanel] Error loading inspections:", err);
@@ -181,22 +166,32 @@ const InspectionPanel = ({ property, mob, drive }) => {
     loadPhotos();
   }, [selectedInspection, drive?.listAllFiles]);
 
-  // ─── Cargar notas ───
+  // ─── Cargar notas FILTRADAS por fecha de inspección seleccionada ───
   useEffect(() => {
     const loadNotes = async () => {
+      if (!selectedDate) {
+        setNotes([]);
+        return;
+      }
+
       try {
+        // Convertir la fecha a formato YYYY-MM-DD
+        const dateStr = selectedDate.toISOString().split('T')[0];
+        
+        // Buscar notas SOLO para esa fecha específica
         const notesData = await supaFetch("inspection_notes", {
-          filters: `property_address=eq.${encodeURIComponent(property.address)}`,
-          order: "note_date.desc",
+          filters: `property_address=eq.${encodeURIComponent(property.address)}&note_date=eq.${dateStr}`,
+          order: "created_at.desc",
         });
         setNotes(notesData || []);
       } catch (err) {
         console.error("[InspectionPanel] Error loading notes:", err);
+        setNotes([]);
       }
     };
 
     loadNotes();
-  }, [property.address]);
+  }, [property.address, selectedDate]);
 
   // ─── Upload fotos ───
   const handleUpload = async (e) => {
@@ -251,12 +246,17 @@ const InspectionPanel = ({ property, mob, drive }) => {
     setUploading(false);
   };
 
-  // ─── Agregar nota ───
+  // ─── Agregar nota (para la fecha seleccionada) ───
   const handleAddNote = useCallback(() => {
+    if (!selectedDate) {
+      alert("Selecciona una fecha de inspección primero");
+      return;
+    }
+
     const note = prompt("Nota de inspección:");
     if (!note?.trim()) return;
 
-    const dateStr = new Date().toISOString().slice(0, 10);
+    const dateStr = selectedDate.toISOString().split('T')[0];
     supaInsert("inspection_notes", {
       property_address: property.address,
       note_date: dateStr,
@@ -264,9 +264,10 @@ const InspectionPanel = ({ property, mob, drive }) => {
       created_by: "MEW",
     })
       .then(() => {
+        // Recargar solo las notas de esta fecha
         supaFetch("inspection_notes", {
-          filters: `property_address=eq.${encodeURIComponent(property.address)}`,
-          order: "note_date.desc",
+          filters: `property_address=eq.${encodeURIComponent(property.address)}&note_date=eq.${dateStr}`,
+          order: "created_at.desc",
         }).then(rows => setNotes(rows || []));
         setStatus("✓ Nota guardada");
         setTimeout(() => setStatus(""), 3000);
@@ -275,7 +276,21 @@ const InspectionPanel = ({ property, mob, drive }) => {
         console.error(err);
         setStatus("Error al guardar nota");
       });
-  }, [property.address]);
+  }, [property.address, selectedDate]);
+
+  // ─── Manejar cambio de inspección seleccionada ───
+  const handleInspectionChange = (inspectionId) => {
+    setSelectedInspection(inspectionId);
+    
+    // Encontrar la fecha correspondiente
+    for (const yearGroup of allInspections) {
+      const found = yearGroup.inspections.find(insp => insp.id === inspectionId);
+      if (found) {
+        setSelectedDate(found.sortDate);
+        break;
+      }
+    }
+  };
 
   if (loading && allInspections.length === 0) {
     return (
@@ -352,14 +367,14 @@ const InspectionPanel = ({ property, mob, drive }) => {
         </div>
       )}
 
-      {/* ✅ NUEVO: Dropdown único con TODAS las inspecciones */}
+      {/* ✅ NUEVO: Dropdown con inspecciones separadas por año */}
       <div style={{ marginBottom: 12 }}>
         <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
           Inspección:
         </label>
         <select
           value={selectedInspection || ""}
-          onChange={(e) => setSelectedInspection(e.target.value)}
+          onChange={(e) => handleInspectionChange(e.target.value)}
           style={{
             width: "100%",
             padding: "10px 12px",
@@ -372,19 +387,23 @@ const InspectionPanel = ({ property, mob, drive }) => {
             cursor: "pointer",
           }}
         >
-          {allInspections.map(insp => (
-            <option key={insp.id} value={insp.id}>
-              {insp.displayName}
-            </option>
+          {allInspections.map(yearGroup => (
+            <optgroup key={yearGroup.year} label={`─── ${yearGroup.year} ───`}>
+              {yearGroup.inspections.map(insp => (
+                <option key={insp.id} value={insp.id}>
+                  {insp.folderName}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </div>
 
-      {/* Notas */}
+      {/* Notas (solo para esta fecha) */}
       {notes.length > 0 && (
         <Card style={{ marginBottom: 16 }}>
           <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>
-            📝 Notas de Inspección
+            📝 Notas de esta inspección
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {notes.map((n, i) => (
