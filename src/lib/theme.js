@@ -11,6 +11,7 @@ export const C = {
   green: "#4ADE80", greenDim: "rgba(74,222,128,0.15)",
   red: "#F87171", redDim: "rgba(248,113,113,0.15)",
   blue: "#60A5FA", blueDim: "rgba(96,165,250,0.15)",
+  orange: "#F97316", orangeDim: "rgba(249,115,22,0.15)", // ✅ Agregado para Maud Watson
   text: "#E8E4DC", textDim: "#8A8A8A", textMuted: "#5A5A5A", white: "#FFF",
 };
 
