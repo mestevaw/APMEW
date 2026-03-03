@@ -1,24 +1,65 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/InspectionPanel.jsx  
-// Versión: 4.0 - Busca en Drive como SupaExplorer
+// Versión: V5
 // Fecha: 2026-03-02
+// ═══════════════════════════════════════════
+// CAMBIOS EN V5:
+// - Eliminados dropdowns separados de "Año" y "Fecha"
+// - Ahora hay UN SOLO dropdown que muestra TODAS las inspecciones
+//   en formato "2025 marzo 2" (año mes día)
+// - Ordenadas de más reciente a más antiguo
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { C } from "../../lib/theme";
 import { Card, Spinner } from "../../components/UI";
 import { supaFetch, supaInsert } from "../../lib/supabase";
-import { todayFolderName } from "../../lib/helpers";
+import { todayFolderName, MONTHS_ES } from "../../lib/helpers";
 import { DRIVE_ROOT_FOLDER } from "../../lib/config";
 import AuthImage from "./AuthImage";
 import PhotoGallery from "./PhotoGallery";
 
+// ─── Helper: convertir nombre de carpeta "2 mar 26" a "2025 marzo 2" ───
+const formatInspectionDate = (folderName, year) => {
+  // folderName ejemplo: "2 mar 26"
+  const parts = folderName.split(" ");
+  if (parts.length !== 3) return `${year} - ${folderName}`;
+  
+  const day = parts[0];
+  const monthShort = parts[1].toLowerCase();
+  
+  // Convertir mes corto a nombre completo
+  const monthMap = {
+    ene: "enero", feb: "febrero", mar: "marzo", abr: "abril",
+    may: "mayo", jun: "junio", jul: "julio", ago: "agosto",
+    sep: "septiembre", oct: "octubre", nov: "noviembre", dic: "diciembre"
+  };
+  
+  const monthFull = monthMap[monthShort] || monthShort;
+  
+  return `${year} ${monthFull} ${day}`;
+};
+
+// ─── Helper: parsear fecha de carpeta para ordenamiento ───
+const parseFolderDate = (folderName, year) => {
+  // folderName ejemplo: "2 mar 26"
+  const parts = folderName.split(" ");
+  if (parts.length !== 3) return null;
+  
+  const day = parseInt(parts[0]);
+  const monthShort = parts[1].toLowerCase();
+  const monthIndex = MONTHS_ES.indexOf(monthShort);
+  
+  if (monthIndex === -1) return null;
+  
+  // Crear fecha para ordenamiento
+  return new Date(parseInt(year), monthIndex, day);
+};
+
 const InspectionPanel = ({ property, mob, drive }) => {
   const [loading, setLoading] = useState(true);
-  const [yearFolders, setYearFolders] = useState([]);
-  const [selectedYear, setSelectedYear] = useState(null);
-  const [dateFolders, setDateFolders] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(null);
+  const [allInspections, setAllInspections] = useState([]); // Array de todas las inspecciones
+  const [selectedInspection, setSelectedInspection] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [notes, setNotes] = useState([]);
   const [galleryImages, setGalleryImages] = useState(null);
@@ -27,13 +68,13 @@ const InspectionPanel = ({ property, mob, drive }) => {
   const [status, setStatus] = useState("");
   const uploadRef = useRef(null);
 
-  // ─── Cargar años desde Drive DIRECTAMENTE (como SupaExplorer) ───
+  // ─── Cargar TODAS las inspecciones de TODOS los años ───
   useEffect(() => {
-    const loadYears = async () => {
+    const loadAllInspections = async () => {
       setLoading(true);
       try {
         if (!drive?.token || !drive?.listAllFiles || !drive?.searchFolderByAddress || !drive?.findSubfolder) {
-          setYearFolders([]);
+          setAllInspections([]);
           setLoading(false);
           return;
         }
@@ -47,90 +88,80 @@ const InspectionPanel = ({ property, mob, drive }) => {
 
         if (!propFolder) {
           setStatus("No se encontró la carpeta de la propiedad");
-          setYearFolders([]);
+          setAllInspections([]);
           setLoading(false);
           return;
         }
 
-        // 2. Buscar carpeta INSPECCIONES (busca con "INSPEC" para detectar tanto INSPECCION como INSPECCIONES)
+        // 2. Buscar carpeta INSPECCIONES
         const inspecFolder = await drive.findSubfolder(propFolder.id, "INSPEC");
 
         if (!inspecFolder) {
           setStatus("No existe carpeta INSPECCIONES para esta propiedad");
-          setYearFolders([]);
+          setAllInspections([]);
           setLoading(false);
           return;
         }
 
-        // 3. Listar años dentro de INSPECCIONES (busca directamente en Drive API)
+        // 3. Listar TODOS los años
         const allFiles = await drive.listAllFiles(inspecFolder.id);
         
         const years = (allFiles || [])
           .filter(f => f.mimeType === "application/vnd.google-apps.folder" && /^\d{4}$/.test(f.name))
-          .map(f => ({ id: f.id, name: f.name }))
           .sort((a, b) => b.name.localeCompare(a.name));
 
-        setYearFolders(years);
+        // 4. Para cada año, cargar todas las fechas
+        const allDates = [];
+        
+        for (const year of years) {
+          try {
+            const dateFiles = await drive.listAllFiles(year.id);
+            const dates = (dateFiles || [])
+              .filter(f => f.mimeType === "application/vnd.google-apps.folder");
+            
+            // Agregar cada fecha al array con su info completa
+            for (const date of dates) {
+              const parsedDate = parseFolderDate(date.name, year.name);
+              allDates.push({
+                id: date.id, // ID de la carpeta de fecha
+                folderName: date.name, // Nombre original de carpeta (ej: "2 mar 26")
+                year: year.name, // Año (ej: "2025")
+                yearId: year.id, // ID de la carpeta de año
+                displayName: formatInspectionDate(date.name, year.name), // "2025 marzo 2"
+                sortDate: parsedDate || new Date(0), // Para ordenar
+              });
+            }
+          } catch (err) {
+            console.error(`[InspectionPanel] Error loading dates for year ${year.name}:`, err);
+          }
+        }
 
-        // Auto-seleccionar año actual
-        const currentYear = new Date().getFullYear().toString();
-        const current = years.find(y => y.name === currentYear);
-        if (current) {
-          setSelectedYear(current.id);
-        } else if (years.length > 0) {
-          setSelectedYear(years[0].id);
+        // 5. Ordenar todas las fechas de más reciente a más antiguo
+        allDates.sort((a, b) => b.sortDate - a.sortDate);
+
+        setAllInspections(allDates);
+
+        // 6. Auto-seleccionar la más reciente
+        if (allDates.length > 0) {
+          setSelectedInspection(allDates[0].id);
         }
       } catch (err) {
-        console.error("[InspectionPanel] Error loading years:", err);
-        setStatus("Error al cargar años: " + err.message);
+        console.error("[InspectionPanel] Error loading inspections:", err);
+        setStatus("Error al cargar inspecciones: " + err.message);
       }
       setLoading(false);
     };
 
-    loadYears();
+    loadAllInspections();
   }, [property.address, property.owner, drive?.token, drive?.listAllFiles, drive?.searchFolderByAddress, drive?.findSubfolder]);
 
-  // ─── Cargar fechas cuando se selecciona un año ───
+  // ─── Cargar fotos cuando se selecciona una inspección ───
   useEffect(() => {
-    if (!selectedYear || !drive?.listAllFiles) return;
-
-    const loadDates = async () => {
-      setLoading(true);
-      try {
-        const files = await drive.listAllFiles(selectedYear);
-        const dates = (files || [])
-          .filter(f => f.mimeType === "application/vnd.google-apps.folder")
-          .sort((a, b) => b.name.localeCompare(a.name));
-
-        setDateFolders(dates);
-
-        // Auto-seleccionar fecha de hoy o más reciente
-        const today = todayFolderName();
-        const todayFolder = dates.find(d => d.name === today);
-        if (todayFolder) {
-          setSelectedDate(todayFolder.id);
-        } else if (dates.length > 0) {
-          setSelectedDate(dates[0].id);
-        } else {
-          setSelectedDate(null);
-        }
-      } catch (err) {
-        console.error("[InspectionPanel] Error loading dates:", err);
-        setDateFolders([]);
-      }
-      setLoading(false);
-    };
-
-    loadDates();
-  }, [selectedYear, drive?.listAllFiles]);
-
-  // ─── Cargar fotos cuando se selecciona fecha ───
-  useEffect(() => {
-    if (!selectedDate || !drive?.listAllFiles) return;
+    if (!selectedInspection || !drive?.listAllFiles) return;
 
     const loadPhotos = async () => {
       try {
-        const files = await drive.listAllFiles(selectedDate);
+        const files = await drive.listAllFiles(selectedInspection);
         const images = (files || [])
           .filter(f => f.mimeType && f.mimeType.startsWith('image/'))
           .map(f => ({
@@ -148,7 +179,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
     };
 
     loadPhotos();
-  }, [selectedDate, drive?.listAllFiles]);
+  }, [selectedInspection, drive?.listAllFiles]);
 
   // ─── Cargar notas ───
   useEffect(() => {
@@ -198,8 +229,8 @@ const InspectionPanel = ({ property, mob, drive }) => {
       setStatus(`✓ ${result.results.length} fotos subidas`);
 
       // Refresh fotos si estamos viendo una fecha
-      if (selectedDate && drive.listAllFiles) {
-        const refreshed = await drive.listAllFiles(selectedDate);
+      if (selectedInspection && drive.listAllFiles) {
+        const refreshed = await drive.listAllFiles(selectedInspection);
         const images = (refreshed || [])
           .filter(f => f.mimeType && f.mimeType.startsWith('image/'))
           .map(f => ({
@@ -246,7 +277,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
       });
   }, [property.address]);
 
-  if (loading && yearFolders.length === 0) {
+  if (loading && allInspections.length === 0) {
     return (
       <Card>
         <div style={{ textAlign: "center", padding: 30 }}>
@@ -259,7 +290,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
     );
   }
 
-  if (yearFolders.length === 0) {
+  if (allInspections.length === 0) {
     return (
       <Card style={{ textAlign: "center", padding: 40 }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>📸</div>
@@ -321,14 +352,14 @@ const InspectionPanel = ({ property, mob, drive }) => {
         </div>
       )}
 
-      {/* Selector de Año */}
+      {/* ✅ NUEVO: Dropdown único con TODAS las inspecciones */}
       <div style={{ marginBottom: 12 }}>
         <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
-          Año:
+          Inspección:
         </label>
         <select
-          value={selectedYear || ""}
-          onChange={(e) => setSelectedYear(e.target.value)}
+          value={selectedInspection || ""}
+          onChange={(e) => setSelectedInspection(e.target.value)}
           style={{
             width: "100%",
             padding: "10px 12px",
@@ -341,43 +372,13 @@ const InspectionPanel = ({ property, mob, drive }) => {
             cursor: "pointer",
           }}
         >
-          {yearFolders.map(year => (
-            <option key={year.id} value={year.id}>
-              {year.name}
+          {allInspections.map(insp => (
+            <option key={insp.id} value={insp.id}>
+              {insp.displayName}
             </option>
           ))}
         </select>
       </div>
-
-      {/* Selector de Fecha */}
-      {dateFolders.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
-            Fecha:
-          </label>
-          <select
-            value={selectedDate || ""}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              fontFamily: "DM Sans",
-              fontSize: 13,
-              border: `1px solid ${C.border}`,
-              borderRadius: 8,
-              background: C.surface2,
-              color: C.text,
-              cursor: "pointer",
-            }}
-          >
-            {dateFolders.map(date => (
-              <option key={date.id} value={date.id}>
-                {date.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       {/* Notas */}
       {notes.length > 0 && (
@@ -404,10 +405,10 @@ const InspectionPanel = ({ property, mob, drive }) => {
       )}
 
       {/* Fotos */}
-      {selectedDate && (
+      {selectedInspection && (
         <Card>
           <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>
-            🖼️ {photos.length} fotos
+            📁 {photos.length} fotos
           </div>
 
           {photos.length > 0 ? (
