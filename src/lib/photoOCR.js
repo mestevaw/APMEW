@@ -1,7 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/lib/photoOCR.js
-// Versión: 1
+// Versión: V2
 // Fecha: 2026-03-02
+// ═══════════════════════════════════════════
+// CAMBIOS EN V2:
+// - Patrón de fecha mejorado para "Mar 2, 2026 at..."
+// - Mejor detección de dirección (lee línea 2)
+// - Skip línea de fecha al buscar dirección
+// - Busca en primeras 5 líneas
 // ═══════════════════════════════════════════
 
 import Tesseract from "tesseract.js";
@@ -25,13 +31,14 @@ export const extractTextFromImage = async (imageFile) => {
 };
 
 /**
- * Parsea fecha del formato: "Feb 25, 2026 at 10:03:47 AM"
+ * Parsea fecha del formato: "Mar 2, 2026 at 10:03:47 AM"
  * @param {string} text - Texto extraído del OCR
  * @returns {Date|null} Fecha parseada o null
  */
 export const parsePhotoDate = (text) => {
-  // Formato 1: "Feb 25, 2026 at 10:03:47 AM"
-  const pattern1 = /([A-Z][a-z]{2})\s+(\d{1,2}),?\s+(\d{4})/i;
+  // Formato: "Mar 2, 2026 at 10:03:47 AM" o "Feb 25, 2026 at..."
+  // Patrón mejorado: busca nombre de mes (2-9 letras) + día + año
+  const pattern1 = /\b([A-Z][a-z]{2,9})\s+(\d{1,2}),?\s+(\d{4})\b/i;
   const match = text.match(pattern1);
   
   if (match) {
@@ -39,10 +46,20 @@ export const parsePhotoDate = (text) => {
     const day = parseInt(match[2]);
     const year = parseInt(match[3]);
     
-    // Convertir nombre de mes a número
+    // Convertir nombre de mes a número (inglés)
     const monthMap = {
-      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+      jan: 0, january: 0,
+      feb: 1, february: 1,
+      mar: 2, march: 2,
+      apr: 3, april: 3,
+      may: 4,
+      jun: 5, june: 5,
+      jul: 6, july: 6,
+      aug: 7, august: 7,
+      sep: 8, sept: 8, september: 8,
+      oct: 9, october: 9,
+      nov: 10, november: 10,
+      dec: 11, december: 11
     };
     const month = monthMap[monthStr.toLowerCase()];
     
@@ -55,23 +72,38 @@ export const parsePhotoDate = (text) => {
 };
 
 /**
- * Extrae dirección del formato: "10731 Shaencrossing" o "11636 Midnight Rain"
+ * Extrae dirección del formato: "11636 Midnight Rain"
+ * MEJORADO: Skip línea de fecha, busca en primeras 5 líneas
  * @param {string} text - Texto extraído del OCR
  * @returns {string|null} Dirección o null
  */
 export const parsePhotoAddress = (text) => {
-  // Dividir en líneas y buscar la que tiene el patrón de dirección
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  // Dividir en líneas y limpiar
+  const lines = text.split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0)
+    .slice(0, 5); // Solo primeras 5 líneas
   
   for (const line of lines) {
-    // Buscar patrón: número (4-6 dígitos) seguido de nombre de calle (1-3 palabras)
-    // Formato 1: "10731 Shaencrossing"
-    // Formato 2: "11636 Midnight Rain"
-    const pattern = /^(\d{4,6})\s+([A-Za-z]+(?: [A-Za-z]+){0,2})(?:\s|$)/;
+    // Skip línea de fecha (contiene "at" y "AM" o "PM")
+    if (/\d{4}.*at.*[AP]M/i.test(line)) {
+      continue;
+    }
+    
+    // Skip líneas con ciudad/estado (San Antonio, TX, United States, etc.)
+    if (/(TX|Texas|United States|USA|San Antonio)/i.test(line)) {
+      continue;
+    }
+    
+    // Buscar patrón de dirección: número (4-6 dígitos) + nombre de calle (1-4 palabras)
+    // Ejemplos: "11636 Midnight Rain", "10731 Shaencrossing"
+    const pattern = /^(\d{4,6})\s+([A-Za-z]+(?: [A-Za-z]+){0,3})(?:\s|$)/;
     const match = line.match(pattern);
     
     if (match) {
-      return `${match[1]} ${match[2].trim()}`;
+      const number = match[1];
+      const street = match[2].trim();
+      return `${number} ${street}`;
     }
   }
   
