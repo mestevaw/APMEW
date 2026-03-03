@@ -1,7 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/lib/helpers.js
-// Versión: 1
-// Fecha: 2026-02-25
+// Versión: V2
+// Fecha: 2026-03-02
+// ═══════════════════════════════════════════
+// CAMBIOS EN V2:
+// - Bug fix en detectCountry: ahora respeta cualquier país asignado,
+//   no solo US/MX. Antes convertía CA, JP, etc. incorrectamente a "US".
 // ═══════════════════════════════════════════
 
 import { useState, useEffect } from "react";
@@ -100,11 +104,14 @@ const MX_TAGS     = ["Progreso - Luz", "Progreso - Agua", "Progreso - Mant."];
 const MX_CONCEPTS = ["predial", "telmex", "cfe ", "izzi", "oxxo", "walmart mx", "soriana", "coppel", "liverpool"];
 
 export const detectCountry = (row) => {
-  if (row.country && row.country !== "US" && row.country !== "MX") return "US";
+  // ✅ FIX V2: Si ya tiene país asignado, respetarlo (sin importar cuál sea)
+  // Antes tenía un bug que convertía países como CA, JP, etc. a "US"
   if (row.country) return row.country;
+  
+  // Solo si NO tiene país, hacer detección automática basada en tags/conceptos
   if (row.tag && MX_TAGS.includes(row.tag)) return "MX";
   const c = (row.concept || "").toLowerCase();
   if (MX_CONCEPTS.some(w => c.includes(w))) return "MX";
   if (row.source === "Efectivo" && row.tag && row.tag.includes("Progreso")) return "MX";
-  return "US";
+  return "US"; // Default para gastos sin clasificación específica
 };
