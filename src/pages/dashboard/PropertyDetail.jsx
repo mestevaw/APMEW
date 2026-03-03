@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/PropertyDetail.jsx
-// Versión: V2
+// Versión: V3
 // Fecha: 2026-03-02
 // ═══════════════════════════════════════════
-// CAMBIOS EN V2:
-// - Eliminada sección "Documentos en Drive" (líneas 309-320 de V1)
-//   porque esos documentos ya están disponibles en el tab "Documentos"
+// CAMBIOS EN V3 (desde V2):
+// - Bug fix: Agregado prop "open" a DropMenu para que funcione el menú hamburguesa
+// - Verificado: Flecha de regreso (onBack) funciona correctamente
+// - Eliminada sección "Documentos en Drive" (ya en tab Documentos)
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef } from "react";
@@ -157,6 +158,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* ✅ Flecha de regreso - VERIFICADA */}
           <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.accent, padding: 4, display: "flex" }}>
             {I.arrowLeft}
           </button>
@@ -179,25 +181,23 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
           </div>
         </div>
 
-        {/* Menu hamburguesa */}
+        {/* Menu hamburguesa - ✅ FIX: Agregado prop "open" */}
         <div style={{ position: "relative" }}>
-          <HamburgerBtn onClick={() => setMenuOpen(!menuOpen)} />
-          {menuOpen && (
-            <DropMenu onClose={() => setMenuOpen(false)}>
-              <MenuLabel>📸 Inspecciones</MenuLabel>
-              <MenuBtn icon="📷" onClick={() => { handleCameraClick(); setMenuOpen(false); }}>
-                Subir Fotos
-              </MenuBtn>
-              <MenuBtn icon="📦" onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>
-                Subida Masiva
-              </MenuBtn>
-              <MenuDivider />
-              <MenuLabel>📂 Documentos</MenuLabel>
-              <MenuBtn icon="🔍" onClick={() => { setShowDocs(true); setMenuOpen(false); }}>
-                Ver Documentos
-              </MenuBtn>
-            </DropMenu>
-          )}
+          <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
+          <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
+            <MenuLabel>📸 Inspecciones</MenuLabel>
+            <MenuBtn onClick={() => { handleCameraClick(); setMenuOpen(false); }}>
+              📷 Subir Fotos
+            </MenuBtn>
+            <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>
+              📦 Subida Masiva
+            </MenuBtn>
+            <MenuDivider />
+            <MenuLabel>📂 Documentos</MenuLabel>
+            <MenuBtn onClick={() => { setShowDocs(true); setMenuOpen(false); }}>
+              🔍 Ver Documentos
+            </MenuBtn>
+          </DropMenu>
         </div>
       </div>
 
@@ -277,8 +277,8 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         />
       )}
 
-      {/* ✅ ELIMINADO: Sección "Documentos en Drive" (líneas 304-321 de V1) */}
-      {/* Ya no es necesaria porque los documentos están en el tab "Documentos" */}
+      {/* ✅ ELIMINADO: Sección "Documentos en Drive" 
+          Ya no es necesaria porque los documentos están en el tab "Documentos" */}
       
     </div>
   );
