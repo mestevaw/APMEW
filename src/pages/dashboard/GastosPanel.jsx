@@ -1,98 +1,145 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/GastosPanel.jsx  
-// Versión: 1.0
+// Versión: V2
 // Fecha: 2026-03-02
+// ═══════════════════════════════════════════
+// CAMBIOS EN V2:
+// - Busca carpeta GASTOS directamente en Drive (no usa Supabase)
+// - Muestra TODOS los archivos de cada año (no solo docs indexados)
+// - Avisa si no encuentra directorio de gastos
+// - Ordenado por año descendente
 // ═══════════════════════════════════════════
 
 import { useState, useEffect } from "react";
 import { C } from "../../lib/theme";
 import { Card, Spinner } from "../../components/UI";
-import { supaFetch } from "../../lib/supabase";
+import { DRIVE_ROOT_FOLDER } from "../../lib/config";
 
 const GastosPanel = ({ property, mob, drive }) => {
   const [loading, setLoading] = useState(true);
   const [yearFolders, setYearFolders] = useState([]);
   const [selectedYear, setSelectedYear] = useState(null);
-  const [documents, setDocuments] = useState([]);
+  const [files, setFiles] = useState([]);
+  const [status, setStatus] = useState("");
+  const [notFound, setNotFound] = useState(false);
 
-  // ─── Cargar años desde Supabase ───
+  // ─── Cargar años desde Drive DIRECTAMENTE ───
   useEffect(() => {
     const loadYears = async () => {
       setLoading(true);
+      setNotFound(false);
       try {
-        // Buscar folders que contengan GASTOS en el path de esta propiedad
-        const folders = await supaFetch("drive_folders", {
-          filters: `folder_path.ilike.%${encodeURIComponent(property.address)}%GASTOS%`,
-          order: "folder_path.desc",
-        });
-
-        if (!folders || folders.length === 0) {
+        if (!drive?.token || !drive?.listAllFiles || !drive?.searchFolderByAddress || !drive?.findSubfolder) {
           setYearFolders([]);
           setLoading(false);
           return;
         }
 
-        // Filtrar solo folders de años (formato: 4 dígitos)
-        const years = folders.filter(f => {
-          const pathParts = f.folder_path.split('/');
-          const folderName = pathParts[pathParts.length - 1];
-          return /^\d{4}$/.test(folderName);
-        }).map(f => ({
-          id: f.google_drive_id,
-          name: f.folder_path.split('/').pop(),
-          path: f.folder_path,
-        }));
+        // 1. Buscar carpeta de la propiedad
+        const propFolder = await drive.searchFolderByAddress(
+          property.address,
+          property.owner,
+          DRIVE_ROOT_FOLDER
+        );
 
-        // Eliminar duplicados y ordenar
-        const uniqueYears = Array.from(new Map(years.map(y => [y.name, y])).values())
+        if (!propFolder) {
+          setStatus(`❌ No se encontró la carpeta de la propiedad: ${property.address}`);
+          setNotFound(true);
+          setYearFolders([]);
+          setLoading(false);
+          return;
+        }
+
+        // 2. Buscar carpeta GASTOS
+        const gastosFolder = await drive.findSubfolder(propFolder.id, "GASTO");
+
+        if (!gastosFolder) {
+          setStatus(`❌ No existe carpeta GASTOS para: ${property.address}`);
+          console.warn(`[GastosPanel] Carpeta GASTOS no encontrada para ${property.address}`);
+          setNotFound(true);
+          setYearFolders([]);
+          setLoading(false);
+          return;
+        }
+
+        // 3. Listar años dentro de GASTOS
+        const allFiles = await drive.listAllFiles(gastosFolder.id);
+        
+        const years = (allFiles || [])
+          .filter(f => f.mimeType === "application/vnd.google-apps.folder" && /^\d{4}$/.test(f.name))
+          .map(f => ({ id: f.id, name: f.name }))
           .sort((a, b) => b.name.localeCompare(a.name));
 
-        setYearFolders(uniqueYears);
+        setYearFolders(years);
 
-        // Auto-seleccionar año actual
+        if (years.length === 0) {
+          setStatus("No hay años registrados en GASTOS");
+        }
+
+        // Auto-seleccionar año actual o más reciente
         const currentYear = new Date().getFullYear().toString();
-        const current = uniqueYears.find(y => y.name === currentYear);
+        const current = years.find(y => y.name === currentYear);
         if (current) {
           setSelectedYear(current.id);
-        } else if (uniqueYears.length > 0) {
-          setSelectedYear(uniqueYears[0].id);
+        } else if (years.length > 0) {
+          setSelectedYear(years[0].id);
         }
       } catch (err) {
         console.error("[GastosPanel] Error loading years:", err);
+        setStatus(`Error: ${err.message}`);
+        setNotFound(true);
       }
       setLoading(false);
     };
 
     loadYears();
-  }, [property.address]);
+  }, [property.address, property.owner, drive?.token, drive?.listAllFiles, drive?.searchFolderByAddress, drive?.findSubfolder]);
 
-  // ─── Cargar documentos cuando se selecciona un año ───
+  // ─── Cargar archivos cuando se selecciona un año ───
   useEffect(() => {
-    if (!selectedYear) return;
+    if (!selectedYear || !drive?.listAllFiles) return;
 
-    const loadDocuments = async () => {
+    const loadFiles = async () => {
       setLoading(true);
       try {
-        // Buscar documentos en Supabase cuyo parent sea el año seleccionado
-        const docs = await supaFetch("documents", {
-          filters: `parent_folder_drive_id=eq.${selectedYear}`,
-          order: "title.asc",
-        });
+        const allFiles = await drive.listAllFiles(selectedYear);
+        
+        // Filtrar solo archivos (no carpetas) y ordenar por nombre
+        const documents = (allFiles || [])
+          .filter(f => f.mimeType !== "application/vnd.google-apps.folder")
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map(f => ({
+            id: f.id,
+            name: f.name,
+            mimeType: f.mimeType,
+            fileType: (f.name || "").split(".").pop().toLowerCase(),
+          }));
 
-        setDocuments(docs || []);
+        setFiles(documents);
       } catch (err) {
-        console.error("[GastosPanel] Error loading documents:", err);
-        setDocuments([]);
+        console.error("[GastosPanel] Error loading files:", err);
+        setFiles([]);
       }
       setLoading(false);
     };
 
-    loadDocuments();
-  }, [selectedYear]);
+    loadFiles();
+  }, [selectedYear, drive?.listAllFiles]);
 
-  const openDocument = (doc) => {
-    if (!doc.google_drive_file_id) return;
-    window.open(`https://drive.google.com/file/d/${doc.google_drive_file_id}/view`, '_blank');
+  const openFile = (file) => {
+    if (!file.id) return;
+    window.open(`https://drive.google.com/file/d/${file.id}/view`, '_blank');
+  };
+
+  const getFileIcon = (mimeType, fileType) => {
+    if (!mimeType && !fileType) return "📄";
+    if (mimeType === "application/pdf" || fileType === "pdf") return "📕";
+    if (mimeType?.includes("spreadsheet") || ["xlsx", "xls", "csv"].includes(fileType)) return "📗";
+    if (mimeType?.includes("document") || ["docx", "doc"].includes(fileType)) return "📘";
+    if (mimeType?.includes("presentation") || ["pptx", "ppt"].includes(fileType)) return "📙";
+    if (mimeType?.startsWith("image/")) return "🖼️";
+    if (mimeType?.startsWith("video/")) return "🎥";
+    return "📄";
   };
 
   if (loading && yearFolders.length === 0) {
@@ -101,20 +148,34 @@ const GastosPanel = ({ property, mob, drive }) => {
         <div style={{ textAlign: "center", padding: 30 }}>
           <Spinner />
           <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>
-            Cargando gastos...
+            {status || "Buscando carpeta de gastos..."}
           </p>
         </div>
       </Card>
     );
   }
 
-  if (yearFolders.length === 0) {
+  if (notFound || yearFolders.length === 0) {
     return (
       <Card style={{ textAlign: "center", padding: 40 }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>💰</div>
-        <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
-          No hay carpeta de gastos para esta propiedad
+        <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, marginBottom: 8 }}>
+          {status || "No hay carpeta de gastos para esta propiedad"}
         </div>
+        {notFound && (
+          <div style={{ 
+            fontFamily: "DM Sans", 
+            fontSize: 11, 
+            color: C.red, 
+            marginTop: 12,
+            padding: "8px 12px",
+            background: `${C.red}15`,
+            borderRadius: 6,
+            display: "inline-block",
+          }}>
+            ⚠️ Estructura esperada: PROPERTY/{property.address}/GASTOS/{"{año}"}
+          </div>
+        )}
       </Card>
     );
   }
@@ -150,30 +211,25 @@ const GastosPanel = ({ property, mob, drive }) => {
         </select>
       </div>
 
-      {/* Documentos */}
+      {/* Archivos */}
       <Card>
         <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 12 }}>
-          📄 {documents.length} documentos
+          📄 {files.length} archivos
         </div>
 
         {loading ? (
           <div style={{ textAlign: "center", padding: 20 }}>
             <Spinner />
           </div>
-        ) : documents.length > 0 ? (
+        ) : files.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {documents.map(doc => {
-              const isPDF = doc.mime_type === "application/pdf" || doc.file_type === "pdf";
-              const isExcel = doc.mime_type?.includes("spreadsheet") || ["xlsx", "xls"].includes(doc.file_type);
-              const isWord = doc.mime_type?.includes("document") || ["docx", "doc"].includes(doc.file_type);
-              const isImage = doc.mime_type?.startsWith("image/");
-
-              const icon = isPDF ? "📕" : isExcel ? "📗" : isWord ? "📘" : isImage ? "🖼️" : "📄";
+            {files.map(file => {
+              const icon = getFileIcon(file.mimeType, file.fileType);
 
               return (
                 <button
-                  key={doc.id}
-                  onClick={() => openDocument(doc)}
+                  key={file.id}
+                  onClick={() => openFile(file)}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -205,11 +261,11 @@ const GastosPanel = ({ property, mob, drive }) => {
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                     }}>
-                      {doc.title}
+                      {file.name}
                     </div>
-                    {doc.file_type && (
+                    {file.fileType && (
                       <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 2 }}>
-                        {doc.file_type.toUpperCase()}
+                        {file.fileType.toUpperCase()}
                       </div>
                     )}
                   </div>
@@ -221,7 +277,7 @@ const GastosPanel = ({ property, mob, drive }) => {
         ) : (
           <div style={{ textAlign: "center", padding: 20 }}>
             <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
-              No hay documentos en este año
+              No hay archivos en este año
             </p>
           </div>
         )}
