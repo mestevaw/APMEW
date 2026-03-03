@@ -1,15 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/BulkPhotoUpload.jsx
-// Versión: V5
+// Versión: V6
 // Fecha: 2026-03-03
 // ═══════════════════════════════════════════
-// CAMBIOS EN V5:
-// - Calendario simple (sin botones Hoy/Ayer)
-// - Try-catch global para capturar TODOS los errores
-// - Debug SIEMPRE visible durante upload
-// - No cierra automáticamente si hay errores
-// - Pausas en errores para que se vean
-// - Alert con resumen de éxitos/fallas
+// CAMBIOS EN V6:
+// - Busca "Inspecciones" O "INSPECCION" (ambas versiones)
+// - Si no existe ninguna, crea "Inspecciones"
+// - Soluciona problema de carpetas con nombres diferentes
 // ═══════════════════════════════════════════
 
 import { useState, useRef } from "react";
@@ -483,13 +480,54 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
         }));
 
         try {
-          // ✅ Crear estructura: INSPECCION > AÑO > FECHA
-          const inspeccionFolderName = "INSPECCION";
-          let inspeccionFolder = await getOrCreateFolder(inspeccionFolderName, propFolderId);
+          // ✅ Buscar carpeta "Inspecciones" o "INSPECCION" (ambas versiones)
+          let inspeccionFolder = null;
+          
+          // Intentar con "Inspecciones" primero
+          try {
+            const queryInspecciones = `name='Inspecciones' and '${propFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+            const responseInspecciones = await window.gapi.client.drive.files.list({
+              q: queryInspecciones,
+              fields: 'files(id, name)',
+              spaces: 'drive',
+            });
+            
+            if (responseInspecciones.result.files && responseInspecciones.result.files.length > 0) {
+              inspeccionFolder = responseInspecciones.result.files[0];
+              console.log(`[BulkUpload] ✅ Encontrado: Inspecciones (${inspeccionFolder.id})`);
+            }
+          } catch (e) {
+            console.log("[BulkUpload] No se encontró carpeta 'Inspecciones'");
+          }
+          
+          // Si no existe "Inspecciones", buscar "INSPECCION"
+          if (!inspeccionFolder) {
+            try {
+              const queryInspeccion = `name='INSPECCION' and '${propFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+              const responseInspeccion = await window.gapi.client.drive.files.list({
+                q: queryInspeccion,
+                fields: 'files(id, name)',
+                spaces: 'drive',
+              });
+              
+              if (responseInspeccion.result.files && responseInspeccion.result.files.length > 0) {
+                inspeccionFolder = responseInspeccion.result.files[0];
+                console.log(`[BulkUpload] ✅ Encontrado: INSPECCION (${inspeccionFolder.id})`);
+              }
+            } catch (e) {
+              console.log("[BulkUpload] No se encontró carpeta 'INSPECCION'");
+            }
+          }
+          
+          // Si no existe ninguna, crear "Inspecciones"
+          if (!inspeccionFolder) {
+            console.log("[BulkUpload] No existe carpeta de inspecciones, creando 'Inspecciones'...");
+            inspeccionFolder = await getOrCreateFolder("Inspecciones", propFolderId);
+          }
           
           setUploadDebug(prev => ({
             ...prev,
-            path: `${propAddress} > ${inspeccionFolderName}`,
+            path: `${propAddress} > ${inspeccionFolder.name}`,
           }));
 
           for (const dateStr in photosByDate) {
