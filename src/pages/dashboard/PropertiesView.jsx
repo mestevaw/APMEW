@@ -8,7 +8,7 @@ import { PROPERTIES, OWNER_COLORS, OWNER_SHORT } from "./constants";
 import { fmtMoney, getNumber, getStreet, findFolderByAddress } from "./helpers";
 import { HouseIcon } from "./icons";
 import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuComponents";
-import BulkPhotoUpload from "../../components/BulkPhotoUpload";
+import { BulkPhotoUpload } from "../../components/BulkPhotoUpload";
 
 const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [filter, setFilter] = useState("all");
