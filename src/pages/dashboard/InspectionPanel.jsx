@@ -79,7 +79,7 @@ const InspectionPanel = ({ property, mob, drive }) => {
         // ⚡ PASO 1: Intentar cargar desde SUPABASE (rápido)
         setStatus("Cargando desde índice...");
         const folders = await supaFetch("drive_folders", {
-          filters: `folder_path.ilike.%${encodeURIComponent(property.address)}%INSPECCION%`,
+          filters: `folder_path.ilike.%${property.address}%INSPECCION%`,
           order: "folder_path.desc"
         });
 
