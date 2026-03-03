@@ -1,319 +1,221 @@
 // ═══════════════════════════════════════════
-// Archivo: src/pages/dashboard/InspectionPanel.jsx  
-// Versión: V9
-// Fecha: 2026-03-02
+// Archivo: src/pages/dashboard/InspectionPanel.jsx
+// Versión: 2.0 - Flexible con todos los formatos
+// Fecha: 2026-03-03
 // ═══════════════════════════════════════════
-// CAMBIOS EN V9:
-// - "Inspección:" → "Inspección del:"
-// - Dropdown y nota en misma línea (layout horizontal)
-// - "+ Meter Nota" → "+ Agregar Nota"
-// - Controles más compactos
+// CAMBIOS:
+// - Muestra carpetas con Y sin estructura de año
+// - Acepta CUALQUIER formato de nombre
+// - Agrupa por año automáticamente
+// - Grupo "Sin año" para carpetas sueltas
 // ═══════════════════════════════════════════
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { C } from "../../lib/theme";
 import { Card, Spinner } from "../../components/UI";
 import { supaFetch, supaInsert } from "../../lib/supabase";
+import { todayFolderName } from "../../lib/helpers";
 import { DRIVE_ROOT_FOLDER } from "../../lib/config";
 import AuthImage from "./AuthImage";
 import PhotoGallery from "./PhotoGallery";
 
-const parseInspectionPath = (folderPath) => {
-  const parts = folderPath.split('/');
-  if (parts.length < 6) return null;
-  
-  const inspIdx = parts.findIndex(p => p.toLowerCase().includes('inspeccion'));
-  if (inspIdx === -1 || inspIdx + 2 >= parts.length) return null;
-  
-  const year = parts[inspIdx + 1];
-  const date = parts[inspIdx + 2];
-  
-  if (!/^\d{4}$/.test(year)) return null;
-  
-  return { year, date, folderPath };
-};
-
-const parseFolderDate = (folderName, year) => {
-  const parts = folderName.split(" ");
-  if (parts.length !== 3) return null;
-  
-  const day = parseInt(parts[0]);
-  const monthMap = {
-    ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5,
-    jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11
-  };
-  const monthShort = parts[1].toLowerCase();
-  const monthIndex = monthMap[monthShort];
-  
-  if (monthIndex === undefined) return null;
-  
-  return new Date(parseInt(year), monthIndex, day);
-};
-
 const InspectionPanel = ({ property, mob, drive }) => {
   const [loading, setLoading] = useState(true);
-  const [allInspections, setAllInspections] = useState([]);
-  const [selectedInspection, setSelectedInspection] = useState(null);
+  const [allFolders, setAllFolders] = useState([]); // Todas las carpetas encontradas
+  const [selectedYear, setSelectedYear] = useState(null);
+  const [dateFolders, setDateFolders] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [photos, setPhotos] = useState([]);
-  const [note, setNote] = useState(null); // Solo UNA nota por fecha
+  const [notes, setNotes] = useState([]);
   const [galleryImages, setGalleryImages] = useState(null);
   const [galleryStart, setGalleryStart] = useState(0);
+  const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState("");
+  const uploadRef = useRef(null);
 
-  // ─── Cargar inspecciones desde Supabase ───
+  // ─── Cargar TODAS las carpetas (con y sin año) ───
   useEffect(() => {
-    const loadAllInspections = async () => {
+    const loadAllFolders = async () => {
       setLoading(true);
-      
       try {
-        setStatus("Cargando desde índice...");
-        const folders = await supaFetch("drive_folders", {
-          filters: `folder_path=ilike.*${property.address}*INSPECCION*`,
-          order: "folder_path.desc"
+        if (!drive?.token || !drive?.listAllFiles || !drive?.searchFolderByAddress || !drive?.findSubfolder) {
+          setAllFolders([]);
+          setLoading(false);
+          return;
+        }
+
+        // 1. Buscar carpeta de la propiedad
+        const propFolder = await drive.searchFolderByAddress(
+          property.address,
+          property.owner,
+          DRIVE_ROOT_FOLDER
+        );
+
+        if (!propFolder) {
+          setStatus("No se encontró la carpeta de la propiedad");
+          setAllFolders([]);
+          setLoading(false);
+          return;
+        }
+
+        // 2. Buscar carpeta INSPECCIONES
+        const inspecFolder = await drive.findSubfolder(propFolder.id, "INSPEC");
+
+        if (!inspecFolder) {
+          setStatus("No existe carpeta INSPECCIONES para esta propiedad");
+          setAllFolders([]);
+          setLoading(false);
+          return;
+        }
+
+        // 3. Listar TODO dentro de INSPECCIONES
+        const allFiles = await drive.listAllFiles(inspecFolder.id);
+        const folders = (allFiles || [])
+          .filter(f => f.mimeType === "application/vnd.google-apps.folder");
+
+        // 4. Separar carpetas de AÑO vs carpetas de FECHAS
+        const yearFolders = folders.filter(f => /^\d{4}$/.test(f.name));
+        const looseDateFolders = folders.filter(f => !/^\d{4}$/.test(f.name));
+
+        // 5. Para cada año, obtener sus subcarpetas
+        const foldersWithYear = [];
+        for (const yearFolder of yearFolders) {
+          const subFolders = await drive.listAllFiles(yearFolder.id);
+          const dateFolders = (subFolders || [])
+            .filter(f => f.mimeType === "application/vnd.google-apps.folder")
+            .map(f => ({ ...f, year: yearFolder.name }));
+          foldersWithYear.push(...dateFolders);
+        }
+
+        // 6. Combinar: carpetas con año + carpetas sueltas
+        const combined = [
+          ...foldersWithYear,
+          ...looseDateFolders.map(f => ({ ...f, year: null }))
+        ];
+
+        // 7. Agrupar por año para el selector
+        const yearGroups = {};
+        combined.forEach(folder => {
+          const year = folder.year || "Sin año";
+          if (!yearGroups[year]) {
+            yearGroups[year] = [];
+          }
+          yearGroups[year].push(folder);
         });
 
-        if (folders && folders.length > 0) {
-          const parsed = folders
-            .map(f => parseInspectionPath(f.folder_path))
-            .filter(Boolean);
+        // Ordenar cada grupo
+        Object.keys(yearGroups).forEach(year => {
+          yearGroups[year].sort((a, b) => b.name.localeCompare(a.name));
+        });
 
-          if (parsed.length > 0) {
-            const byYear = {};
-            parsed.forEach(p => {
-              if (!byYear[p.year]) byYear[p.year] = [];
-              byYear[p.year].push({
-                id: p.folderPath,
-                folderName: p.date,
-                year: p.year,
-                sortDate: parseFolderDate(p.date, p.year) || new Date(0),
-              });
-            });
+        setAllFolders(yearGroups);
 
-            const inspectionsByYear = Object.entries(byYear)
-              .sort(([a], [b]) => b.localeCompare(a))
-              .map(([year, inspections]) => ({
-                year,
-                inspections: inspections.sort((a, b) => b.sortDate - a.sortDate)
-              }));
-
-            setAllInspections(inspectionsByYear);
-
-            if (inspectionsByYear.length > 0 && inspectionsByYear[0].inspections.length > 0) {
-              const first = inspectionsByYear[0].inspections[0];
-              setSelectedInspection(first.id);
-              setSelectedDate(first.sortDate);
-            }
-
-            setLoading(false);
-            setStatus("");
-            return;
+        // Auto-seleccionar año actual o más reciente
+        const currentYear = new Date().getFullYear().toString();
+        if (yearGroups[currentYear]) {
+          setSelectedYear(currentYear);
+          setDateFolders(yearGroups[currentYear]);
+        } else {
+          const years = Object.keys(yearGroups).filter(y => y !== "Sin año").sort().reverse();
+          if (years.length > 0) {
+            setSelectedYear(years[0]);
+            setDateFolders(yearGroups[years[0]]);
+          } else if (yearGroups["Sin año"]) {
+            setSelectedYear("Sin año");
+            setDateFolders(yearGroups["Sin año"]);
           }
         }
 
-        // Fallback a Drive API
-        await loadFromDrive();
-
+        setStatus("");
       } catch (err) {
-        console.error("[InspectionPanel] Error:", err);
-        setStatus("Error: " + err.message);
-        setLoading(false);
+        console.error("[InspectionPanel] Error loading folders:", err);
+        setStatus(`Error: ${err.message}`);
+        setAllFolders([]);
       }
-    };
-
-    const loadFromDrive = async () => {
-      if (!drive?.token || !drive?.listAllFiles || !drive?.searchFolderByAddress || !drive?.findSubfolder) {
-        setAllInspections([]);
-        setLoading(false);
-        return;
-      }
-
-      setStatus("Cargando desde Drive...");
-
-      const propFolder = await drive.searchFolderByAddress(property.address, property.owner, DRIVE_ROOT_FOLDER);
-      if (!propFolder) {
-        setStatus("No se encontró la carpeta de la propiedad");
-        setAllInspections([]);
-        setLoading(false);
-        return;
-      }
-
-      const inspecFolder = await drive.findSubfolder(propFolder.id, "INSPEC");
-      if (!inspecFolder) {
-        setStatus("No existe carpeta INSPECCIONES");
-        setAllInspections([]);
-        setLoading(false);
-        return;
-      }
-
-      const allFiles = await drive.listAllFiles(inspecFolder.id);
-      const years = (allFiles || [])
-        .filter(f => f.mimeType === "application/vnd.google-apps.folder" && /^\d{4}$/.test(f.name))
-        .sort((a, b) => b.name.localeCompare(a.name));
-
-      const inspectionsByYear = [];
-      for (const year of years) {
-        const dateFiles = await drive.listAllFiles(year.id);
-        const dates = (dateFiles || [])
-          .filter(f => f.mimeType === "application/vnd.google-apps.folder");
-        
-        if (dates.length === 0) continue;
-
-        const parsedDates = dates.map(date => ({
-          id: date.id,
-          folderName: date.name,
-          year: year.name,
-          sortDate: parseFolderDate(date.name, year.name) || new Date(0),
-        })).sort((a, b) => b.sortDate - a.sortDate);
-
-        inspectionsByYear.push({ year: year.name, inspections: parsedDates });
-      }
-
-      setAllInspections(inspectionsByYear);
-      if (inspectionsByYear.length > 0 && inspectionsByYear[0].inspections.length > 0) {
-        const first = inspectionsByYear[0].inspections[0];
-        setSelectedInspection(first.id);
-        setSelectedDate(first.sortDate);
-      }
-
       setLoading(false);
-      setStatus("");
     };
 
-    loadAllInspections();
-  }, [property.address, property.owner, drive?.token]);
+    loadAllFolders();
+  }, [property.address, property.owner, drive]);
 
-  // ─── Cargar fotos ───
+  // ─── Cambiar año seleccionado ───
+  const handleYearChange = (year) => {
+    setSelectedYear(year);
+    setDateFolders(allFolders[year] || []);
+    setSelectedDate(null);
+    setPhotos([]);
+  };
+
+  // ─── Cargar fotos cuando se selecciona una fecha ───
   useEffect(() => {
-    if (!selectedInspection || !drive?.listAllFiles) return;
+    if (!selectedDate || !drive?.listAllFiles) return;
 
     const loadPhotos = async () => {
+      setLoading(true);
       try {
-        let folderId = selectedInspection;
-        
-        if (selectedInspection.includes('/')) {
-          const folder = await supaFetch("drive_folders", {
-            filters: `folder_path=eq.${encodeURIComponent(selectedInspection)}`
-          });
-          if (folder && folder[0]) {
-            folderId = folder[0].google_drive_id;
-          }
-        }
-
-        const files = await drive.listAllFiles(folderId);
+        const files = await drive.listAllFiles(selectedDate);
         const images = (files || [])
-          .filter(f => f.mimeType && f.mimeType.startsWith('image/'))
-          .map(f => ({
-            id: f.id,
-            title: f.name,
-            google_drive_file_id: f.id,
-            mime_type: f.mimeType,
-            file_type: (f.name || "").split(".").pop().toLowerCase(),
-          }));
+          .filter(f => f.mimeType && f.mimeType.startsWith("image/"))
+          .sort((a, b) => a.name.localeCompare(b.name));
+
         setPhotos(images);
+        setNotes([]);
       } catch (err) {
         console.error("[InspectionPanel] Error loading photos:", err);
         setPhotos([]);
       }
+      setLoading(false);
     };
 
     loadPhotos();
-  }, [selectedInspection, drive?.listAllFiles]);
+  }, [selectedDate, drive]);
 
-  // ─── Cargar nota de esta fecha ───
-  useEffect(() => {
-    const loadNote = async () => {
-      if (!selectedDate) {
-        setNote(null);
-        return;
-      }
-
-      try {
-        const dateStr = selectedDate.toISOString().split('T')[0];
-        const notesData = await supaFetch("inspection_notes", {
-          filters: `property_address=eq.${encodeURIComponent(property.address)}&note_date=eq.${dateStr}`,
-          order: "created_at.desc",
-          limit: 1
-        });
-        setNote(notesData && notesData[0] ? notesData[0] : null);
-      } catch (err) {
-        console.error("[InspectionPanel] Error loading note:", err);
-        setNote(null);
-      }
-    };
-
-    loadNote();
-  }, [property.address, selectedDate]);
-
-  // ─── Agregar nota ───
-  const handleAddNote = useCallback(() => {
-    if (!selectedDate) {
-      alert("Selecciona una fecha de inspección primero");
-      return;
-    }
-
-    const noteText = prompt("Nota de inspección:");
-    if (!noteText?.trim()) return;
-
-    const dateStr = selectedDate.toISOString().split('T')[0];
-    supaInsert("inspection_notes", {
-      property_address: property.address,
-      note_date: dateStr,
-      note_text: noteText.trim(),
-      created_by: "MEW",
-    })
-      .then(() => {
-        // Recargar nota
-        supaFetch("inspection_notes", {
-          filters: `property_address=eq.${encodeURIComponent(property.address)}&note_date=eq.${dateStr}`,
-          order: "created_at.desc",
-          limit: 1
-        }).then(rows => setNote(rows && rows[0] ? rows[0] : null));
-        setStatus("✓ Nota guardada");
-        setTimeout(() => setStatus(""), 3000);
-      })
-      .catch(err => {
-        console.error(err);
-        setStatus("Error al guardar nota");
-      });
-  }, [property.address, selectedDate]);
-
-  // ─── Cambiar inspección ───
-  const handleInspectionChange = (inspectionId) => {
-    setSelectedInspection(inspectionId);
-    
-    for (const yearGroup of allInspections) {
-      const found = yearGroup.inspections.find(insp => insp.id === inspectionId);
-      if (found) {
-        setSelectedDate(found.sortDate);
-        break;
-      }
-    }
+  const openGallery = (startIndex) => {
+    setGalleryImages(photos);
+    setGalleryStart(startIndex);
   };
 
-  if (loading && allInspections.length === 0) {
-    return (
-      <Card>
-        <div style={{ textAlign: "center", padding: 30 }}>
-          <Spinner />
-          <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>
-            {status || "Cargando inspecciones..."}
-          </p>
-        </div>
-      </Card>
-    );
-  }
+  const handleUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !selectedDate || !drive?.uploadFile) return;
 
-  if (allInspections.length === 0) {
-    return (
-      <Card style={{ textAlign: "center", padding: 40 }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>📸</div>
-        <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
-          {status || "No hay inspecciones registradas"}
-        </div>
-      </Card>
-    );
-  }
+    setUploading(true);
+    setStatus("Subiendo fotos...");
+
+    try {
+      let uploaded = 0;
+      for (const file of files) {
+        try {
+          await drive.uploadFile(file, selectedDate);
+          uploaded++;
+          setStatus(`Subiendo ${uploaded}/${files.length}...`);
+        } catch (err) {
+          console.error("[InspectionPanel] Upload error:", err);
+        }
+      }
+
+      setStatus(`✓ ${uploaded} fotos subidas`);
+      setTimeout(() => setStatus(""), 3000);
+
+      // Recargar fotos
+      const updatedFiles = await drive.listAllFiles(selectedDate);
+      const images = (updatedFiles || [])
+        .filter(f => f.mimeType && f.mimeType.startsWith("image/"))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setPhotos(images);
+    } catch (err) {
+      setStatus(`Error: ${err.message}`);
+    }
+
+    setUploading(false);
+    e.target.value = "";
+  };
+
+  const years = Object.keys(allFolders).sort((a, b) => {
+    if (a === "Sin año") return 1;
+    if (b === "Sin año") return -1;
+    return b.localeCompare(a);
+  });
 
   return (
     <div>
@@ -322,33 +224,50 @@ const InspectionPanel = ({ property, mob, drive }) => {
           images={galleryImages}
           startIndex={galleryStart}
           onClose={() => setGalleryImages(null)}
-          mob={mob}
-          token={drive?.token}
-          propertyAddress={property.address}
+          drive={drive}
         />
       )}
 
+      {/* Status */}
       {status && (
-        <div style={{ padding: "8px 14px", marginBottom: 12, borderRadius: 8, background: status.startsWith("✓") ? `${C.green}15` : `${C.accent}15`, border: `1px solid ${status.startsWith("✓") ? C.green : C.accent}40` }}>
-          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: status.startsWith("✓") ? C.green : status.startsWith("Error") ? C.red : C.accent }}>{status}</span>
+        <div style={{
+          padding: "8px 14px",
+          marginBottom: 12,
+          borderRadius: 8,
+          background: status.startsWith("✓") ? `${C.green}15` : status.startsWith("Error") ? `${C.red}15` : `${C.accent}15`,
+          border: `1px solid ${status.startsWith("✓") ? C.green : status.startsWith("Error") ? C.red : C.accent}40`,
+        }}>
+          <span style={{
+            fontFamily: "DM Sans",
+            fontSize: 12,
+            color: status.startsWith("✓") ? C.green : status.startsWith("Error") ? C.red : C.accent,
+          }}>
+            {status}
+          </span>
         </div>
       )}
 
-      {/* ✅ Layout horizontal: Dropdown + Nota/Botón en misma línea */}
-      <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
-        {/* Dropdown de inspección (izquierda) */}
-        <div style={{ flex: "0 0 auto" }}>
-          <label style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, display: "block", marginBottom: 6 }}>
-            Inspección del:
+      {/* Selector de año */}
+      {years.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={{
+            fontFamily: "DM Sans",
+            fontSize: 12,
+            fontWeight: 600,
+            color: C.textDim,
+            display: "block",
+            marginBottom: 8,
+          }}>
+            Año:
           </label>
           <select
-            value={selectedInspection || ""}
-            onChange={(e) => handleInspectionChange(e.target.value)}
+            value={selectedYear || ""}
+            onChange={(e) => handleYearChange(e.target.value)}
             style={{
-              width: 200,
-              padding: "8px 10px",
+              width: "100%",
+              padding: "8px 12px",
               fontFamily: "DM Sans",
-              fontSize: 13,
+              fontSize: 14,
               border: `1px solid ${C.border}`,
               borderRadius: 8,
               background: C.surface2,
@@ -356,113 +275,166 @@ const InspectionPanel = ({ property, mob, drive }) => {
               cursor: "pointer",
             }}
           >
-            {allInspections.map(yearGroup => (
-              <optgroup key={yearGroup.year} label={`─── ${yearGroup.year} ───`}>
-                {yearGroup.inspections.map(insp => (
-                  <option key={insp.id} value={insp.id}>
-                    {insp.folderName}
-                  </option>
-                ))}
-              </optgroup>
+            {years.map(year => (
+              <option key={year} value={year}>
+                {year} ({allFolders[year].length} inspecciones)
+              </option>
             ))}
           </select>
         </div>
+      )}
 
-        {/* Nota o botón (derecha) */}
-        <div style={{ flex: 1 }}>
-          {note ? (
-            <Card style={{ background: `${C.accent}05`, border: `1px solid ${C.accent}30` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>
-                  📝 Nota · {new Date(note.note_date + "T00:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}
-                </div>
-                <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>
-                  {note.created_by}
-                </div>
-              </div>
-              <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text }}>
-                {note.note_text}
-              </div>
-            </Card>
-          ) : (
-            <button
-              onClick={handleAddNote}
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                background: `${C.green}10`,
-                border: `1px dashed ${C.green}60`,
-                borderRadius: 8,
-                cursor: "pointer",
-                fontFamily: "DM Sans",
-                fontSize: 13,
-                color: C.green,
-                fontWeight: 600,
-                transition: "all 0.2s",
-                marginTop: 20,
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = `${C.green}20`;
-                e.currentTarget.style.borderStyle = "solid";
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = `${C.green}10`;
-                e.currentTarget.style.borderStyle = "dashed";
-              }}
-            >
-              + Agregar Nota
-            </button>
-          )}
-        </div>
-      </div>
+      {/* Lista de fechas */}
+      {dateFolders.length > 0 ? (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{
+            fontFamily: "DM Sans",
+            fontSize: 12,
+            fontWeight: 600,
+            color: C.textDim,
+            marginBottom: 12,
+          }}>
+            Inspecciones ({dateFolders.length}):
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {dateFolders.map(folder => (
+              <button
+                key={folder.id}
+                onClick={() => setSelectedDate(folder.id)}
+                style={{
+                  padding: "10px 14px",
+                  textAlign: "left",
+                  background: selectedDate === folder.id ? C.accentGlow : "transparent",
+                  border: `1px solid ${selectedDate === folder.id ? C.accent : C.border}`,
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontFamily: "DM Sans",
+                  fontSize: 14,
+                  color: selectedDate === folder.id ? C.accent : C.text,
+                  fontWeight: selectedDate === folder.id ? 600 : 400,
+                  transition: "all 0.15s",
+                }}
+                onMouseEnter={e => {
+                  if (selectedDate !== folder.id) {
+                    e.currentTarget.style.background = C.surface2;
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (selectedDate !== folder.id) {
+                    e.currentTarget.style.background = "transparent";
+                  }
+                }}
+              >
+                {folder.name}
+              </button>
+            ))}
+          </div>
+        </Card>
+      ) : (
+        !loading && (
+          <Card>
+            <div style={{
+              padding: "40px 20px",
+              textAlign: "center",
+              color: C.textDim,
+              fontFamily: "DM Sans",
+              fontSize: 14,
+            }}>
+              📸 No hay inspecciones registradas
+            </div>
+          </Card>
+        )
+      )}
 
       {/* Fotos */}
-      {selectedInspection && (
+      {selectedDate && (
         <Card>
-          <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>
-            📁 {photos.length} fotos
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 16,
+          }}>
+            <div style={{
+              fontFamily: "DM Sans",
+              fontSize: 14,
+              fontWeight: 600,
+              color: C.text,
+            }}>
+              {photos.length} fotos
+            </div>
+            <input
+              ref={uploadRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleUpload}
+              style={{ display: "none" }}
+            />
+            <button
+              onClick={() => uploadRef.current?.click()}
+              disabled={uploading}
+              style={{
+                padding: "6px 14px",
+                background: C.accent,
+                color: "white",
+                border: "none",
+                borderRadius: 6,
+                cursor: uploading ? "not-allowed" : "pointer",
+                fontFamily: "DM Sans",
+                fontSize: 12,
+                fontWeight: 600,
+                opacity: uploading ? 0.5 : 1,
+              }}
+            >
+              {uploading ? "Subiendo..." : "+ Agregar Fotos"}
+            </button>
           </div>
 
-          {photos.length > 0 ? (
-            <div style={{ display: "grid", gridTemplateColumns: mob ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 6 }}>
-              {photos.map((img, idx) => (
-                <button
-                  key={img.id}
-                  onClick={() => {
-                    setGalleryImages(photos);
-                    setGalleryStart(idx);
-                  }}
+          {loading ? (
+            <div style={{ textAlign: "center", padding: "40px 20px" }}>
+              <Spinner />
+            </div>
+          ) : photos.length > 0 ? (
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: mob ? "repeat(2, 1fr)" : "repeat(4, 1fr)",
+              gap: 12,
+            }}>
+              {photos.map((photo, idx) => (
+                <div
+                  key={photo.id}
+                  onClick={() => openGallery(idx)}
                   style={{
-                    background: C.surface2,
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 8,
-                    cursor: "pointer",
-                    overflow: "hidden",
                     aspectRatio: "1",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: 0,
-                    transition: "border-color 0.2s",
+                    borderRadius: 8,
+                    overflow: "hidden",
+                    cursor: "pointer",
+                    border: `1px solid ${C.border}`,
+                    position: "relative",
                   }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
                 >
                   <AuthImage
-                    fileId={img.google_drive_file_id}
-                    token={drive?.token}
-                    alt={img.title}
-                    useThumbnail={true}
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    fileId={photo.id}
+                    drive={drive}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
                   />
-                </button>
+                </div>
               ))}
             </div>
           ) : (
-            <div style={{ textAlign: "center", padding: 20 }}>
-              <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
-                No hay fotos en esta fecha
-              </p>
+            <div style={{
+              padding: "40px 20px",
+              textAlign: "center",
+              color: C.textDim,
+              fontFamily: "DM Sans",
+              fontSize: 14,
+            }}>
+              📸 No hay fotos en esta inspección
             </div>
           )}
         </Card>
