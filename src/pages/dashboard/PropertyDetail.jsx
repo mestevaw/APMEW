@@ -237,31 +237,9 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
         );
       })()}
 
-      {/* Property Tabs (solo en desktop) */}
-      {!mob && <PropertyTabs property={property} mob={mob} drive={drive} onInspectionPhotos={() => setInspPanel(true)} folderId={folderId} />}
+      {/* ✅ Property Tabs (desktop Y móvil - el componente maneja ambos casos) */}
+      <PropertyTabs property={property} mob={mob} drive={drive} onInspectionPhotos={() => setInspPanel(true)} folderId={folderId} />
 
-      {/* Mobile: mantener vista original */}
-      {mob && (
-        <>
-          {/* Property Value 2025 */}
-          {PROPERTY_VALUES_2025[property.address] && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 16 }}>
-              <div style={{
-                padding: "10px 12px", background: `${C.accent}10`, borderRadius: 8,
-                border: `1px solid ${C.accent}40`, textAlign: "left",
-              }}>
-                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.accent }}>🏠 Valor 2025</div>
-                <div style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 600, color: C.accent, marginTop: 4 }}>
-                  {fmtMoney(PROPERTY_VALUES_2025[property.address])}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Property Expenses */}
-          <PropertyExpenses address={property.address} mob={mob} />
-        </>
-      )}
 
       {/* Bulk Upload Modal */}
       {showBulkUpload && (
