@@ -1,7 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: 1.0
-// Fecha: 2026-02-25
+// Versión: V2
+// Fecha: 2026-03-02
+// ═══════════════════════════════════════════
+// CAMBIOS EN V2:
+// - Agregado panel de estadísticas del índice
+// - Muestra: carpetas indexadas, archivos indexados, última sincronización
+// - Botón de "Verificar Salud del Índice" con detalles
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef } from "react";
@@ -36,12 +41,11 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
   const [loadingDrive, setLoadingDrive] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
   const [previewFile, setPreviewFile] = useState(null);
+  const [indexStats, setIndexStats] = useState(null); // ← NUEVO
+  const [showStats, setShowStats] = useState(false); // ← NUEVO
   const { token, gisLoaded, signIn, signOut, listAllFiles } = drive;
 
   // Load folder contents
-  // FIX v1.0: Removido listAllFiles de las dependencias del useEffect.
-  // listAllFiles ahora es estable (useCallback en el hook), pero de todas formas
-  // las dependencias correctas son solo token, currentFolder y tab.
   useEffect(() => {
     if (!token || tab !== "drive") return;
     const load = async () => {
@@ -52,6 +56,43 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     };
     load();
   }, [token, currentFolder, tab, listAllFiles]);
+
+  // ─── NUEVO: Cargar estadísticas del índice ───
+  const loadIndexStats = async () => {
+    try {
+      const [folders, docs] = await Promise.all([
+        supaFetch("drive_folders", { order: "id" }),
+        supaFetch("documents", { filters: "synced_from_drive=eq.true", order: "id" })
+      ]);
+
+      // Calcular estadísticas por carpeta
+      const byFolder = {};
+      docs.forEach(d => {
+        const folder = d.folder_path || "Sin carpeta";
+        byFolder[folder] = (byFolder[folder] || 0) + 1;
+      });
+
+      // Detectar carpetas importantes
+      const inspections = folders.filter(f => f.folder_path?.includes("INSPECCION")).length;
+      const gastos = folders.filter(f => f.folder_path?.includes("GASTO")).length;
+
+      setIndexStats({
+        totalFolders: folders.length,
+        totalDocs: docs.length,
+        inspections,
+        gastos,
+        byFolder,
+        lastCheck: new Date().toLocaleString("es-MX")
+      });
+    } catch (e) {
+      console.error("Error loading stats:", e);
+    }
+  };
+
+  // Cargar stats cuando se conecta Drive
+  useEffect(() => {
+    if (token) loadIndexStats();
+  }, [token]);
 
   // ─── Incremental sync ───
   const [syncing, setSyncing] = useState(false);
@@ -94,9 +135,6 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
           if (incremental && knownFiles.has(f.id)) {
             skipped++;
           } else {
-            // FIX v1.0: Usar supaUpsert en vez de query individual + insert/update.
-            // Requiere un unique constraint en google_drive_file_id en la tabla documents.
-            // Si no existe el constraint, esto inserta un nuevo row (comportamiento seguro).
             const doc = {
               title: f.name, google_drive_file_id: f.id,
               google_drive_url: f.webViewLink, folder_path: path,
@@ -107,7 +145,6 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
             try {
               await supaUpsert("documents", doc);
             } catch (e) {
-              // Fallback: si no hay unique constraint, intenta el método anterior
               const existing = await supaFetch("documents", { filters: `google_drive_file_id=eq.${f.id}` });
               if (existing && existing.length > 0) await supaUpdate("documents", existing[0].id, doc);
               else await supaInsert("documents", doc);
@@ -125,6 +162,7 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
       } else {
         setSyncMsg(`✓ ${totalFolders} carpetas y ${totalFiles} archivos nuevos indexados`);
         reload();
+        loadIndexStats(); // ← NUEVO: Recargar stats después de sync
       }
     } catch (e) { console.error(e); setSyncMsg("Error: " + e.message); }
     setSyncing(false);
@@ -166,6 +204,83 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     <div>
       <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, marginBottom: 4 }}>Documentos</h1>
       <p style={{ fontFamily: "DM Sans", fontSize: mob ? 12 : 14, color: C.textDim, marginBottom: 20 }}>Google Drive + índice en Supabase</p>
+
+      {/* ─── NUEVO: Panel de Estadísticas del Índice ─── */}
+      {token && indexStats && (
+        <Card style={{ marginBottom: 16, background: `${C.accent}05`, border: `1px solid ${C.accent}30` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>
+              📊 Estado del Índice
+            </div>
+            <button 
+              onClick={() => setShowStats(!showStats)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                fontFamily: "DM Sans",
+                fontSize: 11,
+                color: C.accent,
+                textDecoration: "underline",
+              }}
+            >
+              {showStats ? "Ocultar detalles" : "Ver detalles"}
+            </button>
+          </div>
+          
+          <div style={{ display: "grid", gridTemplateColumns: mob ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12 }}>
+            <div>
+              <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim, marginBottom: 2 }}>Carpetas</div>
+              <div style={{ fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 600, color: C.accent }}>
+                {indexStats.totalFolders}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim, marginBottom: 2 }}>Archivos</div>
+              <div style={{ fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 600, color: C.green }}>
+                {indexStats.totalDocs}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim, marginBottom: 2 }}>Inspecciones</div>
+              <div style={{ fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 600, color: C.blue }}>
+                {indexStats.inspections}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textDim, marginBottom: 2 }}>Gastos</div>
+              <div style={{ fontFamily: "JetBrains Mono", fontSize: 18, fontWeight: 600, color: C.orange || "#F59E0B" }}>
+                {indexStats.gastos}
+              </div>
+            </div>
+          </div>
+
+          {showStats && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+              <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginBottom: 4 }}>
+                Última verificación: {indexStats.lastCheck}
+              </div>
+              <button
+                onClick={loadIndexStats}
+                style={{
+                  background: `${C.blue}15`,
+                  border: `1px solid ${C.blue}40`,
+                  borderRadius: 6,
+                  padding: "6px 12px",
+                  cursor: "pointer",
+                  fontFamily: "DM Sans",
+                  fontSize: 11,
+                  color: C.blue,
+                  fontWeight: 600,
+                  marginTop: 4,
+                }}
+              >
+                🔄 Actualizar estadísticas
+              </button>
+            </div>
+          )}
+        </Card>
+      )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
         <TabBtn id="drive" label="📁 Google Drive" />
