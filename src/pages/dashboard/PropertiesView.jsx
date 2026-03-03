@@ -1,4 +1,9 @@
-// src/pages/dashboard/PropertiesView.jsx
+// ═══════════════════════════════════════════
+// Archivo: src/pages/dashboard/PropertiesView.jsx
+// Versión: 2.0 - Tabla Mejorada
+// Fecha: 2026-03-03
+// ═══════════════════════════════════════════
+
 import { useState, useEffect, useRef } from "react";
 import { C } from "../../lib/theme";
 import { I } from "../../lib/icons";
@@ -11,36 +16,68 @@ import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuC
 import { BulkPhotoUpload } from "../../components/BulkPhotoUpload";
 
 const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
-  const [filter, setFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("number");
-  const [searchQuery, setSearchQuery] = useState(""); // ✅ Nuevo: búsqueda
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("address"); // address, owner, rent
+  const [sortDir, setSortDir] = useState("asc"); // asc, desc
   const [menuOpen, setMenuOpen] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
-  const [uploadTarget, setUploadTarget] = useState(null); // property for upload
+  const [uploadTarget, setUploadTarget] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
   const fileInputRef = useRef(null);
 
-  const owners = [...new Set(PROPERTIES.filter(p => !p.sold).map(p => p.owner))];
-  const activeProps = PROPERTIES.filter(p => !p.sold);
-  let filtered = filter === "all" ? [...activeProps] : filter === "vendidas" ? PROPERTIES.filter(p => p.sold) : PROPERTIES.filter(p => p.owner === filter && !p.sold);
+  // Filtrar y ordenar propiedades
+  let filtered = [...PROPERTIES];
   
-  // ✅ Aplicar búsqueda por nombre o número
+  // Aplicar búsqueda
   if (searchQuery.trim()) {
     const query = searchQuery.toLowerCase();
     filtered = filtered.filter(p => 
       p.address.toLowerCase().includes(query) || 
+      p.owner.toLowerCase().includes(query) ||
       getNumber(p.address).toString().includes(query)
     );
   }
   
-  if (sortBy === "number") filtered.sort((a, b) => getNumber(a.address) - getNumber(b.address));
-  else filtered.sort((a, b) => getStreet(a.address).localeCompare(getStreet(b.address)));
+  // Aplicar ordenamiento
+  filtered.sort((a, b) => {
+    let valA, valB;
+    
+    if (sortBy === "address") {
+      valA = getNumber(a.address);
+      valB = getNumber(b.address);
+    } else if (sortBy === "owner") {
+      valA = a.owner.toLowerCase();
+      valB = b.owner.toLowerCase();
+    } else if (sortBy === "rent") {
+      valA = a.rent || 0;
+      valB = b.rent || 0;
+    }
+    
+    if (sortDir === "asc") {
+      return valA > valB ? 1 : -1;
+    } else {
+      return valA < valB ? 1 : -1;
+    }
+  });
+
+  const handleSort = (column) => {
+    if (sortBy === column) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(column);
+      setSortDir("asc");
+    }
+  };
 
   const handleStartUpload = (prop) => {
     setUploadTarget(prop);
     setMenuOpen(false);
-    if (!drive?.token) { setUploadMsg("Conecta Google Drive primero (botón en la barra lateral)"); setTimeout(() => setUploadMsg(""), 4000); return; }
+    if (!drive?.token) { 
+      setUploadMsg("Conecta Google Drive primero"); 
+      setTimeout(() => setUploadMsg(""), 4000); 
+      return; 
+    }
     setTimeout(() => fileInputRef.current?.click(), 100);
   };
 
@@ -48,12 +85,13 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
     const files = Array.from(e.target.files || []);
     if (!files.length || !drive?.token || !drive?.uploadPhotos || !uploadTarget) return;
 
-    // Find folder ID for this property
-    setUploading(true); setUploadMsg(`Buscando carpeta de ${uploadTarget.address}...`);
+    setUploading(true); 
+    setUploadMsg(`Buscando carpeta de ${uploadTarget.address}...`);
     const folder = await findFolderByAddress(uploadTarget.address, uploadTarget.owner);
     if (!folder) {
       setUploadMsg("No se encontró la carpeta. Vincula manualmente primero.");
-      setUploading(false); return;
+      setUploading(false); 
+      return;
     }
 
     setUploadMsg(`Subiendo ${files.length} fotos...`);
@@ -71,15 +109,20 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
     } catch (err) {
       setUploadMsg(`Error: ${err.message}`);
     }
-    setUploading(false); setUploadTarget(null);
+    setUploading(false); 
+    setUploadTarget(null);
     e.target.value = "";
+  };
+
+  const SortIcon = ({ column }) => {
+    if (sortBy !== column) return <span style={{ color: C.textMuted, fontSize: 10 }}>⇅</span>;
+    return <span style={{ color: C.accent, fontSize: 10 }}>{sortDir === "asc" ? "↑" : "↓"}</span>;
   };
 
   return (
     <div>
       <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFilesSelected} style={{ display: "none" }} />
 
-      {/* BulkPhotoUpload Modal */}
       {showBulkUpload && (
         <BulkPhotoUpload
           drive={drive}
@@ -94,12 +137,16 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>{I.back}</button>
-        <span style={{ color: C.accent }}><HouseIcon /></span>
-        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.accent, flex: 1 }}>Propiedades</h1>
-        <Badge color={C.textDim}>{activeProps.length}</Badge>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>
+          {I.back}
+        </button>
+        <span style={{ color: C.orange }}><HouseIcon /></span>
+        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.orange, flex: 1 }}>
+          Maud Watson
+        </h1>
+        <Badge color={C.textDim}>{PROPERTIES.length}</Badge>
         
-        {/* ✅ Búsqueda */}
+        {/* Búsqueda */}
         <div style={{ position: "relative" }}>
           <input
             type="text"
@@ -143,75 +190,220 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
         <div style={{ position: "relative" }}>
           <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
           <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
-            <MenuLabel>Ordenar</MenuLabel>
-            <MenuBtn onClick={() => { setSortBy("number"); setMenuOpen(false); }} active={sortBy === "number"}>
-              # Número {sortBy === "number" && "✓"}
-            </MenuBtn>
-            <MenuBtn onClick={() => { setSortBy("street"); setMenuOpen(false); }} active={sortBy === "street"}>
-              🏠 Calle {sortBy === "street" && "✓"}
-            </MenuBtn>
-            <MenuDivider />
             <MenuLabel>Fotos</MenuLabel>
             {drive?.token && <MenuBtn onClick={() => setMenuOpen(false)}>✅ Drive conectado</MenuBtn>}
-            {drive?.token && <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>📤 Subir Fotos</MenuBtn>}
+            {drive?.token && <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>
+              📤 Subir Batch de Fotos
+            </MenuBtn>}
           </DropMenu>
         </div>
       </div>
 
       {/* Upload status */}
       {uploadMsg && (
-        <div style={{ padding: "8px 14px", marginBottom: 12, borderRadius: 8, background: uploadMsg.startsWith("✓") ? `${C.green}15` : `${C.accent}15`, border: `1px solid ${uploadMsg.startsWith("✓") ? C.green : C.accent}40` }}>
-          <span style={{ fontFamily: "DM Sans", fontSize: 12, color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent }}>{uploadMsg}</span>
+        <div style={{ 
+          padding: "8px 14px", 
+          marginBottom: 12, 
+          borderRadius: 8, 
+          background: uploadMsg.startsWith("✓") ? `${C.green}15` : `${C.accent}15`, 
+          border: `1px solid ${uploadMsg.startsWith("✓") ? C.green : C.accent}40` 
+        }}>
+          <span style={{ 
+            fontFamily: "DM Sans", 
+            fontSize: 12, 
+            color: uploadMsg.startsWith("✓") ? C.green : uploadMsg.startsWith("Error") ? C.red : C.accent 
+          }}>
+            {uploadMsg}
+          </span>
         </div>
       )}
 
-      {/* Filter chips */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-        <button onClick={() => setFilter("all")} style={{
-          padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === "all" ? C.accent : C.border}`,
-          background: filter === "all" ? C.accentGlow : "transparent", cursor: "pointer",
-          fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: filter === "all" ? C.accent : C.textDim,
-        }}>Todas ({activeProps.length})</button>
-        {owners.map(o => {
-          const count = activeProps.filter(p => p.owner === o).length;
-          const color = OWNER_COLORS[o] || C.textDim;
-          return (
-            <button key={o} onClick={() => setFilter(o)} style={{
-              padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === o ? color : C.border}`,
-              background: filter === o ? `${color}18` : "transparent", cursor: "pointer",
-              fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: filter === o ? color : C.textDim,
-            }}>{(OWNER_SHORT[o] || o)} ({count})</button>
-          );
-        })}
-        <button onClick={() => setFilter("vendidas")} style={{
-          padding: "5px 14px", borderRadius: 20, border: `1px solid ${filter === "vendidas" ? "#EF4444" : C.border}`,
-          background: filter === "vendidas" ? "#EF444418" : "transparent", cursor: "pointer",
-          fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: filter === "vendidas" ? "#EF4444" : C.textDim,
-        }}>Vendidas ({PROPERTIES.filter(p => p.sold).length})</button>
-      </div>
-
-      <Card>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {filtered.map((prop, i) => (
-            <button key={i} onClick={() => onSelectProperty(prop)} style={{
-              display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
-              background: "transparent", border: "none", cursor: "pointer", borderRadius: 8,
-              textAlign: "left", width: "100%",
-            }}
-              onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ color: prop.sold ? C.textMuted : (OWNER_COLORS[prop.owner] || C.textDim), opacity: prop.sold ? 0.5 : 1 }}><HouseIcon /></span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: prop.sold ? 400 : 500, color: prop.sold ? C.textDim : C.text }}>{prop.address}</div>
-              </div>
-              <Badge color={OWNER_COLORS[prop.owner] || C.textDim}>{OWNER_SHORT[prop.owner] || prop.owner}</Badge>
-            </button>
-          ))}
+      {/* Tabla de propiedades */}
+      <Card style={{ padding: 0, overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ 
+            width: "100%", 
+            borderCollapse: "collapse",
+            fontFamily: "DM Sans",
+          }}>
+            <thead>
+              <tr style={{ 
+                background: C.surface2, 
+                borderBottom: `2px solid ${C.border}` 
+              }}>
+                <th 
+                  onClick={() => handleSort("address")}
+                  style={{ 
+                    padding: "12px 16px", 
+                    textAlign: "left", 
+                    fontWeight: 600, 
+                    fontSize: 13, 
+                    color: C.text,
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    Dirección <SortIcon column="address" />
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("owner")}
+                  style={{ 
+                    padding: "12px 16px", 
+                    textAlign: "left", 
+                    fontWeight: 600, 
+                    fontSize: 13, 
+                    color: C.text,
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    Dueño <SortIcon column="owner" />
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort("rent")}
+                  style={{ 
+                    padding: "12px 16px", 
+                    textAlign: "right", 
+                    fontWeight: 600, 
+                    fontSize: 13, 
+                    color: C.text,
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+                    Renta <SortIcon column="rent" />
+                  </div>
+                </th>
+                <th style={{ 
+                  padding: "12px 16px", 
+                  textAlign: "center", 
+                  fontWeight: 600, 
+                  fontSize: 13, 
+                  color: C.text 
+                }}>
+                  Estado
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((prop, idx) => {
+                const ownerColor = OWNER_COLORS[prop.owner] || C.textDim;
+                return (
+                  <tr 
+                    key={idx}
+                    onClick={() => onSelectProperty(prop)}
+                    style={{ 
+                      borderBottom: `1px solid ${C.border}`,
+                      cursor: "pointer",
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
+                    <td style={{ 
+                      padding: "12px 16px",
+                      fontSize: 14,
+                      color: C.text,
+                      fontWeight: prop.sold ? 400 : 500,
+                    }}>
+                      {prop.address}
+                    </td>
+                    <td style={{ 
+                      padding: "12px 16px",
+                      fontSize: 13,
+                      color: ownerColor,
+                    }}>
+                      {OWNER_SHORT[prop.owner] || prop.owner}
+                    </td>
+                    <td style={{ 
+                      padding: "12px 16px",
+                      fontSize: 14,
+                      color: C.green,
+                      textAlign: "right",
+                      fontWeight: 600,
+                    }}>
+                      {prop.rent ? fmtMoney(prop.rent) : "-"}
+                    </td>
+                    <td style={{ 
+                      padding: "12px 16px",
+                      textAlign: "center",
+                    }}>
+                      {prop.sold ? (
+                        <span style={{
+                          padding: "4px 10px",
+                          borderRadius: 12,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          background: `${C.red}20`,
+                          color: C.red,
+                        }}>
+                          Vendida
+                        </span>
+                      ) : (
+                        <span style={{
+                          padding: "4px 10px",
+                          borderRadius: 12,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          background: `${C.green}20`,
+                          color: C.green,
+                        }}>
+                          Activa
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
+
+        {filtered.length === 0 && (
+          <div style={{ 
+            padding: "40px 20px", 
+            textAlign: "center",
+            color: C.textDim,
+            fontFamily: "DM Sans",
+            fontSize: 14,
+          }}>
+            No se encontraron propiedades
+          </div>
+        )}
       </Card>
+
+      {/* Resumen */}
+      <div style={{ 
+        marginTop: 12, 
+        display: "flex", 
+        gap: 16, 
+        flexWrap: "wrap",
+        fontFamily: "DM Sans",
+        fontSize: 12,
+        color: C.textDim,
+      }}>
+        <div>
+          Total: <strong style={{ color: C.text }}>{PROPERTIES.length}</strong>
+        </div>
+        <div>
+          Activas: <strong style={{ color: C.green }}>{PROPERTIES.filter(p => !p.sold).length}</strong>
+        </div>
+        <div>
+          Vendidas: <strong style={{ color: C.red }}>{PROPERTIES.filter(p => p.sold).length}</strong>
+        </div>
+        {searchQuery && (
+          <div>
+            Filtradas: <strong style={{ color: C.accent }}>{filtered.length}</strong>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
-
 
 export default PropertiesView;
