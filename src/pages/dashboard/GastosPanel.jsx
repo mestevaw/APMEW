@@ -1,13 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/GastosPanel.jsx  
-// Versión: V4
+// Versión: V5
 // Fecha: 2026-03-02
 // ═══════════════════════════════════════════
-// CAMBIOS EN V4:
-// - Eliminados banners de "Directorio de GASTOS" y "Supabase"
-// - Año + Búsqueda en una línea compacta debajo del tab
-// - Modo "Todos" que muestra archivos separados por año
-// - Búsqueda filtra archivos en tiempo real
+// CAMBIOS EN V5:
+// - Controles ultra-compactos pegados a tabs (margin-top: -4px)
+// - "Todos" → "Años"
+// - Width 100px en dropdown
+// - Padding reducido (6px 8px)
 // ═══════════════════════════════════════════
 
 import { useState, useEffect } from "react";
@@ -275,15 +275,15 @@ const GastosPanel = ({ property, mob, drive }) => {
 
   return (
     <div>
-      {/* ✅ NUEVO: Controles compactos (Año + Búsqueda) */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        {/* Dropdown de Año (más pequeño) */}
+      {/* ✅ CONTROLES COMPACTOS pegados a tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 8, marginTop: -4 }}>
+        {/* Dropdown de Año (compacto) */}
         <select
           value={selectedYear}
           onChange={(e) => setSelectedYear(e.target.value)}
           style={{
-            width: 120,
-            padding: "8px 10px",
+            width: 100,
+            padding: "6px 8px",
             fontFamily: "DM Sans",
             fontSize: 12,
             border: `1px solid ${C.border}`,
@@ -294,7 +294,7 @@ const GastosPanel = ({ property, mob, drive }) => {
             fontWeight: 600,
           }}
         >
-          <option value="all">Todos</option>
+          <option value="all">Años</option>
           {yearFolders.map(year => (
             <option key={year.id} value={year.id}>
               {year.year}
