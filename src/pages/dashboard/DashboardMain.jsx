@@ -312,7 +312,7 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
                 minWidth: 220, zIndex: 99, overflow: "hidden",
               }}>
                 {[
-                  { label: "Propiedades", icon: <HouseIcon />, color: C.accent, badge: PROPERTIES.filter(p => !p.sold).length, action: () => { setShowProperties(true); setShowKids(false); } },
+                  { label: "Maud Watson", icon: <HouseIcon />, color: C.orange, badge: PROPERTIES.filter(p => !p.sold).length, action: () => { setShowProperties(true); setShowKids(false); } },
                   { label: "Coches", icon: <CarIcon />, color: "#0EA5E9", badge: CARS.length, action: () => { setShowCars(true); setShowKids(false); } },
                   { label: "Vencimientos", icon: <CalendarIcon />, color: "#F59E0B", action: () => { setShowDeadlines(true); setShowKids(false); } },
                   { label: "Gastos Diarios", icon: I.expenses, color: C.accent, action: () => goToPage && goToPage("daily") },
@@ -341,10 +341,10 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
           <button onClick={() => { setShowProperties(true); setShowKids(false); setShowCars(false); }} style={{
             display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
             background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
-          }} onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
+          }} onMouseEnter={e => { e.currentTarget.style.borderColor = C.orange; e.currentTarget.style.background = C.orangeDim; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
-            <span style={{ color: C.accent }}><HouseIcon /></span>
-            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Propiedades</span>
+            <span style={{ color: C.orange }}><HouseIcon /></span>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.orange }}>Maud Watson</span>
             <Badge color={C.textDim}>{PROPERTIES.filter(p => !p.sold).length}</Badge>
           </button>
           <button onClick={() => { setShowCars(true); setShowProperties(false); setShowKids(false); }} style={{
