@@ -1,14 +1,15 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/BulkPhotoUpload.jsx
-// Versión: V7 Final
+// Versión: V8 FINAL
 // Fecha: 2026-03-03
 // ═══════════════════════════════════════════
-// CAMBIOS EN V7 Final:
-// - Calendario blanco (color: #FFFFFF + colorScheme: dark)
-// - Busca folderId en Supabase usando findFolderByAddress
-// - Si no está en constants.js, lo busca dinámicamente
-// - Error claro si la carpeta no existe en Drive
-// - SOLUCIONA: "Cannot read properties of undefined"
+// CAMBIOS EN V8:
+// - Verifica que window.gapi esté disponible antes de usar
+// - Error claro si Google API no está cargada
+// - Fix: "Cannot read properties of undefined (reading 'client')"
+// - Calendario blanco
+// - Busca folderId en Supabase
+// - Busca "Inspecciones" O "INSPECCION"
 // ═══════════════════════════════════════════
 
 import { useState, useRef } from "react";
@@ -149,6 +150,11 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
   const getOrCreateFolder = async (folderName, parentId, updateDebug = true) => {
     try {
       console.log(`[getOrCreateFolder] Buscando: ${folderName} en parent: ${parentId}`);
+      
+      // ✅ Verificar que window.gapi esté disponible
+      if (!window.gapi || !window.gapi.client || !window.gapi.client.drive) {
+        throw new Error("Google Drive API no está cargada. Recarga la página.");
+      }
       
       if (updateDebug) {
         setUploadDebug(prev => ({
