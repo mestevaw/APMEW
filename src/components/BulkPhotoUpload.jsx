@@ -1,14 +1,15 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/BulkPhotoUpload.jsx
-// Versión: V4 Final
+// Versión: V5
 // Fecha: 2026-03-03
 // ═══════════════════════════════════════════
-// CAMBIOS EN V4 Final:
-// - Asignación grupal para fotos sin match
-// - Autocomplete para buscar propiedades
-// - Date picker con botones Hoy/Ayer
-// - FIXED: Uso correcto de Google Drive API (gapi)
-// - Crea carpetas automáticamente si no existen
+// CAMBIOS EN V5:
+// - Calendario simple (sin botones Hoy/Ayer)
+// - Try-catch global para capturar TODOS los errores
+// - Debug SIEMPRE visible durante upload
+// - No cierra automáticamente si hay errores
+// - Pausas en errores para que se vean
+// - Alert con resumen de éxitos/fallas
 // ═══════════════════════════════════════════
 
 import { useState, useRef } from "react";
@@ -104,66 +105,26 @@ const PropertyAutocomplete = ({ value, onChange, activeProps }) => {
   );
 };
 
-// ✅ Date Picker mejorado
+// ✅ Date Picker simple (solo calendario)
 const DatePickerEnhanced = ({ value, onChange }) => {
   const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-
-  const handleToday = (e) => {
-    e.preventDefault();
-    onChange(today);
-  };
-
-  const handleYesterday = (e) => {
-    e.preventDefault();
-    onChange(yesterday);
-  };
 
   return (
-    <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <button onClick={handleToday} type="button" style={{
-          padding: "6px 12px",
-          background: C.accent,
-          color: "white",
-          border: "none",
-          borderRadius: 6,
-          cursor: "pointer",
-          fontFamily: "DM Sans",
-          fontSize: 12,
-          fontWeight: 600,
-        }}>
-          Hoy
-        </button>
-        <button onClick={handleYesterday} type="button" style={{
-          padding: "6px 12px",
-          background: C.surface2,
-          color: C.text,
-          border: `1px solid ${C.border}`,
-          borderRadius: 6,
-          cursor: "pointer",
-          fontFamily: "DM Sans",
-          fontSize: 12,
-        }}>
-          Ayer
-        </button>
-      </div>
-      <input
-        type="date"
-        value={value || today}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          width: "100%",
-          padding: "8px 10px",
-          fontFamily: "DM Sans",
-          fontSize: 13,
-          border: `1px solid ${C.border}`,
-          borderRadius: 6,
-          background: C.surface2,
-          color: C.text,
-        }}
-      />
-    </div>
+    <input
+      type="date"
+      value={value || today}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        width: "100%",
+        padding: "10px 12px",
+        fontFamily: "DM Sans",
+        fontSize: 14,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        background: C.surface2,
+        color: C.text,
+      }}
+    />
   );
 };
 
@@ -473,7 +434,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     }
   };
 
-  // ✅ Subir todas las fotos (CORREGIDO)
+  // ✅ Subir todas las fotos (CORREGIDO con mejor error handling)
   const handleUploadAll = async () => {
     const hasInvalid = photos.some(p => !p.selectedProperty || !p.selectedDate);
     if (hasInvalid) {
@@ -490,119 +451,162 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
       status: "starting",
     });
 
-    // Agrupar fotos por propiedad y fecha
-    const groupedByProperty = {};
-    photos.forEach(photo => {
-      const key = photo.selectedProperty.address;
-      if (!groupedByProperty[key]) {
-        groupedByProperty[key] = { property: photo.selectedProperty, photosByDate: {} };
-      }
-      const dateKey = photo.selectedDate.toISOString().slice(0, 10);
-      if (!groupedByProperty[key].photosByDate[dateKey]) {
-        groupedByProperty[key].photosByDate[dateKey] = [];
-      }
-      groupedByProperty[key].photosByDate[dateKey].push(photo);
-    });
-
     let successCount = 0;
     let failCount = 0;
 
-    for (const propAddress in groupedByProperty) {
-      const { property, photosByDate } = groupedByProperty[propAddress];
-      const propFolderId = property.folderId;
+    try {
+      // Agrupar fotos por propiedad y fecha
+      const groupedByProperty = {};
+      photos.forEach(photo => {
+        const key = photo.selectedProperty.address;
+        if (!groupedByProperty[key]) {
+          groupedByProperty[key] = { property: photo.selectedProperty, photosByDate: {} };
+        }
+        const dateKey = photo.selectedDate.toISOString().slice(0, 10);
+        if (!groupedByProperty[key].photosByDate[dateKey]) {
+          groupedByProperty[key].photosByDate[dateKey] = [];
+        }
+        groupedByProperty[key].photosByDate[dateKey].push(photo);
+      });
 
-      console.log(`[BulkUpload] Procesando propiedad: ${propAddress} (${propFolderId})`);
-      
-      setUploadDebug(prev => ({
-        ...prev,
-        property: propAddress,
-        propertyId: propFolderId,
-        path: propAddress,
-      }));
+      for (const propAddress in groupedByProperty) {
+        const { property, photosByDate } = groupedByProperty[propAddress];
+        const propFolderId = property.folderId;
 
-      try {
-        // ✅ Crear estructura: INSPECCION > AÑO > FECHA
-        const inspeccionFolderName = "INSPECCION";
-        let inspeccionFolder = await getOrCreateFolder(inspeccionFolderName, propFolderId);
+        console.log(`[BulkUpload] Procesando propiedad: ${propAddress} (${propFolderId})`);
         
         setUploadDebug(prev => ({
           ...prev,
-          path: `${propAddress} > ${inspeccionFolderName}`,
+          property: propAddress,
+          propertyId: propFolderId,
+          path: propAddress,
         }));
 
-        for (const dateStr in photosByDate) {
-          const photosForDate = photosByDate[dateStr];
-          const dateObj = new Date(dateStr + "T00:00:00");
-          const day = dateObj.getDate();
-          const monthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-          const month = monthNames[dateObj.getMonth()];
-          const year = String(dateObj.getFullYear()).slice(2);
-          const dateFolderName = `${day} ${month} ${year}`;
-          const yearFolderName = String(dateObj.getFullYear());
-
-          console.log(`[BulkUpload] Estructura: ${inspeccionFolderName} > ${yearFolderName} > ${dateFolderName}`);
-
-          // ✅ Crear carpeta de año si no existe
-          let yearFolder = await getOrCreateFolder(yearFolderName, inspeccionFolder.id);
+        try {
+          // ✅ Crear estructura: INSPECCION > AÑO > FECHA
+          const inspeccionFolderName = "INSPECCION";
+          let inspeccionFolder = await getOrCreateFolder(inspeccionFolderName, propFolderId);
           
           setUploadDebug(prev => ({
             ...prev,
-            path: `${propAddress} > ${inspeccionFolderName} > ${yearFolderName}`,
-          }));
-          
-          // ✅ Crear carpeta de fecha si no existe
-          let dateFolder = await getOrCreateFolder(dateFolderName, yearFolder.id);
-          
-          setUploadDebug(prev => ({
-            ...prev,
-            path: `${propAddress} > ${inspeccionFolderName} > ${yearFolderName} > ${dateFolderName}`,
+            path: `${propAddress} > ${inspeccionFolderName}`,
           }));
 
-          setUploadStatus(`Subiendo ${photosForDate.length} fotos a ${propAddress} (${dateFolderName})...`);
+          for (const dateStr in photosByDate) {
+            const photosForDate = photosByDate[dateStr];
+            const dateObj = new Date(dateStr + "T00:00:00");
+            const day = dateObj.getDate();
+            const monthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+            const month = monthNames[dateObj.getMonth()];
+            const year = String(dateObj.getFullYear()).slice(2);
+            const dateFolderName = `${day} ${month} ${year}`;
+            const yearFolderName = String(dateObj.getFullYear());
 
-          const results = [];
-          for (const photo of photosForDate) {
-            try {
-              // Verificar si ya existe
-              const query = `name='${photo.file.name}' and '${dateFolder.id}' in parents and trashed=false`;
-              const existingResponse = await window.gapi.client.drive.files.list({
-                q: query,
-                fields: 'files(id, name)',
-                spaces: 'drive',
-              });
+            console.log(`[BulkUpload] Estructura: ${inspeccionFolderName} > ${yearFolderName} > ${dateFolderName}`);
 
-              if (existingResponse.result.files && existingResponse.result.files.length > 0) {
-                console.log(`[BulkUpload] ⚠️ Ya existe: ${photo.file.name}`);
-                results.push({ skipped: true, name: photo.file.name });
-                continue;
-              }
+            // ✅ Crear carpeta de año si no existe
+            let yearFolder = await getOrCreateFolder(yearFolderName, inspeccionFolder.id);
+            
+            setUploadDebug(prev => ({
+              ...prev,
+              path: `${propAddress} > ${inspeccionFolderName} > ${yearFolderName}`,
+            }));
+            
+            // ✅ Crear carpeta de fecha si no existe
+            let dateFolder = await getOrCreateFolder(dateFolderName, yearFolder.id);
+            
+            setUploadDebug(prev => ({
+              ...prev,
+              path: `${propAddress} > ${inspeccionFolderName} > ${yearFolderName} > ${dateFolderName}`,
+            }));
 
-              // ✅ Subir archivo
-              const uploaded = await uploadFileToDrive(photo.file, dateFolder.id);
-              if (uploaded && uploaded.id) {
-                results.push({ id: uploaded.id, name: photo.file.name, mimeType: photo.file.type });
-                successCount++;
-              } else {
+            setUploadStatus(`Subiendo ${photosForDate.length} fotos a ${propAddress} (${dateFolderName})...`);
+
+            const results = [];
+            for (const photo of photosForDate) {
+              try {
+                // Verificar si ya existe
+                const query = `name='${photo.file.name}' and '${dateFolder.id}' in parents and trashed=false`;
+                const existingResponse = await window.gapi.client.drive.files.list({
+                  q: query,
+                  fields: 'files(id, name)',
+                  spaces: 'drive',
+                });
+
+                if (existingResponse.result.files && existingResponse.result.files.length > 0) {
+                  console.log(`[BulkUpload] ⚠️ Ya existe: ${photo.file.name}`);
+                  results.push({ skipped: true, name: photo.file.name });
+                  continue;
+                }
+
+                // ✅ Subir archivo
+                const uploaded = await uploadFileToDrive(photo.file, dateFolder.id);
+                if (uploaded && uploaded.id) {
+                  results.push({ id: uploaded.id, name: photo.file.name, mimeType: photo.file.type });
+                  successCount++;
+                } else {
+                  failCount++;
+                }
+              } catch (uploadErr) {
+                console.error("[BulkUpload] upload error:", uploadErr);
+                setUploadDebug(prev => ({
+                  ...prev,
+                  action: "Error al subir archivo",
+                  fileName: photo.file.name,
+                  error: uploadErr.message,
+                  status: "error",
+                }));
                 failCount++;
+                // Pausar para que se vea el error
+                await new Promise(resolve => setTimeout(resolve, 2000));
               }
-            } catch (uploadErr) {
-              console.error("[BulkUpload] upload error:", uploadErr);
-              failCount++;
             }
+
+            // Registrar en Supabase
+            await registerInSupabase(dateFolder, yearFolder, inspeccionFolder, results, propAddress, propFolderId);
           }
-
-          // Registrar en Supabase
-          await registerInSupabase(dateFolder, yearFolder, inspeccionFolder, results, propAddress, propFolderId);
+        } catch (propErr) {
+          console.error("[BulkUpload] property error:", propErr);
+          setUploadDebug(prev => ({
+            ...prev,
+            action: "Error procesando propiedad",
+            error: propErr.message,
+            status: "error",
+          }));
+          failCount += Object.values(photosByDate).reduce((sum, arr) => sum + arr.length, 0);
+          // Pausar para que se vea el error
+          await new Promise(resolve => setTimeout(resolve, 3000));
         }
-      } catch (propErr) {
-        console.error("[BulkUpload] property error:", propErr);
-        failCount += Object.values(photosByDate).reduce((sum, arr) => sum + arr.length, 0);
       }
-    }
 
-    setUploading(false);
-    onComplete({ success: successCount, failed: failCount });
-    onClose();
+      setUploading(false);
+      
+      // ✅ Solo cerrar si todo salió bien
+      if (failCount === 0) {
+        onComplete({ success: successCount, failed: failCount });
+        onClose();
+      } else {
+        // Mostrar resultado con errores
+        setUploadDebug(prev => ({
+          ...prev,
+          action: "Subida completada con errores",
+          error: `${successCount} exitosas, ${failCount} fallidas`,
+          status: "partial",
+        }));
+        alert(`Subida completada:\n✅ ${successCount} fotos exitosas\n❌ ${failCount} fotos fallidas\n\nRevisa la consola para más detalles.`);
+        onComplete({ success: successCount, failed: failCount });
+      }
+    } catch (globalErr) {
+      console.error("[BulkUpload] global error:", globalErr);
+      setUploading(false);
+      setUploadDebug(prev => ({
+        ...prev,
+        action: "Error crítico",
+        error: globalErr.message,
+        status: "error",
+      }));
+      alert(`Error crítico durante la subida:\n${globalErr.message}\n\nRevisa la consola para más detalles.`);
+    }
   };
 
   const updatePhotoProperty = (index, property) => {
