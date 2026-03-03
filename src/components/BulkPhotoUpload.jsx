@@ -1,12 +1,14 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/BulkPhotoUpload.jsx
-// Versión: V6
+// Versión: V7 Final
 // Fecha: 2026-03-03
 // ═══════════════════════════════════════════
-// CAMBIOS EN V6:
-// - Busca "Inspecciones" O "INSPECCION" (ambas versiones)
-// - Si no existe ninguna, crea "Inspecciones"
-// - Soluciona problema de carpetas con nombres diferentes
+// CAMBIOS EN V7 Final:
+// - Calendario blanco (color: #FFFFFF + colorScheme: dark)
+// - Busca folderId en Supabase usando findFolderByAddress
+// - Si no está en constants.js, lo busca dinámicamente
+// - Error claro si la carpeta no existe en Drive
+// - SOLUCIONA: "Cannot read properties of undefined"
 // ═══════════════════════════════════════════
 
 import { useState, useRef } from "react";
@@ -17,6 +19,7 @@ import { Card, Spinner } from "./UI";
 import { PROPERTIES } from "../pages/dashboard/constants";
 import { DRIVE_ROOT_FOLDER } from "../lib/config";
 import { supaFetch, supaInsert } from "../lib/supabase";
+import { findFolderByAddress } from "../pages/dashboard/helpers"; // ✅ IMPORTAR
 
 // ✅ Componente Autocomplete
 const PropertyAutocomplete = ({ value, onChange, activeProps }) => {
@@ -119,7 +122,8 @@ const DatePickerEnhanced = ({ value, onChange }) => {
         border: `1px solid ${C.border}`,
         borderRadius: 8,
         background: C.surface2,
-        color: C.text,
+        color: "#FFFFFF", // ✅ Blanco para visibilidad
+        colorScheme: "dark", // ✅ Para que el calendario sea visible
       }}
     />
   );
@@ -431,7 +435,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     }
   };
 
-  // ✅ Subir todas las fotos (CORREGIDO con mejor error handling)
+  // ✅ Subir todas las fotos (CORREGIDO con búsqueda de folderId)
   const handleUploadAll = async () => {
     const hasInvalid = photos.some(p => !p.selectedProperty || !p.selectedDate);
     if (hasInvalid) {
@@ -444,7 +448,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     setUploadDebug({
       property: "",
       path: "",
-      action: "Iniciando...",
+      action: "Buscando carpetas en Google Drive...",
       status: "starting",
     });
 
@@ -468,15 +472,51 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
 
       for (const propAddress in groupedByProperty) {
         const { property, photosByDate } = groupedByProperty[propAddress];
-        const propFolderId = property.folderId;
 
-        console.log(`[BulkUpload] Procesando propiedad: ${propAddress} (${propFolderId})`);
+        console.log(`[BulkUpload] Procesando propiedad: ${propAddress}`);
         
         setUploadDebug(prev => ({
           ...prev,
           property: propAddress,
-          propertyId: propFolderId,
           path: propAddress,
+          action: "Buscando carpeta de la propiedad...",
+          status: "searching",
+        }));
+
+        // ✅ Buscar folderId en Supabase
+        let propFolderId = property.folderId; // Intentar primero del objeto
+        
+        if (!propFolderId) {
+          console.log(`[BulkUpload] folderId no encontrado en constants.js, buscando en Supabase...`);
+          try {
+            const folder = await findFolderByAddress(property.address, property.owner);
+            if (folder && folder.google_drive_id) {
+              propFolderId = folder.google_drive_id;
+              console.log(`[BulkUpload] ✅ Carpeta encontrada en Supabase: ${propFolderId}`);
+            } else {
+              throw new Error(`No se encontró carpeta para ${property.address}`);
+            }
+          } catch (searchErr) {
+            console.error("[BulkUpload] Error buscando carpeta:", searchErr);
+            setUploadDebug(prev => ({
+              ...prev,
+              action: "Error: Carpeta no encontrada",
+              error: `No se encontró la carpeta de Google Drive para ${property.address}. Vincúlala manualmente primero.`,
+              status: "error",
+            }));
+            failCount += Object.values(photosByDate).reduce((sum, arr) => sum + arr.length, 0);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            continue; // Saltar esta propiedad
+          }
+        }
+        
+        console.log(`[BulkUpload] Usando folderId: ${propFolderId}`);
+        
+        setUploadDebug(prev => ({
+          ...prev,
+          propertyId: propFolderId,
+          action: "Carpeta encontrada",
+          status: "found",
         }));
 
         try {
