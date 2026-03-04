@@ -43,10 +43,22 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
     setSearching(true); setNotFound(false); setFolderId(null); setTenant(null);
 
     const findFolder = async () => {
-      // Strategy 1: Search directly in Drive API (works even if Supabase index is incomplete)
+      // Strategy 1: Supabase index (instantáneo — tiene el google_drive_id directo)
+      try {
+        const folder = await findFolderByAddress(property.address, property.owner);
+        if (folder?.google_drive_id) {
+          console.log("[PropertyDetail] Found via Supabase:", folder.google_drive_id);
+          setFolderId(folder.google_drive_id);
+          setSearching(false);
+          return;
+        }
+      } catch (err) {
+        console.error("[PropertyDetail] Supabase search failed:", err);
+      }
+      // Strategy 2: Fallback — buscar en Drive API (más lento, solo si Supabase no tiene el registro)
       if (drive?.token && drive?.searchFolderByAddress) {
         try {
-          console.log("[PropertyDetail] Searching Drive API for:", property.address);
+          console.log("[PropertyDetail] Supabase miss, trying Drive API for:", property.address);
           const driveResult = await drive.searchFolderByAddress(property.address, property.owner, DRIVE_ROOT_FOLDER);
           if (driveResult?.id) {
             console.log("[PropertyDetail] Found via Drive API:", driveResult);
@@ -54,21 +66,11 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
             setSearching(false);
             return;
           }
-          console.log("[PropertyDetail] Not found via Drive API, trying Supabase...");
         } catch (err) {
           console.error("[PropertyDetail] Drive search failed:", err);
         }
       }
-      // Strategy 2: Fallback to Supabase index
-      try {
-        const folder = await findFolderByAddress(property.address, property.owner);
-        console.log("[PropertyDetail] Supabase result:", folder ? { name: folder.name, id: folder.google_drive_id } : "NOT FOUND");
-        if (folder?.google_drive_id) setFolderId(folder.google_drive_id);
-        else setNotFound(true);
-      } catch (err) {
-        console.error("[PropertyDetail] Supabase search failed:", err);
-        setNotFound(true);
-      }
+      setNotFound(true);
       setSearching(false);
     };
 
