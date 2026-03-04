@@ -1,13 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/BulkPhotoUpload.jsx
-// Versión: V12 — Drag & Drop + Columna Destino Drive
+// Versión: V13 — Totalmente Automático
 // Fecha: 2026-03-04
 // ═══════════════════════════════════════════
-// CAMBIOS EN V12:
-// - Drag & Drop en la zona de selección de fotos
-// - Columna "Destino" en tabla de revisión: muestra la ruta exacta
-//   en Google Drive donde se archivará cada foto
-//   (address > INSPECCION > año > DD Mon AA)
+// CAMBIOS EN V13:
+// - Eliminadas todas las pausas de confirmación
+// - Directorios faltantes se crean automáticamente sin preguntar
+// - El flujo es: select → scanning → review → progress → done
+// - Se mantiene el log de lo que se creó en la pantalla de progreso
 // ═══════════════════════════════════════════
 
 import { useState, useRef, useCallback } from "react";
@@ -20,15 +20,13 @@ import { extractPhotoMetadata } from "../lib/photoOCR";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-/** Construye la ruta Drive de destino a partir de propiedad + fecha */
 const buildDrivePath = (property, date) => {
   if (!property || !date) return null;
   const dateName = `${date.getDate()} ${MONTHS_ES[date.getMonth()]} ${String(date.getFullYear()).slice(2)}`;
-  const year     = date.getFullYear();
-  return `${property.address} › INSPECCION › ${year} › ${dateName}`;
+  return `${property.address} › INSPECCION › ${date.getFullYear()} › ${dateName}`;
 };
 
-// ─── Sub-componentes ──────────────────────────────────────────────────────
+// ─── UI ───────────────────────────────────────────────────────────────────
 
 const Btn = ({ onClick, disabled, color, children, style = {} }) => (
   <button onClick={onClick} disabled={disabled} style={{
@@ -67,41 +65,32 @@ const StatusDot = ({ color }) => (
 // ═══════════════════════════════════════════
 export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
 
-  const [step, setStep]                     = useState("select");
-  const [photos, setPhotos]                 = useState([]);
-  const [ocrProgress, setOcrProgress]       = useState({ current: 0, total: 0 });
-  const [dragOver, setDragOver]             = useState(false);
+  // select → ocr_scanning → review → running → done
+  const [step, setStep]               = useState("select");
+  const [photos, setPhotos]           = useState([]);
+  const [ocrProgress, setOcrProgress] = useState({ current: 0, total: 0 });
+  const [dragOver, setDragOver]       = useState(false);
 
-  const queueRef        = useRef([]);
-  const currentGroupRef = useRef(null);
-  const propFolderRef   = useRef(null);
-  const inspecFolderRef = useRef(null);
-  const yearFolderRef   = useRef(null);
-
-  const [pendingCreate, setPendingCreate] = useState(null);
-  const [lastCreated, setLastCreated]     = useState(null);
-  const continueNavRef = useRef(null);
-
-  const [navStatus, setNavStatus]           = useState("");
-  const [uploadProgress, setUploadProgress] = useState("");
-  const [uploadSummary, setUploadSummary]   = useState(null);
+  // Log de progreso (running step)
+  const [log, setLog]           = useState([]);
+  const [uploadSummary, setUploadSummary] = useState(null);
 
   const fileInputRef = useRef(null);
   const activeProps  = PROPERTIES.filter(p => !p.sold);
 
+  const addLog = (msg) => setLog(prev => [...prev, msg]);
+
   // ════════════════════════════════════════════
-  // Procesamiento de archivos (compartido por click y drag&drop)
+  // Procesar archivos (click o drag&drop)
   // ════════════════════════════════════════════
   const processFiles = useCallback(async (files) => {
     if (!files.length) return;
-
     const initial = files.map((file, i) => ({
       id: `p_${Date.now()}_${i}`,
       file,
       name: file.name,
       ocrStatus: "pending",
       detectedAddress: null,
-      detectedDate: null,
       dateSource: null,
       addressSource: null,
       matchedProperty: null,
@@ -124,7 +113,6 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
           ...updated[i],
           ocrStatus:        meta.matchedProperty ? "ok" : meta.address ? "no_match" : "no_address",
           detectedAddress:  meta.address,
-          detectedDate:     meta.date,
           dateSource:       meta.dateSource,
           addressSource:    meta.addressSource,
           matchedProperty:  meta.matchedProperty || null,
@@ -139,25 +127,12 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     setStep("review");
   }, [activeProps]);
 
-  // ── Click normal ───────────────────────────────────────────────────────
-  const handleFileSelect = (e) => {
-    processFiles(Array.from(e.target.files || []));
-  };
+  const handleFileSelect = (e) => processFiles(Array.from(e.target.files || []));
 
-  // ── Drag & Drop ────────────────────────────────────────────────────────
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOver(true);
-  };
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-  };
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOver(false);
+  const handleDragOver  = (e) => { e.preventDefault(); setDragOver(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); setDragOver(false); };
+  const handleDrop      = (e) => {
+    e.preventDefault(); setDragOver(false);
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
     if (files.length) processFiles(files);
   };
@@ -165,139 +140,55 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
   // ════════════════════════════════════════════
   // Revisión
   // ════════════════════════════════════════════
-  const updatePhoto = (id, patch) => {
+  const updatePhoto = (id, patch) =>
     setPhotos(prev => prev.map(p => p.id === id ? { ...p, ...patch, override: true } : p));
-  };
 
   const readyToUpload = photos.length > 0 && photos.every(p => p.selectedProperty && p.selectedDate);
   const problemCount  = photos.filter(p => !p.selectedProperty || !p.selectedDate).length;
 
   // ════════════════════════════════════════════
-  // Navegación de directorios
+  // Ejecución automática — navegar + crear + subir
   // ════════════════════════════════════════════
-  const buildQueue = (pts) => {
-    const map = {};
-    pts.forEach(p => {
-      if (!p.selectedProperty || !p.selectedDate) return;
-      const key = `${p.selectedProperty.address}||${p.selectedDate.toDateString()}`;
-      if (!map[key]) map[key] = { property: p.selectedProperty, date: p.selectedDate, photoIds: [] };
-      map[key].photoIds.push(p.id);
-    });
-    return Object.values(map);
-  };
 
-  const startNavigation = (pts) => {
-    queueRef.current = buildQueue(pts);
-    if (!queueRef.current.length) return;
-    setStep("navigating");
-    processNextGroup(pts);
-  };
+  /** Navega o crea la estructura de carpetas. Devuelve el folderId de la carpeta de fecha. */
+  const ensureFolderPath = async (property, date) => {
+    const dateName = `${date.getDate()} ${MONTHS_ES[date.getMonth()]} ${String(date.getFullYear()).slice(2)}`;
+    const year     = date.getFullYear().toString();
 
-  const processNextGroup = async (pts) => {
-    if (!queueRef.current.length) {
-      setStep("uploading");
-      await uploadAll(pts || photos);
-      return;
+    // Raíz de propiedad (desde Supabase)
+    const sf = await findFolderByAddress(property.address, property.owner);
+    if (!sf?.google_drive_id) throw new Error(`Sin carpeta en Supabase para: ${property.address}`);
+    const propId = sf.google_drive_id;
+
+    // INSPECCION
+    let inspec = await drive.findSubfolder(propId, "INSPEC");
+    if (!inspec) {
+      addLog(`  📁 Creando INSPECCION en ${property.address}...`);
+      inspec = await drive.createFolder("INSPECCION", propId);
     }
-    const group = queueRef.current.shift();
-    currentGroupRef.current = group;
-    propFolderRef.current = inspecFolderRef.current = yearFolderRef.current = null;
-    setNavStatus(`📍 Navegando: ${group.property.address}`);
-    await navigatePropFolder(group, pts);
-  };
 
-  const navigatePropFolder = async (group, pts) => {
-    setNavStatus(`Buscando carpeta de "${group.property.address}" en Supabase...`);
-    try {
-      const sf = await findFolderByAddress(group.property.address, group.property.owner);
-      if (!sf?.google_drive_id) {
-        setNavStatus(`❌ No se encontró carpeta en Supabase para:\n${group.property.address}`);
-        setStep("nav_error"); return;
-      }
-      propFolderRef.current = { id: sf.google_drive_id, name: group.property.address };
-      await navigateInspeccion(group, pts);
-    } catch (err) {
-      setNavStatus(`❌ Error: ${err.message}`); setStep("nav_error");
+    // Año
+    let yearFolder = await drive.findSubfolder(inspec.id, year);
+    if (!yearFolder) {
+      addLog(`  📁 Creando ${year}...`);
+      yearFolder = await drive.createFolder(year, inspec.id);
     }
-  };
 
-  const navigateInspeccion = async (group, pts) => {
-    setNavStatus("Buscando carpeta de inspecciones...");
-    const found = await drive.findSubfolder(propFolderRef.current.id, "INSPEC");
-    if (found) {
-      inspecFolderRef.current = { id: found.id, name: found.name };
-      await navigateYear(group, pts);
-    } else {
-      continueNavRef.current = () => navigateYear(group, pts);
-      setPendingCreate({ name: "INSPECCION", parentId: propFolderRef.current.id, parentPath: group.property.address, phase: 0, group, pts });
-      setStep("confirm_create");
+    // Fecha
+    let dateFolder = await drive.findSubfolder(yearFolder.id, dateName);
+    if (!dateFolder) {
+      addLog(`  📁 Creando ${dateName}...`);
+      dateFolder = await drive.createFolder(dateName, yearFolder.id);
     }
+
+    return dateFolder.id;
   };
 
-  const navigateYear = async (group, pts) => {
-    const year = group.date.getFullYear().toString();
-    setNavStatus(`Buscando carpeta del año ${year}...`);
-    const found = await drive.findSubfolder(inspecFolderRef.current.id, year);
-    if (found) {
-      yearFolderRef.current = { id: found.id, name: found.name };
-      await navigateDate(group, pts);
-    } else {
-      continueNavRef.current = () => navigateDate(group, pts);
-      setPendingCreate({ name: year, parentId: inspecFolderRef.current.id, parentPath: `${group.property.address} > ${inspecFolderRef.current.name}`, phase: 1, group, pts });
-      setStep("confirm_create");
-    }
-  };
+  const runAll = async (pts) => {
+    setLog([]);
+    setStep("running");
 
-  const navigateDate = async (group, pts) => {
-    const d        = group.date;
-    const dateName = `${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
-    setNavStatus(`Buscando carpeta de fecha "${dateName}"...`);
-    const found = await drive.findSubfolder(yearFolderRef.current.id, dateName);
-    if (found) {
-      currentGroupRef.current.dateFolderId = found.id;
-      currentGroupRef.current.dateName     = dateName;
-      await processNextGroup(pts);
-    } else {
-      continueNavRef.current = null;
-      setPendingCreate({ name: dateName, parentId: yearFolderRef.current.id, parentPath: `${group.property.address} > ${inspecFolderRef.current.name} > ${yearFolderRef.current.name}`, phase: 2, group, pts });
-      setStep("confirm_create");
-    }
-  };
-
-  const handleConfirmCreate = async () => {
-    const { name, parentId, parentPath, phase, group, pts } = pendingCreate;
-    setStep("navigating");
-    setNavStatus(`Creando directorio "${name}"...`);
-    try {
-      const created  = await drive.createFolder(name, parentId);
-      const fullPath = `${parentPath} > ${name}`;
-      if (phase === 0) inspecFolderRef.current = { id: created.id, name };
-      else if (phase === 1) yearFolderRef.current = { id: created.id, name };
-      else if (phase === 2) {
-        currentGroupRef.current.dateFolderId = created.id;
-        currentGroupRef.current.dateName     = name;
-      }
-      setLastCreated({ name, id: created.id, fullPath, phase, group, pts });
-      setStep("created_notice");
-    } catch (err) {
-      setNavStatus(`❌ Error al crear "${name}": ${err.message}`);
-      setStep("nav_error");
-    }
-  };
-
-  const handleContinueAfterVerify = async () => {
-    const { phase, pts } = lastCreated;
-    setLastCreated(null); setPendingCreate(null);
-    setStep("navigating");
-    if (phase === 2) await processNextGroup(pts);
-    else if (continueNavRef.current) await continueNavRef.current();
-    else await processNextGroup(pts);
-  };
-
-  // ════════════════════════════════════════════
-  // Upload
-  // ════════════════════════════════════════════
-  const uploadAll = async (pts) => {
+    // Agrupar por propiedad + fecha
     const groupMap = {};
     pts.forEach(p => {
       if (!p.selectedProperty || !p.selectedDate) return;
@@ -311,37 +202,43 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     for (const { property, date, photos: gPhotos } of Object.values(groupMap)) {
       const dateName  = `${date.getDate()} ${MONTHS_ES[date.getMonth()]} ${String(date.getFullYear()).slice(2)}`;
       const shortName = property.address.replace(/^\d+\s*/, "").split(/\s+/).slice(0, 2).join(" ");
-      setUploadProgress(`📍 ${property.address} — "${dateName}"`);
 
-      let folderId = null;
+      addLog(`📍 ${property.address} — ${dateName}`);
+
+      let folderId;
       try {
-        const sf     = await findFolderByAddress(property.address, property.owner);
-        if (!sf?.google_drive_id) throw new Error("Sin carpeta en Supabase");
-        const inspec = await drive.findSubfolder(sf.google_drive_id, "INSPEC");
-        if (!inspec) throw new Error("Sin carpeta INSPECCION");
-        const year   = await drive.findSubfolder(inspec.id, date.getFullYear().toString());
-        if (!year)   throw new Error("Sin carpeta de año");
-        const df     = await drive.findSubfolder(year.id, dateName);
-        if (!df)     throw new Error(`Sin carpeta "${dateName}"`);
-        folderId = df.id;
+        folderId = await ensureFolderPath(property, date);
       } catch (err) {
-        setUploadProgress(`❌ ${property.address}: ${err.message}`);
-        fail += gPhotos.length; continue;
+        addLog(`  ❌ ${err.message}`);
+        fail += gPhotos.length;
+        continue;
       }
 
+      // Verificar duplicados
       const existing     = await drive.listAllFiles(folderId);
       const existingNames = new Set((existing || []).map(f => f.name));
 
       for (let i = 0; i < gPhotos.length; i++) {
         const ext      = gPhotos[i].file.name.split(".").pop() || "jpg";
         const fileName = `${shortName} ${i + 1} Foto ${dateName}.${ext}`;
-        if (existingNames.has(fileName)) { skip++; setUploadProgress(`⏭️ ${fileName}`); continue; }
-        setUploadProgress(`📤 ${i + 1}/${gPhotos.length}: ${fileName}`);
-        try { await drive.uploadFile(gPhotos[i].file, fileName, folderId); ok++; }
-        catch { fail++; }
+
+        if (existingNames.has(fileName)) {
+          addLog(`  ⏭️ ${fileName} (ya existe)`);
+          skip++; continue;
+        }
+
+        addLog(`  📤 ${fileName}`);
+        try {
+          await drive.uploadFile(gPhotos[i].file, fileName, folderId);
+          ok++;
+        } catch (err) {
+          addLog(`  ❌ ${fileName}: ${err.message}`);
+          fail++;
+        }
       }
     }
 
+    addLog(`\n✅ Completado — ${ok} subidas, ${skip} ya existían${fail ? `, ${fail} fallidas` : ""}`);
     setUploadSummary({ success: ok, skipped: skip, failed: fail });
     onComplete({ success: ok, failed: fail });
     setStep("done");
@@ -371,7 +268,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     }}>
       <Card style={{
         maxWidth: 860, width: "100%", maxHeight: "90vh",
-        overflow: "auto", padding: mob ? 18 : 28, position: "relative",
+        overflow: "auto", padding: mob ? 18 : 28,
       }}>
 
         {/* Header */}
@@ -382,28 +279,23 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 22 }}>✕</button>
         </div>
 
-        {/* ══ SELECT — con Drag & Drop ══ */}
+        {/* ══ SELECT ══ */}
         {step === "select" && (
           <>
             <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} style={{ display: "none" }} />
             <div
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
+              onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
               style={{
                 width: "100%", padding: "52px 20px",
                 background: dragOver ? `${C.accent}18` : C.surface2,
                 border: `2px dashed ${dragOver ? C.accent : C.border}`,
-                borderRadius: 12, cursor: "pointer",
-                textAlign: "center",
+                borderRadius: 12, cursor: "pointer", textAlign: "center",
                 transition: "background 0.15s, border-color 0.15s",
               }}
             >
-              <div style={{ fontSize: 36, marginBottom: 10 }}>
-                {dragOver ? "⬇️" : "📁"}
-              </div>
-              <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 600, color: dragOver ? C.accent : C.accent, marginBottom: 6 }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>{dragOver ? "⬇️" : "📁"}</div>
+              <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 600, color: C.accent, marginBottom: 6 }}>
                 {dragOver ? "Suelta las fotos aquí" : "Seleccionar Fotos"}
               </div>
               <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>
@@ -420,9 +312,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
         {step === "ocr_scanning" && (
           <div style={{ textAlign: "center" }}>
             <div style={{ marginBottom: 14 }}><Spinner /></div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, marginBottom: 4 }}>
-              Leyendo metadatos...
-            </div>
+            <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, marginBottom: 4 }}>Leyendo metadatos...</div>
             <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 14 }}>
               {ocrProgress.current} / {ocrProgress.total}
             </div>
@@ -444,7 +334,6 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
         {/* ══ REVIEW ══ */}
         {step === "review" && (
           <div>
-            {/* Resumen */}
             <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
               <InfoBox color={C.green} style={{ flex: 1, marginBottom: 0, padding: "9px 12px" }}>
                 <strong style={{ color: C.green }}>✓ {photos.filter(p => p.selectedProperty).length}</strong>
@@ -458,32 +347,28 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
               )}
             </div>
 
-            {/* Tabla */}
             <div style={{ overflowX: "auto", marginBottom: 14 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "DM Sans", fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: C.surface2, borderBottom: `1px solid ${C.border}` }}>
-                    <th style={{ padding: "8px 10px", textAlign: "left",   color: C.textDim, fontWeight: 600, whiteSpace: "nowrap" }}>Foto</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left",   color: C.textDim, fontWeight: 600, whiteSpace: "nowrap" }}>Propiedad</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left",   color: C.textDim, fontWeight: 600, whiteSpace: "nowrap" }}>Fecha</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left",   color: C.textDim, fontWeight: 600, whiteSpace: "nowrap" }}>Destino en Drive</th>
-                    <th style={{ padding: "8px 10px", textAlign: "center", color: C.textDim, fontWeight: 600, whiteSpace: "nowrap" }}>Estado</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left",   color: C.textDim, fontWeight: 600 }}>Foto</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left",   color: C.textDim, fontWeight: 600 }}>Propiedad</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left",   color: C.textDim, fontWeight: 600 }}>Fecha</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left",   color: C.textDim, fontWeight: 600 }}>Destino en Drive</th>
+                    <th style={{ padding: "8px 10px", textAlign: "center", color: C.textDim, fontWeight: 600 }}>Estado</th>
                   </tr>
                 </thead>
                 <tbody>
                   {photos.map((p) => {
-                    const s        = statusInfo(p.override ? "manual" : p.ocrStatus);
+                    const s         = statusInfo(p.override ? "manual" : p.ocrStatus);
                     const drivePath = buildDrivePath(p.selectedProperty, p.selectedDate);
-                    const pathParts = drivePath ? drivePath.split(" › ") : [];
-
+                    const parts     = drivePath ? drivePath.split(" › ") : [];
                     return (
                       <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}` }}>
 
                         {/* Foto */}
-                        <td style={{ padding: "7px 10px", color: C.textDim, maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.name}>
-                            {p.name}
-                          </div>
+                        <td style={{ padding: "7px 10px", color: C.textDim, maxWidth: 110 }}>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.name}>{p.name}</div>
                           {p.detectedAddress && (
                             <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>
                               {p.addressSource === "exif" ? "📋" : p.addressSource === "gps" ? "📍" : "🔍"} {p.detectedAddress}
@@ -500,16 +385,13 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
                               updatePhoto(p.id, { selectedProperty: prop });
                             }}
                             style={{
-                              width: "100%", padding: "5px 7px",
-                              fontFamily: "DM Sans", fontSize: 12,
+                              width: "100%", padding: "5px 7px", fontFamily: "DM Sans", fontSize: 12,
                               border: `1px solid ${p.selectedProperty ? C.border : C.red}`,
                               borderRadius: 6, background: C.surface2, color: C.text,
                             }}
                           >
                             <option value="">Sin asignar</option>
-                            {activeProps.map(x => (
-                              <option key={x.address} value={x.address}>{x.address}</option>
-                            ))}
+                            {activeProps.map(x => <option key={x.address} value={x.address}>{x.address}</option>)}
                           </select>
                         </td>
 
@@ -523,8 +405,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
                               updatePhoto(p.id, { selectedDate: d });
                             }}
                             style={{
-                              width: "100%", padding: "5px 7px",
-                              fontFamily: "DM Sans", fontSize: 12,
+                              width: "100%", padding: "5px 7px", fontFamily: "DM Sans", fontSize: 12,
                               border: `1px solid ${p.selectedDate ? C.border : C.red}`,
                               borderRadius: 6, background: C.surface2, color: "#fff", colorScheme: "dark",
                             }}
@@ -536,17 +417,16 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
                           )}
                         </td>
 
-                        {/* Destino en Drive */}
+                        {/* Destino */}
                         <td style={{ padding: "7px 10px", minWidth: 200 }}>
-                          {drivePath ? (
+                          {parts.length > 0 ? (
                             <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                              {pathParts.map((part, i) => (
+                              {parts.map((part, i) => (
                                 <div key={i} style={{
                                   display: "flex", alignItems: "center", gap: 4,
-                                  fontFamily: "DM Sans", fontSize: 11,
-                                  paddingLeft: i * 10,
-                                  color: i === pathParts.length - 1 ? C.green : C.textDim,
-                                  fontWeight: i === pathParts.length - 1 ? 600 : 400,
+                                  paddingLeft: i * 10, fontFamily: "DM Sans", fontSize: 11,
+                                  color: i === parts.length - 1 ? C.green : C.textDim,
+                                  fontWeight: i === parts.length - 1 ? 600 : 400,
                                 }}>
                                   {i > 0 && <span style={{ color: C.border, fontSize: 9 }}>└</span>}
                                   <span>📁 {part}</span>
@@ -563,7 +443,6 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
                           <StatusDot color={s.color} />
                           <span style={{ color: s.color, fontSize: 11 }}>{s.label}</span>
                         </td>
-
                       </tr>
                     );
                   })}
@@ -571,85 +450,41 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
               </table>
             </div>
 
-            <Btn
-              onClick={() => startNavigation(photos)}
-              disabled={!readyToUpload}
-              style={{ width: "100%" }}
-            >
+            <Btn onClick={() => runAll(photos)} disabled={!readyToUpload} style={{ width: "100%" }}>
               {readyToUpload
-                ? `Archivar ${photos.length} foto${photos.length !== 1 ? "s" : ""} →`
+                ? `🚀 Archivar ${photos.length} foto${photos.length !== 1 ? "s" : ""} automáticamente`
                 : `Corrige ${problemCount} foto${problemCount !== 1 ? "s" : ""} antes de continuar`}
             </Btn>
           </div>
         )}
 
-        {/* ══ NAVIGATING ══ */}
-        {step === "navigating" && (
-          <div style={{ textAlign: "center" }}>
-            <div style={{ marginBottom: 14 }}><Spinner /></div>
-            <InfoBox color={C.accent}>{navStatus || "Navegando estructura de directorios..."}</InfoBox>
-          </div>
-        )}
-
-        {/* ══ CONFIRM CREATE ══ */}
-        {step === "confirm_create" && pendingCreate && (
+        {/* ══ RUNNING ══ */}
+        {step === "running" && (
           <div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 10 }}>
-              ⚠️ El siguiente directorio no existe y necesita crearse:
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <Spinner />
+              <span style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text }}>Archivando...</span>
             </div>
-            <InfoBox color={C.orange}>
-              <div style={{ marginBottom: 6 }}><strong style={{ color: C.orange }}>Directorio a crear:</strong></div>
-              <div style={{ fontFamily: "monospace", fontSize: 14, color: C.text, marginBottom: 10 }}>📁 {pendingCreate.name}</div>
-              <div style={{ fontSize: 12, color: C.textDim, marginBottom: 8 }}>
-                <strong>Dentro de:</strong><br />{pendingCreate.parentPath}
-              </div>
-              <div style={{ paddingTop: 8, borderTop: `1px solid ${C.orange}30`, fontSize: 12, color: C.textDim }}>
-                <strong>Ruta completa resultante:</strong><br />
-                <span style={{ fontFamily: "monospace" }}>{pendingCreate.parentPath} &gt; {pendingCreate.name}</span>
-              </div>
-            </InfoBox>
-            <div style={{ display: "flex", gap: 10 }}>
-              <Btn onClick={handleConfirmCreate} color={C.green} style={{ flex: 1 }}>✅ Sí, crear directorio</Btn>
-              <Btn onClick={onClose} color={C.red} style={{ flex: 1 }}>✕ Cancelar</Btn>
+            <div style={{
+              background: C.surface2, border: `1px solid ${C.border}`,
+              borderRadius: 10, padding: "12px 14px",
+              fontFamily: "monospace", fontSize: 12, color: C.textDim,
+              maxHeight: 320, overflowY: "auto",
+              display: "flex", flexDirection: "column", gap: 3,
+            }}>
+              {log.map((line, i) => (
+                <div key={i} style={{
+                  color: line.startsWith("📍") ? C.text
+                       : line.startsWith("  ✅") || line.startsWith("✅") ? C.green
+                       : line.startsWith("  ❌") ? C.red
+                       : line.startsWith("  ⏭️") ? C.textDim
+                       : line.startsWith("  📁") ? C.orange
+                       : C.textDim,
+                }}>
+                  {line}
+                </div>
+              ))}
             </div>
-          </div>
-        )}
-
-        {/* ══ CREATED NOTICE ══ */}
-        {step === "created_notice" && lastCreated && (
-          <div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 10 }}>
-              ✅ Directorio creado. Verifica en Google Drive antes de continuar:
-            </div>
-            <InfoBox color={C.green}>
-              <div style={{ marginBottom: 6 }}><strong style={{ color: C.green }}>📁 Creado:</strong> {lastCreated.name}</div>
-              <div style={{ fontSize: 12, color: C.textDim, marginTop: 4 }}>
-                <strong>ID Drive:</strong> <span style={{ fontFamily: "monospace" }}>{lastCreated.id}</span>
-              </div>
-              <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${C.green}30`, fontSize: 12 }}>
-                <strong>Ruta completa:</strong><br />
-                <span style={{ fontFamily: "monospace" }}>{lastCreated.fullPath}</span>
-              </div>
-            </InfoBox>
-            <Btn onClick={handleContinueAfterVerify} color={C.accent} style={{ width: "100%" }}>
-              Verificado — Continuar →
-            </Btn>
-          </div>
-        )}
-
-        {/* ══ NAV ERROR ══ */}
-        {step === "nav_error" && (
-          <div>
-            <InfoBox color={C.red}>{navStatus}</InfoBox>
-            <Btn onClick={onClose} color={C.red} style={{ width: "100%" }}>Cerrar</Btn>
-          </div>
-        )}
-
-        {/* ══ UPLOADING ══ */}
-        {step === "uploading" && (
-          <div style={{ textAlign: "center" }}>
-            <div style={{ marginBottom: 14 }}><Spinner /></div>
-            <InfoBox color={C.accent}>{uploadProgress || "Subiendo fotos..."}</InfoBox>
           </div>
         )}
 
@@ -662,6 +497,19 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
               {uploadSummary.skipped > 0 && <div>⏭️ Ya existían: <strong>{uploadSummary.skipped}</strong></div>}
               {uploadSummary.failed  > 0 && <div style={{ color: C.red }}>❌ Fallidas: <strong>{uploadSummary.failed}</strong></div>}
             </InfoBox>
+            {/* Log colapsado para referencia */}
+            <details style={{ marginBottom: 14 }}>
+              <summary style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, cursor: "pointer", marginBottom: 6 }}>
+                Ver detalle del proceso
+              </summary>
+              <div style={{
+                background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8,
+                padding: "10px 12px", fontFamily: "monospace", fontSize: 11,
+                color: C.textDim, maxHeight: 200, overflowY: "auto",
+              }}>
+                {log.map((line, i) => <div key={i}>{line}</div>)}
+              </div>
+            </details>
             <Btn onClick={onClose} color={C.green} style={{ width: "100%" }}>Cerrar</Btn>
           </div>
         )}
