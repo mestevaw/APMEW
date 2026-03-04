@@ -1,212 +1,224 @@
 // ═══════════════════════════════════════════
 // Archivo: src/lib/photoOCR.js
-// Versión: V6 — EXIF + OCR Multi-estrategia
+// Versión: V7 — GPS + Reverse Geocoding como fuente primaria
 // Fecha: 2026-03-04
 // ═══════════════════════════════════════════
-// CAMBIOS EN V6:
-// - EXIF: extrae fecha directamente de los metadatos del archivo JPEG
-//         (más confiable que OCR para la fecha)
-// - OCR mejorado: enfoca la esquina SUPERIOR DERECHA donde el sello
-//         de iOS/Android suele estampar dirección y fecha
-// - Multi-estrategia: corre 3 versiones de preprocesamiento en paralelo
-//         (original, invertida, alto contraste) y usa la que encuentre
-//         la dirección
+// ESTRATEGIA (en orden de prioridad):
+//   FECHA:     1. EXIF DateTimeOriginal  2. OCR  3. null
+//   DIRECCIÓN: 1. EXIF GPS → Nominatim  2. OCR  3. null
+//
+// OpenStreetMap Nominatim: gratis, sin API key
 // ═══════════════════════════════════════════
 
 import Tesseract from "tesseract.js";
 import { MONTHS_ES } from "./helpers";
 
 // ════════════════════════════════════════════
-// EXIF — Extracción de fecha sin librería
+// EXIF — Lector binario sin librería externa
 // ════════════════════════════════════════════
 
 /**
- * Lee el tag DateTimeOriginal del EXIF de un JPEG.
- * Formato EXIF: "YYYY:MM:DD HH:MM:SS"
+ * Lee fecha + GPS del EXIF binario de un JPEG
  * @param {File} file
- * @returns {Promise<Date|null>}
+ * @returns {Promise<{ date: Date|null, lat: number|null, lon: number|null }>}
  */
-export const extractExifDate = async (file) => {
+export const extractExifData = async (file) => {
+  const out = { date: null, lat: null, lon: null };
   try {
     const buffer = await file.arrayBuffer();
     const view   = new DataView(buffer);
-
-    // Verificar marcador SOI de JPEG
-    if (view.getUint16(0) !== 0xFFD8) return null;
+    if (view.getUint16(0) !== 0xFFD8) return out; // No es JPEG
 
     let offset = 2;
     while (offset < view.byteLength - 4) {
       const marker = view.getUint16(offset);
-      const length = view.getUint16(offset + 2);
-
-      // APP1 = 0xFFE1 (donde vive EXIF)
+      const segLen = view.getUint16(offset + 2);
       if (marker === 0xFFE1) {
-        const exifDate = parseExifFromApp1(view, offset + 4, length - 2);
-        if (exifDate) return exifDate;
+        parseApp1Segment(view, offset + 4, out);
+        if (out.date && out.lat !== null) break; // Tenemos todo
       }
-
-      // Saltar al siguiente segmento
-      if (length < 2) break;
-      offset += 2 + length;
+      if (segLen < 2) break;
+      offset += 2 + segLen;
     }
-    return null;
   } catch (err) {
-    console.warn("[EXIF] Error leyendo EXIF:", err);
-    return null;
+    console.warn("[EXIF] Error leyendo archivo:", err.message);
   }
+  return out;
 };
 
-const parseExifFromApp1 = (view, start, length) => {
+const parseApp1Segment = (view, start, out) => {
   try {
     // Verificar firma "Exif\0\0"
     const sig = String.fromCharCode(
-      view.getUint8(start),   view.getUint8(start+1),
-      view.getUint8(start+2), view.getUint8(start+3)
+      view.getUint8(start), view.getUint8(start + 1),
+      view.getUint8(start + 2), view.getUint8(start + 3)
     );
-    if (sig !== "Exif") return null;
+    if (sig !== "Exif") return;
 
-    const tiffStart  = start + 6;
-    const byteOrder  = view.getUint16(tiffStart); // 0x4949=LE, 0x4D4D=BE
-    const littleEnd  = byteOrder === 0x4949;
-    const getUint16  = (o) => view.getUint16(tiffStart + o, littleEnd);
-    const getUint32  = (o) => view.getUint32(tiffStart + o, littleEnd);
+    const tiff   = start + 6;
+    const le     = view.getUint16(tiff) === 0x4949; // little-endian
+    const u16    = (o) => view.getUint16(tiff + o, le);
+    const u32    = (o) => view.getUint32(tiff + o, le);
+    const ratio  = (o) => { const n = u32(o), d = u32(o + 4); return d ? n / d : 0; };
 
-    // IFD0 offset
-    const ifd0Offset = getUint32(4);
-    const ifd0Count  = getUint16(ifd0Offset);
+    const ifd0   = u32(4);
+    const n0     = u16(ifd0);
+    let exifOff  = null;
+    let gpsOff   = null;
 
-    let exifIFDOffset = null;
-
-    // Buscar tag ExifIFD (0x8769) en IFD0
-    for (let i = 0; i < ifd0Count; i++) {
-      const entryOffset = ifd0Offset + 2 + i * 12;
-      const tag = getUint16(entryOffset);
-      if (tag === 0x8769) {
-        exifIFDOffset = getUint32(entryOffset + 8);
-        break;
-      }
+    for (let i = 0; i < n0; i++) {
+      const e   = ifd0 + 2 + i * 12;
+      const tag = u16(e);
+      if (tag === 0x8769) exifOff = u32(e + 8);
+      if (tag === 0x8825) gpsOff  = u32(e + 8);
     }
 
-    // Buscar DateTimeOriginal (0x9003) en ExifIFD
-    const searchIn = exifIFDOffset ? [exifIFDOffset, ifd0Offset] : [ifd0Offset];
-
-    for (const ifdOffset of searchIn) {
-      if (!ifdOffset) continue;
-      const count = getUint16(ifdOffset);
-      for (let i = 0; i < count; i++) {
-        const entryOffset = ifdOffset + 2 + i * 12;
-        const tag = getUint16(entryOffset);
-
-        // 0x9003 = DateTimeOriginal, 0x0132 = DateTime
+    // ── Fecha desde ExifIFD (tag 0x9003) ────────────────────────────────
+    if (!out.date && exifOff) {
+      const ne = u16(exifOff);
+      for (let i = 0; i < ne; i++) {
+        const e   = exifOff + 2 + i * 12;
+        const tag = u16(e);
         if (tag === 0x9003 || tag === 0x0132) {
-          const valueOffset = getUint32(entryOffset + 8);
-          // Leer string ASCII desde el offset
-          let dateStr = "";
+          const vo = u32(e + 8);
+          let s    = "";
           for (let c = 0; c < 19; c++) {
-            const ch = view.getUint8(tiffStart + valueOffset + c);
-            if (ch === 0) break;
-            dateStr += String.fromCharCode(ch);
+            const ch = view.getUint8(tiff + vo + c);
+            if (!ch) break;
+            s += String.fromCharCode(ch);
           }
-          // Formato: "2026:03:03 10:48:57"
-          const parsed = parseExifDateString(dateStr);
-          if (parsed) {
-            console.log("[EXIF] Fecha encontrada:", dateStr, "→", parsed);
-            return parsed;
-          }
+          const d = exifStrToDate(s);
+          if (d) { out.date = d; break; }
         }
       }
     }
-    return null;
+
+    // ── GPS desde GPSIFD ─────────────────────────────────────────────────
+    if (gpsOff) {
+      const ng  = u16(gpsOff);
+      const g   = {};
+      for (let i = 0; i < ng; i++) {
+        const e   = gpsOff + 2 + i * 12;
+        const tag = u16(e);
+        const vo  = u32(e + 8);
+        if (tag === 1 || tag === 3) {
+          // GPSLatitudeRef / GPSLongitudeRef — ASCII 1 char
+          g[tag] = String.fromCharCode(view.getUint8(tiff + vo));
+        }
+        if (tag === 2 || tag === 4) {
+          // GPSLatitude / GPSLongitude — 3 rationals (deg, min, sec)
+          g[tag] = ratio(vo) + ratio(vo + 8) / 60 + ratio(vo + 16) / 3600;
+        }
+      }
+      if (g[2] != null && g[4] != null) {
+        out.lat = parseFloat(((g[1] === "S" ? -1 : 1) * g[2]).toFixed(7));
+        out.lon = parseFloat(((g[3] === "W" ? -1 : 1) * g[4]).toFixed(7));
+        console.log("[EXIF] GPS:", out.lat, out.lon);
+      }
+    }
   } catch (err) {
+    console.warn("[EXIF] parseApp1 error:", err.message);
+  }
+};
+
+const exifStrToDate = (s) => {
+  // "2026:03:03 10:48:57"
+  const m = s.match(/^(\d{4}):(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const [, y, mo, d] = m.map(Number);
+  if (y < 2000 || y > 2100) return null;
+  return new Date(y, mo - 1, d, 12, 0, 0);
+};
+
+// ════════════════════════════════════════════
+// REVERSE GEOCODING — Nominatim (OpenStreetMap)
+// Gratis, sin API key, respeta 1 req/seg
+// ════════════════════════════════════════════
+
+/**
+ * Convierte coordenadas GPS en número + nombre de calle.
+ * @param {number} lat
+ * @param {number} lon
+ * @returns {Promise<{ houseNumber, road, clean, full } | null>}
+ */
+export const reverseGeocode = async (lat, lon) => {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`;
+    console.log("[Geocode] →", lat, lon);
+
+    const res  = await fetch(url, {
+      headers: {
+        "Accept-Language": "en-US,en",
+        "User-Agent": "APMEW-PropertyApp/1.0",
+      },
+    });
+    if (!res.ok) { console.warn("[Geocode] HTTP:", res.status); return null; }
+
+    const data = await res.json();
+    const addr = data.address || {};
+    const num  = addr.house_number || "";
+    const road = addr.road || addr.pedestrian || addr.path || "";
+
+    if (!num || !road) {
+      console.warn("[Geocode] Sin número o calle en respuesta:", addr);
+      return null;
+    }
+
+    // Versión limpia: sin sufijos de tipo de calle
+    const cleanRoad = road
+      .replace(/\b(Drive|Dr|Street|St|Avenue|Ave|Road|Rd|Lane|Ln|Way|Wy|Court|Ct|Trail|Trl|Boulevard|Blvd|Place|Pl)\b\.?/gi, "")
+      .replace(/\s+/g, " ").trim();
+
+    const clean = `${num} ${cleanRoad}`.trim();
+    const full  = `${num} ${road}`.trim();
+
+    console.log("[Geocode] Resultado:", full, "| Clean:", clean);
+    return { houseNumber: num, road, clean, full };
+  } catch (err) {
+    console.warn("[Geocode] Error:", err.message);
     return null;
   }
 };
 
-const parseExifDateString = (str) => {
-  // "2026:03:03 10:48:57"
-  const m = str.match(/^(\d{4}):(\d{2}):(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
-  if (!m) return null;
-  const [, year, month, day] = m.map(Number);
-  if (year < 2000 || year > 2100) return null;
-  return new Date(year, month - 1, day, 12, 0, 0);
-};
-
 // ════════════════════════════════════════════
-// OCR — Pre-procesamiento multi-estrategia
+// OCR — Solo como último recurso
 // ════════════════════════════════════════════
 
-/**
- * Preprocesa la imagen para OCR.
- * Enfoca la esquina SUPERIOR DERECHA (donde iOS/Android pone el sello).
- * Genera 3 versiones: original escala de grises, invertida, alto contraste.
- * @param {File} imageFile
- * @returns {Promise<string[]>} Array de base64 (3 versiones)
- */
-const preprocessImageMulti = async (imageFile) => {
+const preprocessForOCR = async (imageFile) => {
   return new Promise((resolve, reject) => {
-    const img    = new Image();
     const reader = new FileReader();
-
     reader.onload = (e) => {
-      img.onload = () => {
-        // ── Recortar esquina SUPERIOR DERECHA ──────────────────────────────
-        // El sello "Mar 3, 2026 / 15151 Spring Mist" aparece en top-right
-        const cropW  = Math.min(img.width  * 0.65, 500); // 65% ancho desde la derecha
-        const cropH  = Math.min(img.height * 0.22, 300); // 22% alto desde arriba
-        const cropX  = img.width - cropW;                // Empezar desde la derecha
-        const cropY  = 0;
-
-        // Escalar 2x para mejorar resolución de OCR
-        const scale  = 2;
-        const cW     = cropW  * scale;
-        const cH     = cropH  * scale;
-
-        const versions = [];
-
-        // ── Versión 1: Escala de grises suave ──────────────────────────────
-        const c1  = document.createElement("canvas");
-        c1.width  = cW; c1.height = cH;
-        const ctx1 = c1.getContext("2d");
-        ctx1.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cW, cH);
-        const d1 = ctx1.getImageData(0, 0, cW, cH);
-        for (let i = 0; i < d1.data.length; i += 4) {
-          const g = d1.data[i] * 0.299 + d1.data[i+1] * 0.587 + d1.data[i+2] * 0.114;
-          d1.data[i] = d1.data[i+1] = d1.data[i+2] = g;
-        }
-        ctx1.putImageData(d1, 0, 0);
-        versions.push(c1.toDataURL("image/png"));
-
-        // ── Versión 2: INVERTIDA (texto blanco → negro sobre blanco) ───────
-        const c2  = document.createElement("canvas");
-        c2.width  = cW; c2.height = cH;
-        const ctx2 = c2.getContext("2d");
-        ctx2.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cW, cH);
-        const d2 = ctx2.getImageData(0, 0, cW, cH);
-        for (let i = 0; i < d2.data.length; i += 4) {
-          const g = d2.data[i] * 0.299 + d2.data[i+1] * 0.587 + d2.data[i+2] * 0.114;
-          d2.data[i] = d2.data[i+1] = d2.data[i+2] = 255 - g; // Invertir
-        }
-        ctx2.putImageData(d2, 0, 0);
-        versions.push(c2.toDataURL("image/png"));
-
-        // ── Versión 3: Alto contraste con umbral suave ──────────────────────
-        const c3  = document.createElement("canvas");
-        c3.width  = cW; c3.height = cH;
-        const ctx3 = c3.getContext("2d");
-        ctx3.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cW, cH);
-        const d3 = ctx3.getImageData(0, 0, cW, cH);
-        for (let i = 0; i < d3.data.length; i += 4) {
-          const g = d3.data[i] * 0.299 + d3.data[i+1] * 0.587 + d3.data[i+2] * 0.114;
-          // Threshold: pixeles muy claros (texto blanco) → negro, resto → blanco
-          const v = g > 200 ? 0 : 255;
-          d3.data[i] = d3.data[i+1] = d3.data[i+2] = v;
-        }
-        ctx3.putImageData(d3, 0, 0);
-        versions.push(c3.toDataURL("image/png"));
-
-        resolve(versions);
-      };
+      const img   = new Image();
       img.onerror = reject;
+      img.onload  = () => {
+        // Esquina superior derecha, escala 2x
+        const cW = Math.min(img.width  * 0.65, 500);
+        const cH = Math.min(img.height * 0.22, 300);
+        const cX = img.width - cW;
+        const sc = 2;
+        const W  = cW * sc, H = cH * sc;
+
+        const make = (transform) => {
+          const c   = document.createElement("canvas");
+          c.width   = W; c.height = H;
+          const ctx = c.getContext("2d");
+          ctx.drawImage(img, cX, 0, cW, cH, 0, 0, W, H);
+          const id  = ctx.getImageData(0, 0, W, H);
+          for (let i = 0; i < id.data.length; i += 4) {
+            const g = id.data[i] * 0.299 + id.data[i+1] * 0.587 + id.data[i+2] * 0.114;
+            const v = transform(g);
+            id.data[i] = id.data[i+1] = id.data[i+2] = v;
+          }
+          ctx.putImageData(id, 0, 0);
+          return c.toDataURL("image/png");
+        };
+
+        resolve([
+          make(g => 255 - g),         // Invertida (texto blanco → negro)
+          make(g => g),                // Escala de grises
+          make(g => g > 200 ? 0 : 255), // Threshold
+        ]);
+      };
       img.src = e.target.result;
     };
     reader.onerror = reject;
@@ -214,180 +226,114 @@ const preprocessImageMulti = async (imageFile) => {
   });
 };
 
-// ════════════════════════════════════════════
-// OCR — Extracción de texto
-// ════════════════════════════════════════════
-
-/**
- * Corre OCR sobre una imagen base64.
- * @param {string} imageBase64
- * @returns {Promise<string>}
- */
-const runOcr = async (imageBase64) => {
-  const result = await Tesseract.recognize(imageBase64, "eng", {
-    logger: () => {},
-    tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
-    tessedit_char_whitelist: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ,:@./",
-  });
-  return result.data.text || "";
-};
-
-/**
- * Extrae texto corriendo OCR en 3 versiones de la imagen.
- * Devuelve el texto de la versión que mejor resultado da.
- * @param {File} imageFile
- * @returns {Promise<string>}
- */
 export const extractTextFromImage = async (imageFile) => {
   try {
-    console.log("[OCR] Iniciando multi-estrategia...");
-    const versions = await preprocessImageMulti(imageFile);
-
-    // Correr las 3 versiones en paralelo
-    const [text1, text2, text3] = await Promise.all(versions.map(runOcr));
-
-    console.log("[OCR] Versión 1 (gris):", text1.substring(0, 80));
-    console.log("[OCR] Versión 2 (invertida):", text2.substring(0, 80));
-    console.log("[OCR] Versión 3 (contraste):", text3.substring(0, 80));
-
-    // Elegir la versión que encuentre una dirección (número + calle)
-    const addrPattern = /\b\d{4,6}\s+[A-Za-z]/;
-    if (addrPattern.test(text2)) { console.log("[OCR] Usando versión INVERTIDA"); return text2; }
-    if (addrPattern.test(text3)) { console.log("[OCR] Usando versión CONTRASTE"); return text3; }
-    if (addrPattern.test(text1)) { console.log("[OCR] Usando versión GRIS");      return text1; }
-
-    // Ninguna encontró dirección — devolver la que tiene más texto
-    const best = [text1, text2, text3].sort((a, b) => b.length - a.length)[0];
-    console.log("[OCR] Sin dirección detectada, devolviendo texto más largo");
-    return best;
+    const imgs = await preprocessForOCR(imageFile);
+    const opts = { logger: () => {}, tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT };
+    const texts = await Promise.all(imgs.map(img =>
+      Tesseract.recognize(img, "eng", opts).then(r => r.data.text || "")
+    ));
+    const addrPat = /\b\d{4,6}\s+[A-Za-z]/;
+    return texts.find(t => addrPat.test(t)) || texts.sort((a, b) => b.length - a.length)[0] || "";
   } catch (err) {
-    console.error("[OCR] Error:", err);
     return "";
   }
 };
 
-// ════════════════════════════════════════════
-// Parsers de fecha y dirección (sin cambios)
-// ════════════════════════════════════════════
-
-/**
- * Parsea fecha del formato: "Mar 2, 2026 at 10:03:47 AM"
- */
 export const parsePhotoDate = (text) => {
-  const pattern = /\b([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{4})\b/i;
-  const match   = text.match(pattern);
-  if (match) {
-    const monthMap = {
-      jan:0, january:0, feb:1, february:1, mar:2, march:2,
-      apr:3, april:3, may:4, jun:5, june:5, jul:6, july:6,
-      aug:7, august:7, sep:8, sept:8, september:8,
-      oct:9, october:9, nov:10, november:10, dec:11, december:11,
-    };
-    const month = monthMap[match[1].toLowerCase()];
-    if (month !== undefined) {
-      console.log(`[OCR] Fecha OCR: ${match[1]} ${match[2]}, ${match[3]}`);
-      return new Date(parseInt(match[3]), month, parseInt(match[2]), 12, 0, 0);
-    }
-  }
-  return null;
+  const m = text.match(/\b([A-Z][a-z]{2,8})\s+(\d{1,2}),?\s+(\d{4})\b/i);
+  if (!m) return null;
+  const mm = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11,
+               january:0,february:1,march:2,april:3,june:5,july:6,august:7,
+               september:8,october:9,november:10,december:11 };
+  const mo = mm[m[1].toLowerCase()];
+  return mo != null ? new Date(+m[3], mo, +m[2], 12) : null;
 };
 
-/**
- * Extrae dirección del formato: "15151 Spring Mist"
- */
 export const parsePhotoAddress = (text) => {
-  const lines = text.split("\n")
-    .map(l => l.trim())
-    .filter(l => l.length > 3)
-    .slice(0, 8); // Ampliar a 8 líneas para capturar más casos
-
-  console.log("[OCR] Líneas a analizar:", lines);
-
-  for (const line of lines) {
-    if (/\d{4}.*at.*[AP]M/i.test(line))              continue; // Skip fecha con hora
-    if (/(TX|Texas|United States|USA|San Antonio)/i.test(line)) continue; // Skip ciudad/estado
-
-    const pattern = /^(\d{4,6})\s+([A-Za-z]+(?: [A-Za-z]+){0,4})(?:\s|$)/;
-    const match   = line.match(pattern);
-    if (match) {
-      const address = `${match[1]} ${match[2].trim()}`;
-      console.log("[OCR] Dirección encontrada:", address);
-      return address;
-    }
+  for (const line of text.split("\n").map(l => l.trim()).filter(l => l.length > 3).slice(0, 8)) {
+    if (/\d{4}.*at.*[AP]M/i.test(line)) continue;
+    if (/(TX|Texas|United States|USA|San Antonio)/i.test(line)) continue;
+    const m = line.match(/^(\d{4,6})\s+([A-Za-z]+(?: [A-Za-z]+){0,4})(?:\s|$)/);
+    if (m) return `${m[1]} ${m[2].trim()}`;
   }
   return null;
 };
 
-/**
- * Convierte Date a formato de carpeta: "3 mar 26"
- */
-export const dateToFolderName = (date) => {
-  return `${date.getDate()} ${MONTHS_ES[date.getMonth()]} ${String(date.getFullYear()).slice(2)}`;
+export const dateToFolderName = (date) =>
+  `${date.getDate()} ${MONTHS_ES[date.getMonth()]} ${String(date.getFullYear()).slice(2)}`;
+
+// ════════════════════════════════════════════
+// MATCH de dirección vs. lista de propiedades
+// ════════════════════════════════════════════
+const matchToProperty = (addressStr, houseNumber, properties) => {
+  if (!houseNumber) return null;
+  const cands = properties.filter(p => (p.address.match(/^\d+/) || [])[0] === houseNumber);
+  if (!cands.length) return null;
+  if (cands.length === 1) return cands[0];
+
+  // Desempate por tokens de la calle
+  const qTokens = addressStr.toLowerCase().replace(/^\d+\s*/, "").split(/\s+/);
+  let best = cands[0], bestScore = 0;
+  for (const p of cands) {
+    const pTokens = p.address.toLowerCase().replace(/^\d+\s*/, "").split(/\s+/);
+    const score   = qTokens.filter(t => pTokens.some(pt => pt.startsWith(t) || t.startsWith(pt))).length;
+    if (score > bestScore) { bestScore = score; best = p; }
+  }
+  return best;
 };
 
 // ════════════════════════════════════════════
-// Extracción completa de metadata
-// ORDEN DE PRIORIDAD:
-//   Fecha:     1. EXIF  2. OCR  3. null
-//   Dirección: 1. OCR   2. null  (GPS no disponible sin API)
+// PUNTO DE ENTRADA PRINCIPAL
 // ════════════════════════════════════════════
-
 export const extractPhotoMetadata = async (imageFile, properties) => {
-  console.log("[Meta] ═══ Iniciando extracción:", imageFile.name, "═══");
+  console.log("[Meta] ═══ Iniciando:", imageFile.name);
 
-  // ── 1. Fecha desde EXIF (más rápido y confiable) ─────────────────────────
-  const exifDate = await extractExifDate(imageFile);
-  console.log("[Meta] Fecha EXIF:", exifDate);
+  // 1. EXIF (fecha + GPS simultáneos, muy rápido)
+  const exif = await extractExifData(imageFile);
 
-  // ── 2. OCR para dirección (y fecha como fallback) ─────────────────────────
-  const rawText      = await extractTextFromImage(imageFile);
-  const ocrDate      = parsePhotoDate(rawText);
-  const addressFromOCR = parsePhotoAddress(rawText);
+  let date          = exif.date;
+  let address       = null;
+  let matchedProp   = null;
+  let dateSource    = exif.date ? "exif" : null;
+  let addrSource    = null;
 
-  // ── 3. Elegir la mejor fecha ───────────────────────────────────────────────
-  // EXIF tiene prioridad sobre OCR (más preciso, no depende de imagen)
-  const date = exifDate || ocrDate;
-  console.log("[Meta] Fecha final:", date, exifDate ? "(EXIF)" : ocrDate ? "(OCR)" : "(no encontrada)");
-
-  // ── 4. Match de dirección contra lista de propiedades ────────────────────
-  let matchedProperty = null;
-  if (addressFromOCR) {
-    const numMatch = addressFromOCR.match(/^\d+/);
-    if (numMatch) {
-      const houseNumber    = numMatch[0];
-      const withSameNumber = properties.filter(p => {
-        const pn = p.address.match(/^\d+/);
-        return pn && pn[0] === houseNumber;
-      });
-
-      if (withSameNumber.length === 1) {
-        matchedProperty = withSameNumber[0];
-        console.log("[Meta] ✅ Match directo:", matchedProperty.address);
-      } else if (withSameNumber.length > 1) {
-        // Desempate por primera letra de la calle
-        const streetOCR     = addressFromOCR.replace(/^\d+\s*/, "").trim();
-        const firstLetterOCR = streetOCR[0]?.toUpperCase();
-        matchedProperty = withSameNumber.find(p => {
-          const ps = p.address.replace(/^\d+\s*/, "").trim();
-          return ps[0]?.toUpperCase() === firstLetterOCR;
-        }) || withSameNumber[0];
-        console.log("[Meta] ✅ Match desempate:", matchedProperty.address);
-      } else {
-        console.log("[Meta] ❌ Número no encontrado en propiedades:", houseNumber);
-      }
+  // 2. GPS → Nominatim (si hay coordenadas)
+  if (exif.lat !== null && exif.lon !== null) {
+    const geo = await reverseGeocode(exif.lat, exif.lon);
+    if (geo) {
+      // Intentar match con versión limpia primero, luego con sufijo
+      matchedProp = matchToProperty(geo.clean, geo.houseNumber, properties)
+                 || matchToProperty(geo.full,  geo.houseNumber, properties);
+      address    = geo.clean;
+      addrSource = "gps";
+      console.log("[Meta] GPS match:", matchedProp?.address || "ninguno");
     }
-  } else {
-    console.log("[Meta] ❌ No se detectó dirección en OCR");
   }
 
-  console.log("[Meta] ═══ Fin extracción ═══");
+  // 3. OCR como último recurso (si no hubo match por GPS)
+  if (!matchedProp) {
+    console.log("[Meta] Fallback a OCR...");
+    const raw     = await extractTextFromImage(imageFile);
+    const ocrAddr = parsePhotoAddress(raw);
+    const ocrDate = parsePhotoDate(raw);
 
-  return {
-    date,
-    address:         addressFromOCR,
-    matchedProperty,
-    rawText,
-    fileName:        imageFile.name,
-    dateSource:      exifDate ? "exif" : ocrDate ? "ocr" : null,
-  };
+    if (!date && ocrDate)  { date = ocrDate; dateSource = "ocr"; }
+
+    if (ocrAddr) {
+      address    = ocrAddr;
+      addrSource = "ocr";
+      const num  = (ocrAddr.match(/^\d+/) || [])[0];
+      matchedProp = matchToProperty(ocrAddr, num, properties);
+      console.log("[Meta] OCR match:", matchedProp?.address || "ninguno");
+    }
+  }
+
+  console.log("[Meta] Final →", {
+    fecha: date?.toDateString(), fuenteFecha: dateSource,
+    dir: address, fuenteDir: addrSource,
+    match: matchedProp?.address || "—",
+  });
+
+  return { date, dateSource, address, addressSource: addrSource, matchedProperty: matchedProp, fileName: imageFile.name };
 };
