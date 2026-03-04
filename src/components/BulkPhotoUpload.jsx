@@ -1,13 +1,17 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/BulkPhotoUpload.jsx
-// Versión: V10 — Navegación Paso a Paso con Confirmaciones
+// Versión: V11 — OCR Auto-detección + Navegación Paso a Paso
 // Fecha: 2026-03-04
 // ═══════════════════════════════════════════
-// CAMBIOS EN V10:
-// - Flujo de navegación de directorios con pausas y confirmaciones
-// - Se detiene antes de crear cualquier directorio y pide autorización
-// - Muestra la ruta exacta del directorio creado y espera verificación
-// - Upload manual usando drive.uploadFile (sin auto-create de uploadPhotos)
+// FLUJO:
+//   1. Usuario selecciona fotos
+//   2. OCR lee dirección y fecha de cada foto automáticamente
+//   3. Se muestra tabla de revisión: propiedad detectada, fecha, estado
+//   4. Usuario puede corregir manualmente cualquier fila
+//   5. Al confirmar, el APP navega los directorios de cada propiedad
+//      - Si falta un directorio, SE DETIENE y pide autorización
+//      - Tras crear, muestra ruta exacta y espera verificación
+//   6. Sube todas las fotos a sus carpetas correspondientes
 // ═══════════════════════════════════════════
 
 import { useState, useRef } from "react";
@@ -16,22 +20,21 @@ import { Card, Spinner } from "./UI";
 import { PROPERTIES } from "../pages/dashboard/constants";
 import { findFolderByAddress } from "../pages/dashboard/helpers";
 import { MONTHS_ES } from "../lib/helpers";
+import { extractPhotoMetadata } from "../lib/photoOCR";
 
-// ─── Botón reutilizable ───
+// ─── Sub-componentes de UI ─────────────────────────────────────────────────
+
 const Btn = ({ onClick, disabled, color, children, style = {} }) => (
   <button
     onClick={onClick}
     disabled={disabled}
     style={{
-      padding: "11px 20px",
+      padding: "10px 18px",
       background: disabled ? C.border : (color || C.accent),
       color: disabled ? C.textDim : "white",
-      border: "none",
-      borderRadius: 8,
+      border: "none", borderRadius: 8,
       cursor: disabled ? "not-allowed" : "pointer",
-      fontFamily: "DM Sans",
-      fontSize: 14,
-      fontWeight: 600,
+      fontFamily: "DM Sans", fontSize: 13, fontWeight: 600,
       transition: "opacity 0.15s",
       ...style,
     }}
@@ -40,575 +43,629 @@ const Btn = ({ onClick, disabled, color, children, style = {} }) => (
   </button>
 );
 
-// ─── Caja de estado / info ───
-const InfoBox = ({ color, children }) => (
+const InfoBox = ({ color, children, style = {} }) => (
   <div style={{
-    padding: "14px 16px",
+    padding: "12px 14px",
     background: `${color || C.accent}12`,
     border: `1px solid ${color || C.accent}40`,
-    borderRadius: 10,
-    fontFamily: "DM Sans",
-    fontSize: 13,
-    color: C.text,
-    lineHeight: 1.6,
-    marginBottom: 16,
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
+    borderRadius: 10, fontFamily: "DM Sans", fontSize: 13,
+    color: C.text, lineHeight: 1.6, marginBottom: 14,
+    whiteSpace: "pre-wrap", wordBreak: "break-word",
+    ...style,
   }}>
     {children}
   </div>
 );
 
+const StatusDot = ({ color }) => (
+  <span style={{
+    display: "inline-block", width: 8, height: 8,
+    borderRadius: "50%", background: color, marginRight: 6,
+  }} />
+);
+
+// ═══════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ═══════════════════════════════════════════
 export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
-  // ─── Pasos: select → assign → nav_finding → confirm_create → created_notice → upload_ready → uploading ───
-  const [currentStep, setCurrentStep] = useState("select");
-  const [photos, setPhotos]           = useState([]);
-  const [groupProperty, setGroupProperty] = useState(null);
-  const [groupDate, setGroupDate]         = useState(new Date().toISOString().slice(0, 10));
-  const [status, setStatus]               = useState("");
-  const [uploadProgress, setUploadProgress] = useState("");
-  const [uploadDone, setUploadDone]         = useState(null); // { success, skipped }
 
-  // ─── Estado de navegación de directorios ───
-  const [pendingCreate, setPendingCreate] = useState(null);
-  // { name: string, parentId: string, parentPath: string, phase: 0|1|2 }
+  // ── Pasos globales ──────────────────────────────────────────────────────
+  // select → ocr_scanning → review → navigating → confirm_create →
+  // created_notice → uploading → done
+  const [step, setStep] = useState("select");
 
-  const [lastCreated, setLastCreated] = useState(null);
-  // { name: string, id: string, fullPath: string }
+  // ── Fotos + metadata OCR ────────────────────────────────────────────────
+  const [photos, setPhotos] = useState([]);
 
-  // ─── Refs para IDs de carpetas ya encontradas/creadas ───
-  const propFolderRef    = useRef(null); // { id, name }
-  const inspecFolderRef  = useRef(null); // { id, name }
-  const yearFolderRef    = useRef(null); // { id, name }
-  const dateFolderRef    = useRef(null); // { id, name }
+  // ── OCR ─────────────────────────────────────────────────────────────────
+  const [ocrProgress, setOcrProgress] = useState({ current: 0, total: 0 });
 
-  // Función a llamar cuando el usuario hace click en "Verificado, Continuar"
+  // ── Navegación de directorios ────────────────────────────────────────────
+  const queueRef        = useRef([]);
+  const currentGroupRef = useRef(null);
+
+  const propFolderRef   = useRef(null);
+  const inspecFolderRef = useRef(null);
+  const yearFolderRef   = useRef(null);
+
+  // ── Confirmación de directorio ───────────────────────────────────────────
+  const [pendingCreate, setPendingCreate]   = useState(null);
+  const [lastCreated, setLastCreated]       = useState(null);
   const continueNavRef = useRef(null);
 
+  // ── Status / progress ───────────────────────────────────────────────────
+  const [navStatus, setNavStatus]           = useState("");
+  const [uploadProgress, setUploadProgress] = useState("");
+  const [uploadSummary, setUploadSummary]   = useState(null);
+
   const fileInputRef = useRef(null);
-  const activeProps = PROPERTIES.filter(p => !p.sold);
+  const activeProps  = PROPERTIES.filter(p => !p.sold);
 
-  // ─── Helpers de fecha ───
-  const getUploadDate = () => new Date(groupDate + "T12:00:00");
-  const getYear       = () => getUploadDate().getFullYear().toString();
-  const getDateName   = () => {
-    const d = getUploadDate();
-    return `${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
-  };
-
-  // ══════════════════════════════════════════
-  // Paso 1: Seleccionar archivos
-  // ══════════════════════════════════════════
-  const handleFileSelect = (e) => {
+  // ════════════════════════════════════════════
+  // PASO 1 — Seleccionar fotos
+  // ════════════════════════════════════════════
+  const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    const photoList = files.map((file, idx) => ({
-      id: `photo_${Date.now()}_${idx}`,
+
+    const initial = files.map((file, i) => ({
+      id: `p_${Date.now()}_${i}`,
       file,
       name: file.name,
+      ocrStatus: "pending",
+      detectedAddress: null,
+      detectedDate: null,
+      matchedProperty: null,
+      selectedProperty: null,
+      selectedDate: null,
+      override: false,
     }));
-    setPhotos(photoList);
-    setCurrentStep("assign");
+    setPhotos(initial);
+    setStep("ocr_scanning");
+    setOcrProgress({ current: 0, total: files.length });
+
+    // OCR en secuencia
+    const updated = [...initial];
+    for (let i = 0; i < files.length; i++) {
+      setOcrProgress({ current: i + 1, total: files.length });
+      updated[i] = { ...updated[i], ocrStatus: "scanning" };
+      setPhotos([...updated]);
+
+      try {
+        const meta = await extractPhotoMetadata(files[i], activeProps);
+        updated[i] = {
+          ...updated[i],
+          ocrStatus:        meta.matchedProperty ? "ok"
+                          : meta.address         ? "no_match"
+                          :                        "no_address",
+          detectedAddress:  meta.address,
+          detectedDate:     meta.date,
+          matchedProperty:  meta.matchedProperty || null,
+          selectedProperty: meta.matchedProperty || null,
+          selectedDate:     meta.date ? meta.date : new Date(),
+          rawText:          meta.rawText,
+        };
+      } catch (err) {
+        updated[i] = { ...updated[i], ocrStatus: "error" };
+      }
+      setPhotos([...updated]);
+    }
+
+    setStep("review");
   };
 
-  // ══════════════════════════════════════════
-  // Paso 2: Asignar propiedad y fecha → iniciar navegación
-  // ══════════════════════════════════════════
-  const handleGroupAssign = async () => {
-    if (!groupProperty || !groupDate) {
-      alert("Selecciona propiedad y fecha");
+  // ════════════════════════════════════════════
+  // PASO 2 — Revisar y corregir
+  // ════════════════════════════════════════════
+  const updatePhoto = (id, patch) => {
+    setPhotos(prev => prev.map(p => p.id === id ? { ...p, ...patch, override: true } : p));
+  };
+
+  const readyToUpload = photos.length > 0 && photos.every(p => p.selectedProperty && p.selectedDate);
+  const problemCount  = photos.filter(p => !p.selectedProperty || !p.selectedDate).length;
+
+  // ════════════════════════════════════════════
+  // PASO 3 — Navegación de directorios
+  // ════════════════════════════════════════════
+
+  const buildQueue = (currentPhotos) => {
+    const map = {};
+    currentPhotos.forEach(p => {
+      if (!p.selectedProperty || !p.selectedDate) return;
+      const key = `${p.selectedProperty.address}||${p.selectedDate.toDateString()}`;
+      if (!map[key]) map[key] = { property: p.selectedProperty, date: p.selectedDate, photoIds: [] };
+      map[key].photoIds.push(p.id);
+    });
+    return Object.values(map);
+  };
+
+  const startNavigation = (currentPhotos) => {
+    const queue = buildQueue(currentPhotos);
+    if (!queue.length) return;
+    queueRef.current = queue;
+    setStep("navigating");
+    processNextGroup(currentPhotos);
+  };
+
+  const processNextGroup = async (currentPhotos) => {
+    if (!queueRef.current.length) {
+      setStep("uploading");
+      await uploadAll(currentPhotos || photos);
       return;
     }
-    setCurrentStep("nav_finding");
-    setStatus("Buscando carpeta de la propiedad en Supabase...");
 
+    const group = queueRef.current.shift();
+    currentGroupRef.current = group;
+    propFolderRef.current   = null;
+    inspecFolderRef.current = null;
+    yearFolderRef.current   = null;
+
+    setNavStatus(`📍 Navegando: ${group.property.address}`);
+    await navigatePropFolder(group, currentPhotos);
+  };
+
+  const navigatePropFolder = async (group, currentPhotos) => {
+    setNavStatus(`Buscando carpeta de "${group.property.address}" en Supabase...`);
     try {
-      // 1. Buscar carpeta raíz de la propiedad en Supabase
-      const supaFolder = await findFolderByAddress(groupProperty.address, groupProperty.owner);
+      const supaFolder = await findFolderByAddress(group.property.address, group.property.owner);
       if (!supaFolder?.google_drive_id) {
-        setStatus(`❌ No se encontró carpeta en Supabase para:\n${groupProperty.address}\n\nVincúlala manualmente primero.`);
-        setCurrentStep("nav_error");
+        setNavStatus(`❌ No se encontró carpeta en Supabase para:\n${group.property.address}\n\nVincúlala manualmente y vuelve a intentar.`);
+        setStep("nav_error");
         return;
       }
-
-      propFolderRef.current = { id: supaFolder.google_drive_id, name: groupProperty.address };
-      console.log("[BulkUpload] Carpeta propiedad:", propFolderRef.current);
-
-      // 2. Continuar buscando INSPECCION
-      await navigateInspeccion();
-
+      propFolderRef.current = { id: supaFolder.google_drive_id, name: group.property.address };
+      await navigateInspeccion(group, currentPhotos);
     } catch (err) {
-      console.error("[BulkUpload] Error en navegación:", err);
-      setStatus(`❌ Error: ${err.message}`);
-      setCurrentStep("nav_error");
+      setNavStatus(`❌ Error: ${err.message}`);
+      setStep("nav_error");
     }
   };
 
-  // ══════════════════════════════════════════
-  // Navegación: Fase 0 — Buscar INSPECCION
-  // ══════════════════════════════════════════
-  const navigateInspeccion = async () => {
-    setCurrentStep("nav_finding");
-    setStatus("Buscando carpeta de inspecciones...");
-
+  const navigateInspeccion = async (group, currentPhotos) => {
+    setNavStatus("Buscando carpeta de inspecciones...");
     const found = await drive.findSubfolder(propFolderRef.current.id, "INSPEC");
     if (found) {
       inspecFolderRef.current = { id: found.id, name: found.name };
-      console.log("[BulkUpload] Carpeta inspección encontrada:", found.name);
-      await navigateYear();
+      await navigateYear(group, currentPhotos);
     } else {
-      // Pausar y pedir confirmación
+      continueNavRef.current = () => navigateYear(group, currentPhotos);
       setPendingCreate({
         name: "INSPECCION",
         parentId: propFolderRef.current.id,
-        parentPath: groupProperty.address,
-        phase: 0,
+        parentPath: group.property.address,
+        phase: 0, group, currentPhotos,
       });
-      continueNavRef.current = navigateYear;
-      setCurrentStep("confirm_create");
+      setStep("confirm_create");
     }
   };
 
-  // ══════════════════════════════════════════
-  // Navegación: Fase 1 — Buscar año
-  // ══════════════════════════════════════════
-  const navigateYear = async () => {
-    setCurrentStep("nav_finding");
-    const year = getYear();
-    setStatus(`Buscando carpeta del año ${year}...`);
-
+  const navigateYear = async (group, currentPhotos) => {
+    const year = group.date.getFullYear().toString();
+    setNavStatus(`Buscando carpeta del año ${year}...`);
     const found = await drive.findSubfolder(inspecFolderRef.current.id, year);
     if (found) {
       yearFolderRef.current = { id: found.id, name: found.name };
-      console.log("[BulkUpload] Carpeta año encontrada:", found.name);
-      await navigateDate();
+      await navigateDate(group, currentPhotos);
     } else {
+      continueNavRef.current = () => navigateDate(group, currentPhotos);
       setPendingCreate({
         name: year,
         parentId: inspecFolderRef.current.id,
-        parentPath: `${groupProperty.address} > ${inspecFolderRef.current.name}`,
-        phase: 1,
+        parentPath: `${group.property.address} > ${inspecFolderRef.current.name}`,
+        phase: 1, group, currentPhotos,
       });
-      continueNavRef.current = navigateDate;
-      setCurrentStep("confirm_create");
+      setStep("confirm_create");
     }
   };
 
-  // ══════════════════════════════════════════
-  // Navegación: Fase 2 — Buscar fecha
-  // ══════════════════════════════════════════
-  const navigateDate = async () => {
-    setCurrentStep("nav_finding");
-    const dateName = getDateName();
-    setStatus(`Buscando carpeta de fecha "${dateName}"...`);
-
+  const navigateDate = async (group, currentPhotos) => {
+    const d = group.date;
+    const dateName = `${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
+    setNavStatus(`Buscando carpeta de fecha "${dateName}"...`);
     const found = await drive.findSubfolder(yearFolderRef.current.id, dateName);
     if (found) {
-      dateFolderRef.current = { id: found.id, name: found.name };
-      console.log("[BulkUpload] Carpeta fecha encontrada:", found.name);
-      setCurrentStep("upload_ready");
+      // Listo para este grupo → guardar y continuar
+      currentGroupRef.current.dateFolderId = found.id;
+      currentGroupRef.current.dateName     = dateName;
+      await processNextGroup(currentPhotos);
     } else {
+      continueNavRef.current = null;
       setPendingCreate({
         name: dateName,
         parentId: yearFolderRef.current.id,
-        parentPath: `${groupProperty.address} > ${inspecFolderRef.current.name} > ${getYear()}`,
-        phase: 2,
+        parentPath: `${group.property.address} > ${inspecFolderRef.current.name} > ${yearFolderRef.current.name}`,
+        phase: 2, group, currentPhotos,
       });
-      continueNavRef.current = null; // No hay fase siguiente tras la fecha
-      setCurrentStep("confirm_create");
+      setStep("confirm_create");
     }
   };
 
-  // ══════════════════════════════════════════
-  // Confirmar creación de directorio
-  // ══════════════════════════════════════════
   const handleConfirmCreate = async () => {
-    const { name, parentId, parentPath, phase } = pendingCreate;
-    setCurrentStep("nav_finding");
-    setStatus(`Creando directorio "${name}"...`);
+    const { name, parentId, parentPath, phase, group, currentPhotos } = pendingCreate;
+    setStep("navigating");
+    setNavStatus(`Creando directorio "${name}"...`);
 
     try {
       const created = await drive.createFolder(name, parentId);
       const fullPath = `${parentPath} > ${name}`;
-      console.log("[BulkUpload] Directorio creado:", name, "id:", created.id, "ruta:", fullPath);
 
-      // Guardar en el ref correspondiente
       if (phase === 0) inspecFolderRef.current = { id: created.id, name };
       else if (phase === 1) yearFolderRef.current  = { id: created.id, name };
-      else if (phase === 2) dateFolderRef.current  = { id: created.id, name };
+      else if (phase === 2) {
+        currentGroupRef.current.dateFolderId = created.id;
+        currentGroupRef.current.dateName     = name;
+      }
 
-      setLastCreated({ name, id: created.id, fullPath });
-      setCurrentStep("created_notice");
+      setLastCreated({ name, id: created.id, fullPath, phase, group, currentPhotos });
+      setStep("created_notice");
     } catch (err) {
-      console.error("[BulkUpload] Error creando carpeta:", err);
-      setStatus(`❌ Error al crear "${name}": ${err.message}`);
-      setCurrentStep("nav_error");
+      setNavStatus(`❌ Error al crear "${name}": ${err.message}`);
+      setStep("nav_error");
     }
   };
 
-  // ══════════════════════════════════════════
-  // Después de verificar el directorio creado
-  // ══════════════════════════════════════════
   const handleContinueAfterVerify = async () => {
-    const phase = pendingCreate?.phase;
+    const { phase, group, currentPhotos } = lastCreated;
     setLastCreated(null);
     setPendingCreate(null);
+    setStep("navigating");
 
     if (phase === 2) {
-      // La carpeta de fecha ya está creada, listo para subir
-      setCurrentStep("upload_ready");
+      await processNextGroup(currentPhotos);
     } else if (continueNavRef.current) {
-      // Continuar con la siguiente fase de navegación
       await continueNavRef.current();
     } else {
-      setCurrentStep("upload_ready");
+      await processNextGroup(currentPhotos);
     }
   };
 
-  // ══════════════════════════════════════════
-  // Subir fotos
-  // ══════════════════════════════════════════
-  const handleUploadAll = async () => {
-    if (!dateFolderRef.current?.id) return;
-    setCurrentStep("uploading");
+  // ════════════════════════════════════════════
+  // PASO 4 — Subir fotos
+  // ════════════════════════════════════════════
+  const uploadAll = async (currentPhotos) => {
+    const groupMap = {};
+    currentPhotos.forEach(p => {
+      if (!p.selectedProperty || !p.selectedDate) return;
+      const key = `${p.selectedProperty.address}||${p.selectedDate.toDateString()}`;
+      if (!groupMap[key]) groupMap[key] = { property: p.selectedProperty, date: p.selectedDate, photos: [] };
+      groupMap[key].photos.push(p);
+    });
 
-    try {
-      const dateFolder = dateFolderRef.current;
-      const dateName   = getDateName();
-      const shortName  = groupProperty.address.replace(/^\d+\s*/, "").split(/\s+/).slice(0, 2).join(" ");
+    let totalSuccess = 0, totalSkipped = 0, totalFailed = 0;
+
+    for (const group of Object.values(groupMap)) {
+      const { property, date, photos: gPhotos } = group;
+      const dateName  = `${date.getDate()} ${MONTHS_ES[date.getMonth()]} ${String(date.getFullYear()).slice(2)}`;
+      const shortName = property.address.replace(/^\d+\s*/, "").split(/\s+/).slice(0, 2).join(" ");
+
+      setUploadProgress(`📍 ${property.address} — "${dateName}"`);
+
+      // Re-navegar para obtener folderId (ya existen, no crean)
+      let folderId = null;
+      try {
+        const supaFolder = await findFolderByAddress(property.address, property.owner);
+        if (!supaFolder?.google_drive_id) throw new Error("Sin carpeta en Supabase");
+        const inspec = await drive.findSubfolder(supaFolder.google_drive_id, "INSPEC");
+        if (!inspec) throw new Error("Sin carpeta INSPECCION");
+        const year = await drive.findSubfolder(inspec.id, date.getFullYear().toString());
+        if (!year) throw new Error("Sin carpeta de año");
+        const dateFolder = await drive.findSubfolder(year.id, dateName);
+        if (!dateFolder) throw new Error(`Sin carpeta "${dateName}"`);
+        folderId = dateFolder.id;
+      } catch (err) {
+        setUploadProgress(`❌ ${property.address}: ${err.message}`);
+        totalFailed += gPhotos.length;
+        continue;
+      }
 
       // Verificar duplicados
-      setUploadProgress("Verificando archivos existentes...");
-      const existingFiles = await drive.listAllFiles(dateFolder.id);
-      const existingNames = new Set((existingFiles || []).map(f => f.name));
-      console.log("[BulkUpload] Archivos existentes en destino:", existingNames.size);
+      const existing     = await drive.listAllFiles(folderId);
+      const existingNames = new Set((existing || []).map(f => f.name));
 
-      let success = 0;
-      let skippedCount = 0;
-
-      for (let i = 0; i < photos.length; i++) {
-        const { file } = photos[i];
+      for (let i = 0; i < gPhotos.length; i++) {
+        const { file } = gPhotos[i];
         const ext      = file.name.split(".").pop() || "jpg";
         const fileName = `${shortName} ${i + 1} Foto ${dateName}.${ext}`;
 
         if (existingNames.has(fileName)) {
-          skippedCount++;
-          setUploadProgress(`⏭️ ${i + 1}/${photos.length}: ${fileName} (ya existe)`);
+          totalSkipped++;
+          setUploadProgress(`⏭️ ${fileName} (ya existe)`);
           continue;
         }
 
-        setUploadProgress(`📤 ${i + 1}/${photos.length}: ${fileName}`);
-        await drive.uploadFile(file, fileName, dateFolder.id);
-        console.log("[BulkUpload] Subido:", fileName);
-        success++;
+        setUploadProgress(`📤 ${i + 1}/${gPhotos.length}: ${fileName}`);
+        try {
+          await drive.uploadFile(file, fileName, folderId);
+          totalSuccess++;
+        } catch (err) {
+          totalFailed++;
+        }
       }
-
-      console.log("[BulkUpload] ✅ Completado:", { success, skipped: skippedCount });
-      setUploadDone({ success, skipped: skippedCount });
-      onComplete({ success, failed: 0 });
-    } catch (err) {
-      console.error("[BulkUpload] Error subiendo:", err);
-      setUploadProgress(`❌ Error: ${err.message}`);
     }
+
+    setUploadSummary({ success: totalSuccess, skipped: totalSkipped, failed: totalFailed });
+    onComplete({ success: totalSuccess, failed: totalFailed });
+    setStep("done");
   };
 
-  // ─── Ruta completa del destino (para mostrar en "upload_ready") ───
-  const destinationPath = [
-    groupProperty?.address,
-    inspecFolderRef.current?.name,
-    yearFolderRef.current?.name,
-    dateFolderRef.current?.name,
-  ].filter(Boolean).join(" > ");
+  // ════════════════════════════════════════════
+  // Helpers display
+  // ════════════════════════════════════════════
+  const ocrStatusDisplay = (s) => ({
+    pending:    { color: C.textDim, label: "Pendiente" },
+    scanning:   { color: C.accent,  label: "Escaneando..." },
+    ok:         { color: C.green,   label: "✓ Detectado" },
+    no_match:   { color: C.orange,  label: "Sin match" },
+    no_address: { color: C.red,     label: "Sin dirección" },
+    manual:     { color: C.blue,    label: "Manual" },
+    error:      { color: C.red,     label: "Error" },
+  }[s] || { color: C.textDim, label: s });
 
-  // ══════════════════════════════════════════
-  // Render
-  // ══════════════════════════════════════════
+  // ════════════════════════════════════════════
+  // RENDER
+  // ════════════════════════════════════════════
   return (
     <div style={{
       position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
-      background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center",
-      justifyContent: "center", zIndex: 9999, padding: mob ? 16 : 40,
+      background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center",
+      justifyContent: "center", zIndex: 9999, padding: mob ? 12 : 32,
     }}>
       <Card style={{
-        maxWidth: 580, width: "100%", maxHeight: mob ? "92vh" : "82vh",
-        overflow: "auto", padding: mob ? 20 : 32, position: "relative",
+        maxWidth: 700, width: "100%", maxHeight: "90vh",
+        overflow: "auto", padding: mob ? 18 : 28, position: "relative",
       }}>
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-          <h2 style={{ fontFamily: "DM Sans", fontSize: mob ? 18 : 20, fontWeight: 700, color: C.text }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <h2 style={{ fontFamily: "DM Sans", fontSize: mob ? 17 : 19, fontWeight: 700, color: C.text }}>
             📤 Subir Batch de Fotos
           </h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 24, padding: 0 }}>
-            ✕
-          </button>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 22 }}>✕</button>
         </div>
 
-        {/* ─────────────────────────────────── */}
-        {/* PASO 1: Seleccionar fotos           */}
-        {/* ─────────────────────────────────── */}
-        {currentStep === "select" && (
-          <div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleFileSelect}
-              style={{ display: "none" }}
-            />
+        {/* ── SELECT ── */}
+        {step === "select" && (
+          <>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} style={{ display: "none" }} />
             <button
               onClick={() => fileInputRef.current?.click()}
               style={{
-                width: "100%",
-                padding: "60px 20px",
-                background: C.surface2,
-                border: `2px dashed ${C.border}`,
-                borderRadius: 12,
-                cursor: "pointer",
-                fontFamily: "DM Sans",
-                fontSize: 16,
-                color: C.accent,
-                fontWeight: 600,
+                width: "100%", padding: "56px 20px",
+                background: C.surface2, border: `2px dashed ${C.border}`,
+                borderRadius: 12, cursor: "pointer",
+                fontFamily: "DM Sans", fontSize: 15, color: C.accent, fontWeight: 600,
               }}
             >
               📁 Seleccionar Fotos
             </button>
+            <div style={{ marginTop: 10, fontFamily: "DM Sans", fontSize: 12, color: C.textDim, textAlign: "center" }}>
+              El APP leerá automáticamente la dirección y fecha inscrita en cada foto
+            </div>
+          </>
+        )}
+
+        {/* ── OCR SCANNING ── */}
+        {step === "ocr_scanning" && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ marginBottom: 16 }}><Spinner /></div>
+            <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.text, marginBottom: 6 }}>
+              Leyendo fotos con OCR...
+            </div>
+            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 14 }}>
+              {ocrProgress.current} / {ocrProgress.total}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto", textAlign: "left" }}>
+              {photos.map(p => {
+                const s = ocrStatusDisplay(p.ocrStatus);
+                return (
+                  <div key={p.id} style={{ display: "flex", gap: 8, alignItems: "center", fontFamily: "DM Sans", fontSize: 12 }}>
+                    <StatusDot color={s.color} />
+                    <span style={{ flex: 1, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                    <span style={{ color: s.color, minWidth: 100, textAlign: "right" }}>{s.label}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {/* ─────────────────────────────────── */}
-        {/* PASO 2: Asignar propiedad y fecha   */}
-        {/* ─────────────────────────────────── */}
-        {currentStep === "assign" && (
+        {/* ── REVIEW ── */}
+        {step === "review" && (
           <div>
-            <InfoBox color={C.accent}>
-              {`📷 ${photos.length} foto${photos.length !== 1 ? "s" : ""} seleccionada${photos.length !== 1 ? "s" : ""}`}
-            </InfoBox>
+            {/* Resumen */}
+            <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+              <InfoBox color={C.green} style={{ flex: 1, marginBottom: 0, padding: "10px 12px" }}>
+                <strong style={{ color: C.green }}>✓ {photos.filter(p => p.selectedProperty).length}</strong>
+                <span style={{ color: C.textDim }}> detectadas</span>
+              </InfoBox>
+              {problemCount > 0 && (
+                <InfoBox color={C.orange} style={{ flex: 1, marginBottom: 0, padding: "10px 12px" }}>
+                  <strong style={{ color: C.orange }}>⚠ {problemCount}</strong>
+                  <span style={{ color: C.textDim }}> requieren corrección manual</span>
+                </InfoBox>
+              )}
+            </div>
 
-            <label style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, display: "block", marginBottom: 6 }}>
-              Propiedad:
-            </label>
-            <select
-              value={groupProperty?.address || ""}
-              onChange={(e) => setGroupProperty(activeProps.find(p => p.address === e.target.value) || null)}
-              style={{
-                width: "100%", padding: "10px 12px", marginBottom: 16,
-                fontFamily: "DM Sans", fontSize: 14, border: `1px solid ${C.border}`,
-                borderRadius: 8, background: C.surface2, color: C.text,
-              }}
-            >
-              <option value="">Selecciona una propiedad</option>
-              {activeProps.map(p => (
-                <option key={p.address} value={p.address}>{p.address}</option>
-              ))}
-            </select>
-
-            <label style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.textDim, display: "block", marginBottom: 6 }}>
-              Fecha de inspección:
-            </label>
-            <input
-              type="date"
-              value={groupDate}
-              onChange={(e) => setGroupDate(e.target.value)}
-              style={{
-                width: "100%", padding: "10px 12px", marginBottom: 20,
-                fontFamily: "DM Sans", fontSize: 14, border: `1px solid ${C.border}`,
-                borderRadius: 8, background: C.surface2, color: "#FFFFFF", colorScheme: "dark",
-              }}
-            />
+            {/* Tabla */}
+            <div style={{ overflowX: "auto", marginBottom: 14 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "DM Sans", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: C.surface2, borderBottom: `1px solid ${C.border}` }}>
+                    <th style={{ padding: "8px 10px", textAlign: "left", color: C.textDim, fontWeight: 600 }}>Foto</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", color: C.textDim, fontWeight: 600 }}>Propiedad detectada</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", color: C.textDim, fontWeight: 600 }}>Fecha</th>
+                    <th style={{ padding: "8px 10px", textAlign: "center", color: C.textDim, fontWeight: 600 }}>OCR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {photos.map((p) => {
+                    const s = ocrStatusDisplay(p.override ? "manual" : p.ocrStatus);
+                    return (
+                      <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "7px 10px", color: C.textDim, maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {p.name}
+                          {p.detectedAddress && (
+                            <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>
+                              OCR: {p.detectedAddress}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: "6px 10px", minWidth: 200 }}>
+                          <select
+                            value={p.selectedProperty?.address || ""}
+                            onChange={(e) => {
+                              const prop = activeProps.find(x => x.address === e.target.value) || null;
+                              updatePhoto(p.id, { selectedProperty: prop });
+                            }}
+                            style={{
+                              width: "100%", padding: "5px 7px",
+                              fontFamily: "DM Sans", fontSize: 12,
+                              border: `1px solid ${p.selectedProperty ? C.border : C.red}`,
+                              borderRadius: 6, background: C.surface2, color: C.text,
+                            }}
+                          >
+                            <option value="">Sin asignar</option>
+                            {activeProps.map(x => (
+                              <option key={x.address} value={x.address}>{x.address}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ padding: "6px 10px", minWidth: 130 }}>
+                          <input
+                            type="date"
+                            value={p.selectedDate ? p.selectedDate.toISOString().slice(0, 10) : ""}
+                            onChange={(e) => {
+                              const d = e.target.value ? new Date(e.target.value + "T12:00:00") : null;
+                              updatePhoto(p.id, { selectedDate: d });
+                            }}
+                            style={{
+                              width: "100%", padding: "5px 7px",
+                              fontFamily: "DM Sans", fontSize: 12,
+                              border: `1px solid ${p.selectedDate ? C.border : C.red}`,
+                              borderRadius: 6, background: C.surface2, color: "#fff", colorScheme: "dark",
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: "7px 10px", textAlign: "center" }}>
+                          <StatusDot color={s.color} />
+                          <span style={{ color: s.color, fontSize: 11 }}>{s.label}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
             <Btn
-              onClick={handleGroupAssign}
-              disabled={!groupProperty || !groupDate}
+              onClick={() => startNavigation(photos)}
+              disabled={!readyToUpload}
               style={{ width: "100%" }}
             >
-              Continuar →
+              {readyToUpload
+                ? `Archivar ${photos.length} foto${photos.length !== 1 ? "s" : ""} →`
+                : `Corrige ${problemCount} foto${problemCount !== 1 ? "s" : ""} antes de continuar`}
             </Btn>
           </div>
         )}
 
-        {/* ─────────────────────────────────── */}
-        {/* NAVEGANDO: buscando/creando         */}
-        {/* ─────────────────────────────────── */}
-        {currentStep === "nav_finding" && (
+        {/* ── NAVIGATING ── */}
+        {step === "navigating" && (
           <div style={{ textAlign: "center" }}>
-            <div style={{ marginBottom: 20 }}>
-              <Spinner />
-            </div>
-            <InfoBox color={C.accent}>
-              {status || "Navegando estructura de directorios..."}
-            </InfoBox>
+            <div style={{ marginBottom: 16 }}><Spinner /></div>
+            <InfoBox color={C.accent}>{navStatus || "Navegando estructura de directorios..."}</InfoBox>
           </div>
         )}
 
-        {/* ─────────────────────────────────── */}
-        {/* CONFIRMAR CREACIÓN de directorio    */}
-        {/* ─────────────────────────────────── */}
-        {currentStep === "confirm_create" && pendingCreate && (
+        {/* ── CONFIRM CREATE ── */}
+        {step === "confirm_create" && pendingCreate && (
           <div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, marginBottom: 16 }}>
-              ⚠️ El siguiente directorio no existe:
+            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 10 }}>
+              ⚠️ El siguiente directorio no existe y necesita crearse:
             </div>
-
             <InfoBox color={C.orange}>
               <div style={{ marginBottom: 6 }}>
                 <strong style={{ color: C.orange }}>Directorio a crear:</strong>
               </div>
-              <div style={{ fontFamily: "monospace", fontSize: 13, color: C.text }}>
+              <div style={{ fontFamily: "monospace", fontSize: 14, color: C.text, marginBottom: 10 }}>
                 📁 {pendingCreate.name}
               </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: C.textDim }}>
-                <strong>Dentro de:</strong><br />
-                {pendingCreate.parentPath}
+              <div style={{ fontSize: 12, color: C.textDim, marginBottom: 8 }}>
+                <strong>Dentro de:</strong><br />{pendingCreate.parentPath}
               </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: C.textDim }}>
-                <strong>Ruta completa que quedaría:</strong><br />
+              <div style={{ paddingTop: 8, borderTop: `1px solid ${C.orange}30`, fontSize: 12, color: C.textDim }}>
+                <strong>Ruta completa resultante:</strong><br />
                 <span style={{ fontFamily: "monospace" }}>
                   {pendingCreate.parentPath} &gt; {pendingCreate.name}
                 </span>
               </div>
             </InfoBox>
-
-            <div style={{ display: "flex", gap: 12 }}>
-              <Btn
-                onClick={handleConfirmCreate}
-                color={C.green}
-                style={{ flex: 1 }}
-              >
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn onClick={handleConfirmCreate} color={C.green} style={{ flex: 1 }}>
                 ✅ Sí, crear directorio
               </Btn>
-              <Btn
-                onClick={onClose}
-                color={C.red}
-                style={{ flex: 1 }}
-              >
+              <Btn onClick={onClose} color={C.red} style={{ flex: 1 }}>
                 ✕ Cancelar
               </Btn>
             </div>
           </div>
         )}
 
-        {/* ─────────────────────────────────── */}
-        {/* AVISO: directorio creado            */}
-        {/* ─────────────────────────────────── */}
-        {currentStep === "created_notice" && lastCreated && (
+        {/* ── CREATED NOTICE ── */}
+        {step === "created_notice" && lastCreated && (
           <div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, marginBottom: 16 }}>
-              ✅ Directorio creado exitosamente. Por favor verifica en Google Drive:
+            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 10 }}>
+              ✅ Directorio creado. Verifica en Google Drive antes de continuar:
             </div>
-
             <InfoBox color={C.green}>
               <div style={{ marginBottom: 6 }}>
                 <strong style={{ color: C.green }}>📁 Creado:</strong> {lastCreated.name}
               </div>
               <div style={{ fontSize: 12, color: C.textDim, marginTop: 4 }}>
-                <strong>ID de Drive:</strong>{" "}
+                <strong>ID Drive:</strong>{" "}
                 <span style={{ fontFamily: "monospace" }}>{lastCreated.id}</span>
               </div>
-              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.green}30` }}>
+              <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${C.green}30`, fontSize: 12 }}>
                 <strong>Ruta completa:</strong><br />
-                <span style={{ fontFamily: "monospace", fontSize: 12 }}>
-                  {lastCreated.fullPath}
-                </span>
+                <span style={{ fontFamily: "monospace" }}>{lastCreated.fullPath}</span>
               </div>
             </InfoBox>
-
-            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginBottom: 16 }}>
-              Verifica en Google Drive que el directorio se haya creado correctamente, luego haz click en Continuar.
-            </div>
-
-            <Btn
-              onClick={handleContinueAfterVerify}
-              color={C.accent}
-              style={{ width: "100%" }}
-            >
+            <Btn onClick={handleContinueAfterVerify} color={C.accent} style={{ width: "100%" }}>
               Verificado — Continuar →
             </Btn>
           </div>
         )}
 
-        {/* ─────────────────────────────────── */}
-        {/* ERROR de navegación                 */}
-        {/* ─────────────────────────────────── */}
-        {currentStep === "nav_error" && (
+        {/* ── NAV ERROR ── */}
+        {step === "nav_error" && (
           <div>
-            <InfoBox color={C.red}>
-              {status}
-            </InfoBox>
-            <Btn onClick={onClose} color={C.red} style={{ width: "100%" }}>
-              Cerrar
-            </Btn>
+            <InfoBox color={C.red}>{navStatus}</InfoBox>
+            <Btn onClick={onClose} color={C.red} style={{ width: "100%" }}>Cerrar</Btn>
           </div>
         )}
 
-        {/* ─────────────────────────────────── */}
-        {/* LISTO PARA SUBIR                    */}
-        {/* ─────────────────────────────────── */}
-        {currentStep === "upload_ready" && (
-          <div>
-            <div style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, marginBottom: 16 }}>
-              ✅ Estructura de directorios verificada. Listo para subir:
-            </div>
-
-            <InfoBox color={C.green}>
-              <div style={{ marginBottom: 8 }}>
-                <strong>📷 Fotos:</strong> {photos.length}
-              </div>
-              <div style={{ marginBottom: 8 }}>
-                <strong>📁 Destino:</strong>
-              </div>
-              <div style={{ fontFamily: "monospace", fontSize: 12, color: C.text, paddingLeft: 8 }}>
-                {destinationPath}
-              </div>
-            </InfoBox>
-
-            <Btn
-              onClick={handleUploadAll}
-              color={C.accent}
-              style={{ width: "100%" }}
-            >
-              📤 Subir {photos.length} Foto{photos.length !== 1 ? "s" : ""} Ahora
-            </Btn>
+        {/* ── UPLOADING ── */}
+        {step === "uploading" && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ marginBottom: 16 }}><Spinner /></div>
+            <InfoBox color={C.accent}>{uploadProgress || "Subiendo fotos..."}</InfoBox>
           </div>
         )}
 
-        {/* ─────────────────────────────────── */}
-        {/* SUBIENDO                            */}
-        {/* ─────────────────────────────────── */}
-        {currentStep === "uploading" && !uploadDone && (
-          <div>
-            <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <Spinner />
-            </div>
-            <InfoBox color={C.accent}>
-              {uploadProgress || "Preparando subida..."}
-            </InfoBox>
-          </div>
-        )}
-
-        {/* ─────────────────────────────────── */}
-        {/* COMPLETADO                          */}
-        {/* ─────────────────────────────────── */}
-        {currentStep === "uploading" && uploadDone && (
+        {/* ── DONE ── */}
+        {step === "done" && uploadSummary && (
           <div>
             <InfoBox color={C.green}>
-              <div style={{ marginBottom: 8, fontSize: 16, fontWeight: 700, color: C.green }}>
-                ✅ ¡Subida completada!
+              <div style={{ fontSize: 16, fontWeight: 700, color: C.green, marginBottom: 10 }}>
+                ✅ ¡Archivado completado!
               </div>
-              <div>📤 Subidas nuevas: <strong>{uploadDone.success}</strong></div>
-              {uploadDone.skipped > 0 && (
-                <div>⏭️ Ya existían: <strong>{uploadDone.skipped}</strong></div>
-              )}
-              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.green}30`, fontSize: 12, color: C.textDim }}>
-                <strong>Destino:</strong><br />
-                <span style={{ fontFamily: "monospace" }}>{destinationPath}</span>
-              </div>
+              <div>📤 Nuevas subidas: <strong>{uploadSummary.success}</strong></div>
+              {uploadSummary.skipped > 0 && <div>⏭️ Ya existían: <strong>{uploadSummary.skipped}</strong></div>}
+              {uploadSummary.failed  > 0 && <div style={{ color: C.red }}>❌ Fallidas: <strong>{uploadSummary.failed}</strong></div>}
             </InfoBox>
-            <Btn onClick={onClose} color={C.green} style={{ width: "100%" }}>
-              Cerrar
-            </Btn>
+            <Btn onClick={onClose} color={C.green} style={{ width: "100%" }}>Cerrar</Btn>
           </div>
         )}
+
       </Card>
     </div>
   );
