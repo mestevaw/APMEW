@@ -140,7 +140,8 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
                           :                        "no_address",
           detectedAddress:  meta.address,
           detectedDate:     meta.date,
-          dateSource:       meta.dateSource,   // "exif" | "ocr" | null
+          dateSource:       meta.dateSource,
+          addressSource:    meta.addressSource,
           matchedProperty:  meta.matchedProperty || null,
           selectedProperty: meta.matchedProperty || null,
           selectedDate:     meta.date ? meta.date : new Date(),
@@ -502,11 +503,11 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
                     const s = ocrStatusDisplay(p.override ? "manual" : p.ocrStatus);
                     return (
                       <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}` }}>
-                        <td style={{ padding: "7px 10px", color: C.textDim, maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <td style={{ padding: "7px 10px", color: C.textDim, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {p.name}
                           {p.detectedAddress && (
                             <div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>
-                              OCR: {p.detectedAddress}
+                              {p.addressSource === "gps" ? "📍" : "🔍"} {p.detectedAddress}
                             </div>
                           )}
                         </td>
