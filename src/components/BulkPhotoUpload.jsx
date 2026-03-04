@@ -140,6 +140,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
                           :                        "no_address",
           detectedAddress:  meta.address,
           detectedDate:     meta.date,
+          dateSource:       meta.dateSource,   // "exif" | "ocr" | null
           matchedProperty:  meta.matchedProperty || null,
           selectedProperty: meta.matchedProperty || null,
           selectedDate:     meta.date ? meta.date : new Date(),
@@ -529,7 +530,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
                             ))}
                           </select>
                         </td>
-                        <td style={{ padding: "6px 10px", minWidth: 130 }}>
+                        <td style={{ padding: "6px 10px", minWidth: 140 }}>
                           <input
                             type="date"
                             value={p.selectedDate ? p.selectedDate.toISOString().slice(0, 10) : ""}
@@ -544,6 +545,11 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
                               borderRadius: 6, background: C.surface2, color: "#fff", colorScheme: "dark",
                             }}
                           />
+                          {p.dateSource && !p.override && (
+                            <div style={{ fontSize: 10, marginTop: 2, color: p.dateSource === "exif" ? C.green : C.accent }}>
+                              {p.dateSource === "exif" ? "📷 EXIF" : "🔍 OCR"}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: "7px 10px", textAlign: "center" }}>
                           <StatusDot color={s.color} />
