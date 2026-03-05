@@ -16,6 +16,7 @@ import { Card, Spinner } from "../../components/UI";
 import { supaFetch } from "../../lib/supabase";
 import { DRIVE_ROOT_FOLDER } from "../../lib/config";
 import { findFolderByAddress } from "./helpers";
+import { AnaPIndexer } from "../../components/AnaPIndexer";
 
 const parseGastoPath = (folderPath) => {
   const parts = folderPath.split('/');
@@ -39,6 +40,7 @@ const GastosPanel = ({ property, mob, drive }) => {
   const [status, setStatus] = useState("");
   const [notFound, setNotFound] = useState(false);
   const [anaPDoc, setAnaPDoc] = useState(null); // PDF suelto en la carpeta GASTOS
+  const [showIndexer, setShowIndexer] = useState(false);
 
   // ─── Cargar años desde Supabase ───
   useEffect(() => {
@@ -305,28 +307,45 @@ const GastosPanel = ({ property, mob, drive }) => {
 
   return (
     <div>
+      {showIndexer && anaPDoc && (
+        <AnaPIndexer
+          fileId={anaPDoc}
+          property={property}
+          drive={drive}
+          onClose={() => setShowIndexer(false)}
+          onDone={() => setShowIndexer(false)}
+        />
+      )}
       {/* ✅ CONTROLES COMPACTOS pegados a tabs */}
       <div style={{ display: "flex", gap: 6, marginBottom: 8, marginTop: -4, alignItems: "center" }}>
-        {/* Botón documento AnaP */}
+        {/* Botones Doc AnaP */}
         {anaPDoc && (
-          <button
-            onClick={() => window.open(`https://drive.google.com/file/d/${anaPDoc}/view`, "_blank")}
-            style={{
-              padding: "6px 10px",
-              background: `${C.accent}18`,
-              border: `1px solid ${C.accent}60`,
-              borderRadius: 6,
-              cursor: "pointer",
-              fontFamily: "DM Sans",
-              fontSize: 11,
-              fontWeight: 600,
-              color: C.accent,
-              whiteSpace: "nowrap",
-              display: "flex", alignItems: "center", gap: 4,
-            }}
-          >
-            📕 Doc AnaP
-          </button>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button
+              onClick={() => window.open(`https://drive.google.com/file/d/${anaPDoc}/view`, "_blank")}
+              style={{
+                padding: "6px 10px",
+                background: `${C.accent}18`, border: `1px solid ${C.accent}60`,
+                borderRadius: 6, cursor: "pointer",
+                fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.accent,
+                whiteSpace: "nowrap",
+              }}
+            >
+              📕 Doc AnaP
+            </button>
+            <button
+              onClick={() => setShowIndexer(true)}
+              style={{
+                padding: "6px 10px",
+                background: `${C.green}18`, border: `1px solid ${C.green}60`,
+                borderRadius: 6, cursor: "pointer",
+                fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.green,
+                whiteSpace: "nowrap",
+              }}
+            >
+              🤖 Indexar
+            </button>
+          </div>
         )}
         {/* Dropdown de Año (compacto) */}
         <select
