@@ -247,6 +247,43 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
         </div>
       )}
 
+      {/* ── Móvil: encabezado sticky con ordenamiento ── */}
+      {mob && (
+        <div
+          style={{
+            position: "sticky", top: 56, zIndex: 10,
+            background: "#0f1117",
+            display: "flex", gap: 0,
+            borderBottom: `2px solid ${C.border}`,
+            marginBottom: 0,
+          }}
+        >
+          {[
+            { col: "address", label: "Dirección" },
+            { col: "owner",   label: "Dueño"     },
+            { col: "rent",    label: "Renta"      },
+          ].map(({ col, label }) => (
+            <button
+              key={col}
+              onClick={() => handleSort(col)}
+              style={{
+                flex: 1, padding: "9px 6px",
+                background: "none", border: "none",
+                fontFamily: "DM Sans", fontSize: 12, fontWeight: 600,
+                color: sortBy === col ? C.accent : C.textDim,
+                cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
+              }}
+            >
+              {label}
+              <span style={{ fontSize: 10, opacity: sortBy === col ? 1 : 0.4 }}>
+                {sortBy === col ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── Móvil: lista de 2 líneas ── */}
       {mob && (
         <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
@@ -303,7 +340,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             borderCollapse: "collapse",
             fontFamily: "DM Sans",
           }}>
-            <thead>
+            <thead style={{ position: "sticky", top: 32, zIndex: 10 }}>
               <tr style={{ 
                 background: C.surface2, 
                 borderBottom: `2px solid ${C.border}` 
