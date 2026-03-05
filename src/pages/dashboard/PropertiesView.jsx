@@ -219,6 +219,11 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             {drive?.token && <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>
               📤 Subir Batch de Fotos
             </MenuBtn>}
+            <MenuDivider />
+            <MenuLabel>Herramientas</MenuLabel>
+            {drive?.token && <MenuBtn onClick={() => { setShowReindex(true); setMenuOpen(false); }}>
+              🗂️ Reindexar Drive
+            </MenuBtn>}
           </DropMenu>
         </div>
       </div>
@@ -242,8 +247,56 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
         </div>
       )}
 
-      {/* Tabla de propiedades */}
-      <Card style={{ padding: 0, overflow: "hidden" }}>
+      {/* ── Móvil: lista de 2 líneas ── */}
+      {mob && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          {filtered.map((prop, idx) => {
+            const ownerColor = OWNER_COLORS[prop.owner] || C.textDim;
+            const rent = rents[prop.address];
+            return (
+              <div
+                key={idx}
+                onClick={() => onSelectProperty(prop)}
+                style={{
+                  padding: "13px 16px",
+                  borderBottom: `1px solid ${C.border}`,
+                  cursor: "pointer",
+                  background: "transparent",
+                  transition: "background 0.15s",
+                }}
+                onTouchStart={e => e.currentTarget.style.background = C.surface2}
+                onTouchEnd={e => e.currentTarget.style.background = "transparent"}
+              >
+                {/* Línea 1: Dirección + Renta */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.text }}>
+                    {prop.address}
+                  </span>
+                  <span style={{ fontFamily: "JetBrains Mono", fontSize: 14, fontWeight: 700, color: rent ? C.green : C.textDim, marginLeft: 12, flexShrink: 0 }}>
+                    {rent ? fmtMoney(rent) : "N/A"}
+                  </span>
+                </div>
+                {/* Línea 2: Dueño + Estado */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 12, color: ownerColor }}>
+                    {OWNER_SHORT[prop.owner] || prop.owner}
+                  </span>
+                  <span style={{
+                    padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600,
+                    background: prop.sold ? `${C.red}20` : `${C.green}20`,
+                    color: prop.sold ? C.red : C.green,
+                  }}>
+                    {prop.sold ? "Vendida" : "Activa"}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Desktop: tabla completa ── */}
+      {!mob && <Card style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ 
             width: "100%", 
@@ -387,8 +440,9 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             </tbody>
           </table>
         </div>
+      </Card>}
 
-        {filtered.length === 0 && (
+      {filtered.length === 0 && (
           <div style={{ 
             padding: "40px 20px", 
             textAlign: "center",
