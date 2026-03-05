@@ -216,7 +216,6 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
           <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
           <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
             <MenuLabel>Fotos</MenuLabel>
-            {drive?.token && <MenuBtn onClick={() => setMenuOpen(false)}>✅ Drive conectado</MenuBtn>}
             {drive?.token && <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>
               📤 Subir Batch de Fotos
             </MenuBtn>}
