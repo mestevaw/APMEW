@@ -16,6 +16,7 @@ import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuC
 import { BulkPhotoUpload } from "../../components/BulkPhotoUpload";
 import { DriveReindex } from "../../components/DriveReindex";
 import { VendorSearch } from "../../components/VendorSearch";
+import { BulkAnaPIndexer } from "../../components/BulkAnaPIndexer";
 
 const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -25,6 +26,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showReindex, setShowReindex] = useState(false);
   const [showVendorSearch, setShowVendorSearch] = useState(false);
+  const [showBulkAnaP, setShowBulkAnaP] = useState(false);
   const [uploadTarget, setUploadTarget] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
@@ -146,6 +148,10 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
     <div>
       <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFilesSelected} style={{ display: "none" }} />
 
+      {showBulkAnaP && (
+        <BulkAnaPIndexer drive={drive} onClose={() => setShowBulkAnaP(false)} />
+      )}
+
       {showVendorSearch && (
         <VendorSearch onClose={() => setShowVendorSearch(false)} />
       )}
@@ -229,6 +235,9 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             <MenuLabel>Herramientas</MenuLabel>
             {drive?.token && <MenuBtn onClick={() => { setShowReindex(true); setMenuOpen(false); }}>
               🗂️ Reindexar Drive
+            </MenuBtn>}
+            {drive?.token && <MenuBtn onClick={() => { setShowBulkAnaP(true); setMenuOpen(false); }}>
+              🤖 Indexar Doc AnaP (todas)
             </MenuBtn>}
             <MenuDivider />
             <MenuLabel>Búsqueda</MenuLabel>
