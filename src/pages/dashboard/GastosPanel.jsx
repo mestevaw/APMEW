@@ -37,6 +37,7 @@ const GastosPanel = ({ property, mob, drive }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [status, setStatus] = useState("");
   const [notFound, setNotFound] = useState(false);
+  const [anaPDoc, setAnaPDoc] = useState(null); // PDF suelto en la carpeta GASTOS
 
   // ─── Cargar años desde Supabase ───
   useEffect(() => {
@@ -59,6 +60,29 @@ const GastosPanel = ({ property, mob, drive }) => {
             const uniqueYears = Array.from(
               new Map(parsed.map(p => [p.year, { year: p.year, id: p.driveId, folderPath: p.folderPath }])).values()
             ).sort((a, b) => b.year.localeCompare(a.year));
+
+            // Buscar PDF suelto en la misma carpeta GASTOS vía Drive
+            if (drive?.findSubfolder && drive?.listAllFiles) {
+              try {
+                const sf = await import("../helpers").then(m => m.findFolderByAddress(property.address, property.owner)).catch(() => null);
+                // fallback: intentar cargar desde el primer folder_path conocido
+                const basePath = parsed[0]?.folderPath;
+                if (basePath) {
+                  const gastosPath = basePath.split("/").slice(0, -1).join("/"); // quitar el año
+                  const gastosRows = await import("../../lib/supabase").then(m =>
+                    m.supaFetch("drive_folders", { filters: `folder_path=eq.${encodeURIComponent(gastosPath)}`, limit: 1 })
+                  ).catch(() => null);
+                  const gastosId = gastosRows?.[0]?.google_drive_id;
+                  if (gastosId) {
+                    const allInGastos = await drive.listAllFiles(gastosId);
+                    const pdf = (allInGastos || []).find(f =>
+                      f.mimeType === "application/pdf" || (f.name || "").toLowerCase().endsWith(".pdf")
+                    );
+                    if (pdf) setAnaPDoc(pdf.id);
+                  }
+                }
+              } catch(e) { /* silencioso */ }
+            }
 
             setYearFolders(uniqueYears);
             setSelectedYear("all"); // Iniciar en "Todos"
@@ -111,6 +135,12 @@ const GastosPanel = ({ property, mob, drive }) => {
         .filter(f => f.mimeType === "application/vnd.google-apps.folder" && /^\d{4}$/.test(f.name))
         .map(f => ({ id: f.id, year: f.name }))
         .sort((a, b) => b.year.localeCompare(a.year));
+
+      // Buscar PDF suelto (no dentro de subcarpetas de año)
+      const loosePdf = (allFiles || []).find(f =>
+        f.mimeType === "application/pdf" || (f.name || "").toLowerCase().endsWith(".pdf")
+      );
+      if (loosePdf) setAnaPDoc(loosePdf.id);
 
       setYearFolders(years);
       setSelectedYear("all");
@@ -276,7 +306,28 @@ const GastosPanel = ({ property, mob, drive }) => {
   return (
     <div>
       {/* ✅ CONTROLES COMPACTOS pegados a tabs */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 8, marginTop: -4 }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8, marginTop: -4, alignItems: "center" }}>
+        {/* Botón documento AnaP */}
+        {anaPDoc && (
+          <button
+            onClick={() => window.open(`https://drive.google.com/file/d/${anaPDoc}/view`, "_blank")}
+            style={{
+              padding: "6px 10px",
+              background: `${C.accent}18`,
+              border: `1px solid ${C.accent}60`,
+              borderRadius: 6,
+              cursor: "pointer",
+              fontFamily: "DM Sans",
+              fontSize: 11,
+              fontWeight: 600,
+              color: C.accent,
+              whiteSpace: "nowrap",
+              display: "flex", alignItems: "center", gap: 4,
+            }}
+          >
+            📕 Doc AnaP
+          </button>
+        )}
         {/* Dropdown de Año (compacto) */}
         <select
           value={selectedYear}
