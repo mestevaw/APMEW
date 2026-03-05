@@ -15,6 +15,7 @@ import { C } from "../../lib/theme";
 import { Card, Spinner } from "../../components/UI";
 import { supaFetch } from "../../lib/supabase";
 import { DRIVE_ROOT_FOLDER } from "../../lib/config";
+import { findFolderByAddress } from "./helpers";
 
 const parseGastoPath = (folderPath) => {
   const parts = folderPath.split('/');
@@ -61,17 +62,16 @@ const GastosPanel = ({ property, mob, drive }) => {
               new Map(parsed.map(p => [p.year, { year: p.year, id: p.driveId, folderPath: p.folderPath }])).values()
             ).sort((a, b) => b.year.localeCompare(a.year));
 
-            // Buscar PDF suelto en la misma carpeta GASTOS vía Drive
-            if (drive?.findSubfolder && drive?.listAllFiles) {
+            // Buscar PDF suelto en la misma carpeta GASTOS vía Supabase + Drive
+            if (drive?.listAllFiles) {
               try {
-                const sf = await import("../helpers").then(m => m.findFolderByAddress(property.address, property.owner)).catch(() => null);
-                // fallback: intentar cargar desde el primer folder_path conocido
                 const basePath = parsed[0]?.folderPath;
                 if (basePath) {
-                  const gastosPath = basePath.split("/").slice(0, -1).join("/"); // quitar el año
-                  const gastosRows = await import("../../lib/supabase").then(m =>
-                    m.supaFetch("drive_folders", { filters: `folder_path=eq.${encodeURIComponent(gastosPath)}`, limit: 1 })
-                  ).catch(() => null);
+                  const gastosPath = basePath.split("/").slice(0, -1).join("/");
+                  const gastosRows = await supaFetch("drive_folders", {
+                    filters: `folder_path=eq.${encodeURIComponent(gastosPath)}`,
+                    limit: 1
+                  });
                   const gastosId = gastosRows?.[0]?.google_drive_id;
                   if (gastosId) {
                     const allInGastos = await drive.listAllFiles(gastosId);
