@@ -29,7 +29,11 @@ const PropertyTabs = ({ property, mob, drive, onInspectionPhotos, folderId }) =>
     <div>
       {/* Tabs para desktop, dropdown para mobile */}
       {mob ? (
-        <div style={{ marginBottom: 16 }}>
+        <div style={{
+          position: "sticky", top: 56, zIndex: 20,
+          background: "#0f1117",
+          paddingBottom: 10, marginBottom: 6,
+        }}>
           <select
             value={activeTab}
             onChange={(e) => setActiveTab(e.target.value)}
@@ -60,6 +64,9 @@ const PropertyTabs = ({ property, mob, drive, onInspectionPhotos, folderId }) =>
           marginBottom: 16,
           borderBottom: `1px solid ${C.border}`,
           overflowX: "auto",
+          position: "sticky", top: 0, zIndex: 20,
+          background: "#0f1117",
+          paddingTop: 4,
         }}>
           {tabs.map(tab => (
             <button
