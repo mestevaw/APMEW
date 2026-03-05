@@ -15,6 +15,7 @@ import { HouseIcon } from "./icons";
 import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuComponents";
 import { BulkPhotoUpload } from "../../components/BulkPhotoUpload";
 import { DriveReindex } from "../../components/DriveReindex";
+import { VendorSearch } from "../../components/VendorSearch";
 
 const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -23,6 +24,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showReindex, setShowReindex] = useState(false);
+  const [showVendorSearch, setShowVendorSearch] = useState(false);
   const [uploadTarget, setUploadTarget] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
@@ -144,6 +146,10 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
     <div>
       <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFilesSelected} style={{ display: "none" }} />
 
+      {showVendorSearch && (
+        <VendorSearch onClose={() => setShowVendorSearch(false)} />
+      )}
+
       {showReindex && (
         <DriveReindex drive={drive} onClose={() => setShowReindex(false)} />
       )}
@@ -224,6 +230,11 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             {drive?.token && <MenuBtn onClick={() => { setShowReindex(true); setMenuOpen(false); }}>
               🗂️ Reindexar Drive
             </MenuBtn>}
+            <MenuDivider />
+            <MenuLabel>Búsqueda</MenuLabel>
+            <MenuBtn onClick={() => { setShowVendorSearch(true); setMenuOpen(false); }}>
+              🔍 Buscar x Proveedor
+            </MenuBtn>
           </DropMenu>
         </div>
       </div>
