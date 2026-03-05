@@ -453,7 +453,6 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             No se encontraron propiedades
           </div>
         )}
-      </Card>
 
       {/* Resumen */}
       <div style={{ 
