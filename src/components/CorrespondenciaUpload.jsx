@@ -1,14 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/CorrespondenciaUpload.jsx
-// Versión: V3
+// Versión: V4
 // Fecha: 2026-03-06
 // ═══════════════════════════════════════════
-// CAMBIOS EN V3 (desde V2):
-// - Nueva nomenclatura de archivo:
-//   [descripción] [fecha carta en "6 mar 26"] [domicilio] [fecha guardado en "6 mar 26"].pdf
-// - Subdirectorios por año: cuando se elige una carpeta que tiene subcarpetas
-//   con nombres de año (4 dígitos), se muestra un segundo selector de año.
-//   Si el año no existe, se crea automáticamente al archivar.
+// CAMBIOS EN V4 (desde V3):
+// - Nomenclatura corregida: [remitente] [tipo] Cta [fecha carta] [domicilio] [fecha guardado]
+//   Ejemplo: HOA NEC Aviso Cortesía Cta 25 feb 26 6515 Hazy Glen 6 mar 26.pdf
+// - Eliminada dirección duplicada (ya no se usa suggestedName que la incluía)
 // ═══════════════════════════════════════════
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -112,14 +110,17 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
   const activeProps  = PROPERTIES.filter(p => !p.sold);
 
   // ── Genera nombre de archivo con la nueva nomenclatura ──────────────────
+  // Formato: [remitente] [tipo doc] Cta [fecha carta] [domicilio] [fecha guardado]
+  // Ejemplo: HOA NEC Aviso Cortesía Cta 25 feb 26 6515 Hazy Glen 6 mar 26.pdf
   const buildFileName = useCallback((meta, property) => {
     const today    = new Date();
     const docDate  = meta?.docDate ? fmtShortDate(meta.docDate) : "";
     const saveDate = fmtShortDate(today);
-    const desc     = safeStr(meta?.suggestedName || [safeStr(meta?.docType, 20), safeStr(meta?.sender, 30)].filter(Boolean).join(" "), 50);
-    const address  = safeStr(property?.address || meta?.address || "", 30);
-    // Formato: [descripción] [fecha carta] [domicilio] [fecha guardado]
-    const parts = [desc, docDate, address, saveDate].filter(Boolean);
+    const sender   = safeStr(meta?.sender  || "", 30);
+    const docType  = safeStr(meta?.docType || "", 30);
+    const address  = safeStr(property?.address || "", 30);
+    // [remitente] [tipo] Cta [fecha carta] [domicilio] [fecha guardado]
+    const parts = [sender, docType, "Cta", docDate, address, saveDate].filter(Boolean);
     return `${parts.join(" ")}.pdf`;
   }, []);
 
