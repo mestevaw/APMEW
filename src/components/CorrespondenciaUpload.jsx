@@ -1,13 +1,14 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/CorrespondenciaUpload.jsx
-// Versión: V2
+// Versión: V3
 // Fecha: 2026-03-06
 // ═══════════════════════════════════════════
-// CAMBIOS EN V2 (desde V1):
-// - Soporta dos modos:
-//   a) Con prop folderId (desde PropertyDetail) — propiedad ya conocida
-//   b) Sin folderId (desde PropertiesView) — Claude detecta la propiedad del PDF
-//      y busca su carpeta en Supabase; si no la halla, el usuario elige manualmente
+// CAMBIOS EN V3 (desde V2):
+// - Nueva nomenclatura de archivo:
+//   [descripción] [fecha carta en "6 mar 26"] [domicilio] [fecha guardado en "6 mar 26"].pdf
+// - Subdirectorios por año: cuando se elige una carpeta que tiene subcarpetas
+//   con nombres de año (4 dígitos), se muestra un segundo selector de año.
+//   Si el año no existe, se crea automáticamente al archivar.
 // ═══════════════════════════════════════════
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -16,7 +17,23 @@ import { Card, Spinner } from "./UI";
 import { PROPERTIES } from "../pages/dashboard/constants";
 import { findFolderByAddress } from "../pages/dashboard/helpers";
 
-// ─── Helpers UI ────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+const MONTHS_ES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+
+// Formatea fecha como "6 mar 26"
+const fmtShortDate = (date) => {
+  if (!date) return "";
+  const d = typeof date === "string" ? new Date(date + "T12:00:00") : date;
+  return `${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
+};
+
+// Limpia string para usarlo en nombre de archivo
+const safeStr = (s, maxLen = 40) =>
+  (s || "").replace(/[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ\s\-]/g, "").trim().slice(0, maxLen);
+
+// Detecta si un nombre de carpeta es un año (4 dígitos 2000-2099)
+const isYearFolder = (name) => /^20\d{2}$/.test(name?.trim());
 
 const Btn = ({ onClick, disabled, color, children, style = {} }) => (
   <button onClick={onClick} disabled={disabled} style={{
@@ -69,21 +86,44 @@ const matchAddress = (detectedAddress) => {
 // ═══════════════════════════════════════════
 export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property: propProperty, onClose, onComplete, mob }) => {
 
-  const [step, setStep]                     = useState("select");
-  const [dragOver, setDragOver]             = useState(false);
-  const [pdfFile, setPdfFile]               = useState(null);
-  const [error, setError]                   = useState("");
-  const [docMeta, setDocMeta]               = useState(null);
+  const [step, setStep]                         = useState("select");
+  const [dragOver, setDragOver]                 = useState(false);
+  const [pdfFile, setPdfFile]                   = useState(null);
+  const [error, setError]                       = useState("");
+  const [docMeta, setDocMeta]                   = useState(null);
   const [resolvedFolderId, setResolvedFolderId] = useState(propFolderId || null);
   const [resolvedProperty, setResolvedProperty] = useState(propProperty || null);
-  const [subfolders, setSubfolders]         = useState([]);
-  const [loadingFolders, setLoadingFolders] = useState(false);
-  const [selectedFolder, setSelectedFolder] = useState(null);
-  const [fileName, setFileName]             = useState("");
+
+  // Nivel 1: subcarpetas directas de la propiedad
+  const [subfolders, setSubfolders]             = useState([]);
+  const [loadingFolders, setLoadingFolders]     = useState(false);
+  const [selectedFolder, setSelectedFolder]     = useState(null);
+
+  // Nivel 2: subcarpetas de año (si el folder seleccionado las tiene)
+  const [yearFolders, setYearFolders]           = useState([]);   // carpetas de año existentes
+  const [loadingYears, setLoadingYears]         = useState(false);
+  const [selectedYear, setSelectedYear]         = useState(null); // id de la carpeta año, o "__new__"
+  const [newYearName, setNewYearName]           = useState("");   // año a crear si "__new__"
+  const [hasYearSubfolders, setHasYearSubfolders] = useState(false);
+
+  const [fileName, setFileName]                 = useState("");
 
   const fileInputRef = useRef(null);
   const activeProps  = PROPERTIES.filter(p => !p.sold);
 
+  // ── Genera nombre de archivo con la nueva nomenclatura ──────────────────
+  const buildFileName = useCallback((meta, property) => {
+    const today    = new Date();
+    const docDate  = meta?.docDate ? fmtShortDate(meta.docDate) : "";
+    const saveDate = fmtShortDate(today);
+    const desc     = safeStr(meta?.suggestedName || [safeStr(meta?.docType, 20), safeStr(meta?.sender, 30)].filter(Boolean).join(" "), 50);
+    const address  = safeStr(property?.address || meta?.address || "", 30);
+    // Formato: [descripción] [fecha carta] [domicilio] [fecha guardado]
+    const parts = [desc, docDate, address, saveDate].filter(Boolean);
+    return `${parts.join(" ")}.pdf`;
+  }, []);
+
+  // ── Cargar subcarpetas nivel 1 ───────────────────────────────────────────
   const loadSubfolders = useCallback(async (fId) => {
     if (!fId || !drive?.token) return;
     setLoadingFolders(true);
@@ -99,10 +139,52 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
     }
   }, [drive]);
 
+  // ── Cuando cambia la carpeta seleccionada, revisar si tiene años ─────────
+  const handleFolderChange = useCallback(async (folderId) => {
+    setSelectedFolder(folderId);
+    setYearFolders([]);
+    setSelectedYear(null);
+    setHasYearSubfolders(false);
+    if (!folderId || !drive?.token) return;
+
+    setLoadingYears(true);
+    try {
+      const files = await drive.listAllFiles(folderId);
+      const years = (files || [])
+        .filter(f => f.mimeType === "application/vnd.google-apps.folder" && isYearFolder(f.name))
+        .sort((a, b) => b.name.localeCompare(a.name)); // más reciente primero
+
+      if (years.length > 0) {
+        setHasYearSubfolders(true);
+        setYearFolders(years);
+        // Pre-seleccionar el año actual si existe, si no "__new__"
+        const currentYear = String(new Date().getFullYear());
+        const match = years.find(y => y.name === currentYear);
+        if (match) {
+          setSelectedYear(match.id);
+        } else {
+          setSelectedYear("__new__");
+          setNewYearName(currentYear);
+        }
+      }
+    } catch (e) {
+      console.error("[Correspondencia] Error revisando años:", e);
+    } finally {
+      setLoadingYears(false);
+    }
+  }, [drive]);
+
+  // Sincronizar cuando subfolders carga y selecciona el primero
+  useEffect(() => {
+    if (selectedFolder) handleFolderChange(selectedFolder);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // solo al montar si ya hay selectedFolder
+
   useEffect(() => {
     if (propFolderId) loadSubfolders(propFolderId);
   }, [propFolderId, loadSubfolders]);
 
+  // ── Procesar PDF ─────────────────────────────────────────────────────────
   const processFile = useCallback(async (file) => {
     if (!file || file.type !== "application/pdf") {
       setError("Solo se aceptan archivos PDF.");
@@ -120,8 +202,8 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
           "Content-Type": "application/json",
           "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY || "",
           "anthropic-version": "2023-06-01",
-         "anthropic-dangerous-direct-browser-access": "true",
-"anthropic-beta": "pdfs-2024-09-25",
+          "anthropic-dangerous-direct-browser-access": "true",
+          "anthropic-beta": "pdfs-2024-09-25",
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
@@ -137,7 +219,7 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
 4. La fecha del documento (si aparece)
 
 Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estructura exacta:
-{"address": "dirección aquí o null", "docType": "tipo de doc", "sender": "remitente", "docDate": "YYYY-MM-DD o null", "suggestedName": "nombre corto descriptivo para el archivo sin extensión"}` },
+{"address": "dirección aquí o null", "docType": "tipo de doc", "sender": "remitente", "docDate": "YYYY-MM-DD o null", "suggestedName": "nombre corto descriptivo para el archivo sin extensión, máximo 50 caracteres"}` },
             ],
           }],
         }),
@@ -153,18 +235,13 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
 
       setDocMeta(meta);
 
-      const today   = new Date();
-      const dateStr = meta.docDate || today.toISOString().slice(0, 10);
-      const safeSender = (meta.sender  || "").replace(/[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ\s]/g, "").trim().slice(0, 30);
-      const safeType   = (meta.docType || "").replace(/[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ\s]/g, "").trim().slice(0, 20);
-      const suggested  = meta.suggestedName?.trim() || [safeType, safeSender].filter(Boolean).join(" - ");
-      setFileName(`${dateStr} ${suggested || "Correspondencia"}.pdf`);
-
       // Resolver propiedad + folderId si no vienen de props
       let fId = propFolderId || null;
+      let prop = propProperty || null;
       if (!fId) {
         const matched = matchAddress(meta.address);
         if (matched) {
+          prop = matched;
           setResolvedProperty(matched);
           const folder = await findFolderByAddress(matched.address, matched.owner);
           if (folder?.google_drive_id) {
@@ -174,17 +251,18 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
         }
       }
 
+      setFileName(buildFileName(meta, prop || propProperty));
       if (fId) await loadSubfolders(fId);
       setStep("confirm");
     } catch (err) {
       console.error("[Correspondencia] Error analizando PDF:", err);
       setError("No se pudo analizar el PDF. Puedes continuar y asignar el destino manualmente.");
-      setFileName(`${new Date().toISOString().slice(0, 10)} Correspondencia.pdf`);
+      setFileName(buildFileName(null, propProperty));
       setDocMeta({ docType: "Correspondencia", sender: "", docDate: null });
       if (propFolderId) await loadSubfolders(propFolderId);
       setStep("confirm");
     }
-  }, [propFolderId, loadSubfolders]);
+  }, [propFolderId, propProperty, loadSubfolders, buildFileName]);
 
   const handleFileSelect = (e) => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ""; };
   const handleDragOver   = (e) => { e.preventDefault(); setDragOver(true); };
@@ -205,6 +283,7 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
     const prop = activeProps.find(p => p.address === address) || null;
     setResolvedProperty(prop);
     setSubfolders([]); setSelectedFolder(null);
+    setYearFolders([]); setSelectedYear(null); setHasYearSubfolders(false);
     if (!prop) return;
     setLoadingFolders(true);
     try {
@@ -219,11 +298,23 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
     finally { setLoadingFolders(false); }
   };
 
+  // ── Determina la carpeta final destino (nivel 1 o nivel 2) ───────────────
+  const getFinalFolderId = async () => {
+    if (!hasYearSubfolders) return selectedFolder;
+    if (selectedYear && selectedYear !== "__new__") return selectedYear;
+    // Crear carpeta del año
+    const yearName = newYearName || String(new Date().getFullYear());
+    const created = await drive.createFolder(yearName, selectedFolder);
+    return created.id;
+  };
+
   const handleUpload = async () => {
     if (!pdfFile || !selectedFolder || !fileName.trim()) return;
+    if (hasYearSubfolders && !selectedYear && !newYearName) return;
     setStep("uploading");
     try {
-      await drive.uploadFile(pdfFile, fileName.trim(), selectedFolder);
+      const targetFolderId = await getFinalFolderId();
+      await drive.uploadFile(pdfFile, fileName.trim(), targetFolderId);
       setStep("done");
       if (onComplete) onComplete({ fileName: fileName.trim() });
     } catch (err) {
@@ -233,8 +324,10 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
     }
   };
 
-  const canUpload = !!selectedFolder && !!fileName.trim();
+  const canUpload = !!selectedFolder && !!fileName.trim() &&
+    (!hasYearSubfolders || !!selectedYear);
 
+  // ── RENDER ───────────────────────────────────────────────────────────────
   return (
     <div style={{
       position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
@@ -257,7 +350,7 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </div>
         )}
 
-        {/* SELECT */}
+        {/* ══ SELECT ══ */}
         {step === "select" && (
           <>
             <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, textAlign: "center", marginBottom: 14 }}>
@@ -306,7 +399,7 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </>
         )}
 
-        {/* ANALYZING */}
+        {/* ══ ANALYZING ══ */}
         {step === "analyzing" && (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <Spinner />
@@ -315,7 +408,7 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </div>
         )}
 
-        {/* CONFIRM */}
+        {/* ══ CONFIRM ══ */}
         {step === "confirm" && (
           <div>
             {docMeta && (
@@ -323,14 +416,14 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
                 <div style={{ fontWeight: 700, marginBottom: 8, color: C.accent }}>📄 Documento detectado</div>
                 {docMeta.docType  && <div style={{ marginBottom: 3 }}><span style={{ color: C.textDim }}>Tipo: </span><span style={{ color: C.text }}>{docMeta.docType}</span></div>}
                 {docMeta.sender   && <div style={{ marginBottom: 3 }}><span style={{ color: C.textDim }}>Remitente: </span><span style={{ color: C.text }}>{docMeta.sender}</span></div>}
-                {docMeta.docDate  && <div style={{ marginBottom: 3 }}><span style={{ color: C.textDim }}>Fecha: </span><span style={{ color: C.text }}>{docMeta.docDate}</span></div>}
+                {docMeta.docDate  && <div style={{ marginBottom: 3 }}><span style={{ color: C.textDim }}>Fecha carta: </span><span style={{ color: C.text }}>{fmtShortDate(docMeta.docDate)}</span></div>}
                 {docMeta.address  && <div><span style={{ color: C.textDim }}>Dirección detectada: </span><span style={{ color: C.text }}>{docMeta.address}</span></div>}
               </InfoBox>
             )}
 
             {error && <InfoBox color={C.orange}>⚠️ {error}</InfoBox>}
 
-            {/* Selector de propiedad — solo cuando no viene folderId de props */}
+            {/* Selector propiedad — solo sin folderId de props */}
             {!propFolderId && (
               <div style={{ marginBottom: 16 }}>
                 <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>🏠 Propiedad</label>
@@ -345,6 +438,7 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
               </div>
             )}
 
+            {/* Nombre del archivo */}
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>Nombre del archivo</label>
               <input type="text" value={fileName} onChange={e => setFileName(e.target.value)} style={{
@@ -354,7 +448,8 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
               }} />
             </div>
 
-            <div style={{ marginBottom: 20 }}>
+            {/* Carpeta destino — nivel 1 */}
+            <div style={{ marginBottom: hasYearSubfolders ? 12 : 20 }}>
               <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>📂 Carpeta destino</label>
               {loadingFolders ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 10 }}>
@@ -362,14 +457,12 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
                 </div>
               ) : !resolvedFolderId && !propFolderId ? (
                 <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, padding: "8px 0" }}>
-                  Selecciona una propiedad primero para ver las carpetas disponibles.
+                  Selecciona una propiedad primero.
                 </div>
               ) : subfolders.length === 0 ? (
-                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.orange }}>
-                  ⚠️ No se encontraron subcarpetas en esta propiedad.
-                </div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.orange }}>⚠️ No se encontraron subcarpetas.</div>
               ) : (
-                <select value={selectedFolder || ""} onChange={e => setSelectedFolder(e.target.value)} style={{
+                <select value={selectedFolder || ""} onChange={e => handleFolderChange(e.target.value)} style={{
                   width: "100%", padding: "9px 12px", background: C.surface2,
                   border: `1px solid ${C.border}`, borderRadius: 8,
                   fontFamily: "DM Sans", fontSize: 13, color: C.text, boxSizing: "border-box",
@@ -380,6 +473,30 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
               )}
             </div>
 
+            {/* Carpeta destino — nivel 2 (año) */}
+            {hasYearSubfolders && selectedFolder && (
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>
+                  📅 Año
+                </label>
+                {loadingYears ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 10 }}>
+                    <Spinner /><span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>Cargando años...</span>
+                  </div>
+                ) : (
+                  <select value={selectedYear || ""} onChange={e => setSelectedYear(e.target.value)} style={{
+                    width: "100%", padding: "9px 12px", background: C.surface2,
+                    border: `1px solid ${selectedYear ? C.border : C.red}`,
+                    borderRadius: 8, fontFamily: "DM Sans", fontSize: 13, color: C.text, boxSizing: "border-box",
+                  }}>
+                    <option value="" disabled>Seleccionar año...</option>
+                    {yearFolders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                    <option value="__new__">+ Crear {newYearName || String(new Date().getFullYear())}</option>
+                  </select>
+                )}
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: 10 }}>
               <Btn onClick={onClose} style={{ flex: 1, background: "transparent", border: `1px solid ${C.border}`, color: C.textDim }}>Cancelar</Btn>
               <Btn onClick={handleUpload} disabled={!canUpload} style={{ flex: 2 }}>📤 Archivar en Drive</Btn>
@@ -387,7 +504,7 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </div>
         )}
 
-        {/* UPLOADING */}
+        {/* ══ UPLOADING ══ */}
         {step === "uploading" && (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <Spinner />
@@ -395,13 +512,12 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </div>
         )}
 
-        {/* DONE */}
+        {/* ══ DONE ══ */}
         {step === "done" && (
           <div>
             <InfoBox color={C.green}>
               <div style={{ fontSize: 16, fontWeight: 700, color: C.green, marginBottom: 8 }}>✅ ¡Correspondencia archivada!</div>
               <div style={{ color: C.textDim, fontSize: 12 }}>Archivo: <span style={{ color: C.text }}>{fileName}</span></div>
-              <div style={{ color: C.textDim, fontSize: 12, marginTop: 4 }}>Carpeta: <span style={{ color: C.text }}>{subfolders.find(f => f.id === selectedFolder)?.name || "—"}</span></div>
               {resolvedProperty && <div style={{ color: C.textDim, fontSize: 12, marginTop: 4 }}>Propiedad: <span style={{ color: C.accent }}>{resolvedProperty.address}</span></div>}
             </InfoBox>
             <Btn onClick={onClose} color={C.green} style={{ width: "100%" }}>Cerrar</Btn>
