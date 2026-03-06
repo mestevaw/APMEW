@@ -1,12 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/PropertyDetail.jsx
-// Versión: V3
-// Fecha: 2026-03-02
+// Versión: V4
+// Fecha: 2026-03-06
 // ═══════════════════════════════════════════
-// CAMBIOS EN V3 (desde V2):
-// - Bug fix: Agregado prop "open" a DropMenu para que funcione el menú hamburguesa
-// - Verificado: Flecha de regreso (onBack) funciona correctamente
-// - Eliminada sección "Documentos en Drive" (ya en tab Documentos)
+// CAMBIOS EN V4 (desde V3):
+// - Nuevo: Opción "Archivar Correspondencia" en menú hamburguesa
+// - Abre modal CorrespondenciaUpload que lee el PDF con Claude y
+//   permite seleccionar la carpeta destino dentro de la propiedad en Drive
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef } from "react";
@@ -23,6 +23,7 @@ import SupaExplorer from "./SupaExplorer";
 import PropertyExpenses from "./PropertyExpenses";
 import PropertyTabs from "./PropertyTabs";
 import { BulkPhotoUpload } from "../../components/BulkPhotoUpload";
+import { CorrespondenciaUpload } from "../../components/CorrespondenciaUpload";
 
 const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   const [folderId, setFolderId] = useState(null);
@@ -38,6 +39,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   const [refreshKey, setRefreshKey] = useState(0);
   const personal = isPersonalProperty(property.address);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [showCorrespondencia, setShowCorrespondencia] = useState(false);
 
   useEffect(() => {
     setSearching(true); setNotFound(false); setFolderId(null); setTenant(null);
@@ -199,6 +201,9 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
             <MenuBtn onClick={() => { setShowDocs(true); setMenuOpen(false); }}>
               🔍 Ver Documentos
             </MenuBtn>
+            <MenuBtn onClick={() => { setShowCorrespondencia(true); setMenuOpen(false); }}>
+              📬 Archivar Correspondencia
+            </MenuBtn>
           </DropMenu>
         </div>
       </div>
@@ -254,6 +259,21 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
             setRefreshKey(k => k + 1);
           }}
           mob={mob}
+        />
+      )}
+
+      {/* Correspondencia Upload Modal */}
+      {showCorrespondencia && (
+        <CorrespondenciaUpload
+          drive={drive}
+          folderId={folderId}
+          property={property}
+          mob={mob}
+          onClose={() => setShowCorrespondencia(false)}
+          onComplete={({ fileName }) => {
+            setUploadMsg(`✓ Correspondencia archivada: ${fileName}`);
+            setTimeout(() => setUploadMsg(""), 6000);
+          }}
         />
       )}
 
