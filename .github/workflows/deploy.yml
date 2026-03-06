@@ -25,6 +25,7 @@ jobs:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
           VITE_DRIVE_ROOT_FOLDER: ${{ secrets.VITE_DRIVE_ROOT_FOLDER }}
           VITE_DRIVE_RESOURCE_KEY: ${{ secrets.VITE_DRIVE_RESOURCE_KEY }}
+          VITE_ANTHROPIC_API_KEY: ${{ secrets.VITE_ANTHROPIC_API_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
