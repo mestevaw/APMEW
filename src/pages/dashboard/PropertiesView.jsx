@@ -17,6 +17,7 @@ import { BulkPhotoUpload } from "../../components/BulkPhotoUpload";
 import { DriveReindex } from "../../components/DriveReindex";
 import { VendorSearch } from "../../components/VendorSearch";
 import { BulkAnaPIndexer } from "../../components/BulkAnaPIndexer";
+import { CorrespondenciaUpload } from "../../components/CorrespondenciaUpload";
 
 const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -27,6 +28,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
   const [showReindex, setShowReindex] = useState(false);
   const [showVendorSearch, setShowVendorSearch] = useState(false);
   const [showBulkAnaP, setShowBulkAnaP] = useState(false);
+  const [showCorrespondencia, setShowCorrespondencia] = useState(false);
   const [uploadTarget, setUploadTarget] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
@@ -172,6 +174,18 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
         />
       )}
 
+      {showCorrespondencia && (
+        <CorrespondenciaUpload
+          drive={drive}
+          mob={mob}
+          onClose={() => setShowCorrespondencia(false)}
+          onComplete={({ fileName }) => {
+            setUploadMsg(`✓ Correspondencia archivada: ${fileName}`);
+            setTimeout(() => setUploadMsg(""), 6000);
+          }}
+        />
+      )}
+
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, display: "flex", padding: 4 }}>
@@ -243,6 +257,11 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             <MenuLabel>Búsqueda</MenuLabel>
             <MenuBtn onClick={() => { setShowVendorSearch(true); setMenuOpen(false); }}>
               🔍 Buscar x Proveedor
+            </MenuBtn>
+            <MenuDivider />
+            <MenuLabel>Documentos</MenuLabel>
+            <MenuBtn onClick={() => { setShowCorrespondencia(true); setMenuOpen(false); }}>
+              📬 Archivar Correspondencia
             </MenuBtn>
           </DropMenu>
         </div>
