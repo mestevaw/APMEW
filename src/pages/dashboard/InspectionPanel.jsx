@@ -1,13 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/InspectionPanel.jsx
-// Versión: V4
+// Versión: V6
 // Fecha: 2026-03-06
 // ═══════════════════════════════════════════
-// CAMBIOS EN V4 (desde V3):
-// - "+ Agregar Fotos" ahora nombra los archivos con la nomenclatura correcta:
-//   "[Calle] [N] Foto [fecha carpeta].[ext]"
-//   Ej: "Hazy Glen 28 Foto 3 mar 26.jpg"
-// - Continúa la numeración desde las fotos ya existentes en esa carpeta
+// CAMBIOS EN V6 (desde V5):
+// - Fix: reload de fotos tras upload ahora es directo (no usa loadPhotos)
+//   evitando el stale closure que causaba que se quedara trabado
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -192,7 +190,10 @@ const InspectionPanel = ({ property, mob, drive, folderId: propFolderId }) => {
       const shortName = property.address.replace(/^\d+\s*/, "").split(/\s+/).slice(0, 2).join(" ");
 
       // Nombre de la carpeta de fecha activa (ej: "3 mar 26")
-      const dateFolder = currentDates.find(f => f.id === expandedDate);
+      // Buscar en yearMap directamente para no depender de currentDates del render
+      const activeYearEntry = yearMap[selectedYear] || yearMap[Object.keys(yearMap).sort((a,b) => b.localeCompare(a))[0]];
+      const allDates   = activeYearEntry?.dates || [];
+      const dateFolder = allDates.find(f => f.id === expandedDate);
       const dateName   = dateFolder?.name || "";
 
       // Contar fotos existentes para continuar la numeración
@@ -208,9 +209,18 @@ const InspectionPanel = ({ property, mob, drive, folderId: propFolderId }) => {
       }
       setStatus(`✓ ${files.length} foto${files.length !== 1 ? "s" : ""} subida${files.length !== 1 ? "s" : ""}`);
       setTimeout(() => setStatus(""), 4000);
-      // Recargar fotos del folder
+
+      // Recargar fotos directamente (sin pasar por loadPhotos para evitar stale closure)
       setPhotoMap(prev => ({ ...prev, [expandedDate]: "loading" }));
-      await loadPhotos(expandedDate);
+      try {
+        const updated = await drive.listAllFiles(expandedDate);
+        const images  = (updated || [])
+          .filter(f => f.mimeType?.startsWith("image/"))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setPhotoMap(prev => ({ ...prev, [expandedDate]: images.length ? images : "empty" }));
+      } catch {
+        setPhotoMap(prev => ({ ...prev, [expandedDate]: "empty" }));
+      }
     } catch (err) {
       setStatus(`Error: ${err.message}`);
     }
