@@ -1,14 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/InspectionPanel.jsx
-// Versión: V3 — Rápido + Botones + Fotos Inline
-// Fecha: 2026-03-04
+// Versión: V4
+// Fecha: 2026-03-06
 // ═══════════════════════════════════════════
-// CAMBIOS EN V3:
-// - Supabase primero para encontrar la carpeta de la propiedad (vs Drive API lenta)
-// - Carga solo el año más reciente al abrir; los demás, lazy al hacer click
-// - Años como tabs/botones, no dropdown
-// - Fechas como botones — al hacer click se despliegan las fotos inline
-// - Sin estado "seleccionado" separado: todo inline en la misma lista
+// CAMBIOS EN V4 (desde V3):
+// - "+ Agregar Fotos" ahora nombra los archivos con la nomenclatura correcta:
+//   "[Calle] [N] Foto [fecha carpeta].[ext]"
+//   Ej: "Hazy Glen 28 Foto 3 mar 26.jpg"
+// - Continúa la numeración desde las fotos ya existentes en esa carpeta
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -189,12 +188,26 @@ const InspectionPanel = ({ property, mob, drive, folderId: propFolderId }) => {
     if (!files.length) return;
     setUploading(true);
     try {
+      // Nombre corto de la propiedad (igual que BulkPhotoUpload)
+      const shortName = property.address.replace(/^\d+\s*/, "").split(/\s+/).slice(0, 2).join(" ");
+
+      // Nombre de la carpeta de fecha activa (ej: "3 mar 26")
+      const dateFolder = currentDates.find(f => f.id === expandedDate);
+      const dateName   = dateFolder?.name || "";
+
+      // Contar fotos existentes para continuar la numeración
+      const existing = Array.isArray(photoMap[expandedDate]) ? photoMap[expandedDate] : [];
+      let   nextIdx  = existing.length + 1;
+
       for (let i = 0; i < files.length; i++) {
-        setStatus(`Subiendo ${i+1}/${files.length}...`);
-        await drive.uploadFile(files[i], files[i].name, expandedDate);
+        setStatus(`Subiendo ${i + 1}/${files.length}...`);
+        const ext      = files[i].name.split(".").pop() || "jpg";
+        const fileName = `${shortName} ${nextIdx} Foto ${dateName}.${ext}`;
+        nextIdx++;
+        await drive.uploadFile(files[i], fileName, expandedDate);
       }
-      setStatus(`✓ ${files.length} fotos subidas`);
-      setTimeout(() => setStatus(""), 3000);
+      setStatus(`✓ ${files.length} foto${files.length !== 1 ? "s" : ""} subida${files.length !== 1 ? "s" : ""}`);
+      setTimeout(() => setStatus(""), 4000);
       // Recargar fotos del folder
       setPhotoMap(prev => ({ ...prev, [expandedDate]: "loading" }));
       await loadPhotos(expandedDate);
