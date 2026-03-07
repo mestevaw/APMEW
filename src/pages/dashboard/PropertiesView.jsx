@@ -1,7 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/PropertiesView.jsx
-// Versión: 2.0 - Tabla Mejorada
-// Fecha: 2026-03-03
+// Versión: V3
+// Fecha: 2026-03-06
+// ═══════════════════════════════════════════
+// CAMBIOS EN V3 (desde V2):
+// - Fix: quitado position:sticky del thead — causaba que la única fila
+//   filtrada quedara tapada por el header cuando solo había 1 resultado
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef } from "react";
@@ -379,7 +383,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             borderCollapse: "collapse",
             fontFamily: "DM Sans",
           }}>
-            <thead style={{ position: "sticky", top: 32, zIndex: 10 }}>
+            <thead>
               <tr style={{ 
                 background: C.surface2, 
                 borderBottom: `2px solid ${C.border}` 
