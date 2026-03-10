@@ -1,13 +1,15 @@
 // ═══════════════════════════════════════════
 // Archivo: src/App.jsx
-// Versión: V4 — Drive-only Auth (sin Supabase Auth)
-// Fecha: 2026-03-04
+// Versión: V5 — Página de Dueños
+// Fecha: 2026-03-10
 // ═══════════════════════════════════════════
-// CAMBIOS EN V4:
-// - Eliminada integración Supabase Auth (Google OAuth provider no habilitado)
-// - La app se protege únicamente con Google Drive OAuth (como antes)
-// - supaFetch/supaUpdate/supaInsert siguen usando la anon key de Supabase
-// - Pantalla de login simplificada: un botón → Conectar Google Drive
+// CAMBIOS EN V5:
+// - Nueva página "Dueños" (OwnersPage) accesible desde el sidebar
+// - Muestra 4 tabs por dueño: Documentos, Impuestos, Cuentas Bancarias, Gastos
+// - Documentos: filtra tabla `documents` por dueño/propiedades
+// - Impuestos: agrega property_taxes de todas sus propiedades, historial por año
+// - Cuentas: lee/escribe en tabla `owner_bank_accounts` (graceful fallback si no existe)
+// - Gastos: agrega property_expenses por tipo y año, expandible por categoría
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
@@ -30,6 +32,7 @@ const DocumentsPage     = lazy(() => import("./pages/DocumentsPage").then(m => (
 const InspectionsPage   = lazy(() => import("./pages/InspectionsPage").then(m => ({ default: m.InspectionsPage })));
 const ExpensesPage      = lazy(() => import("./pages/ExpensesPage").then(m => ({ default: m.ExpensesPage })));
 const PatrimonyPage     = lazy(() => import("./pages/PatrimonyPage").then(m => ({ default: m.PatrimonyPage })));
+const OwnersPage        = lazy(() => import("./pages/OwnersPage").then(m => ({ default: m.OwnersPage })));
 
 // ─── Pages: ligeras ───
 import { CrudPage }       from "./pages/CrudPage";
@@ -149,6 +152,7 @@ export default function App() {
     { id: "checklist",   label: "Checklist",            icon: I.checklist },
     { id: "daily",       label: "Gastos Diarios",      icon: I.daily },
     { id: "docs",        label: "Documentos",           icon: I.docs },
+    { id: "owners",      label: "Dueños",               icon: "🏢" },
     { id: "inspections", label: "Inspecciones",         icon: I.inspection },
   ];
 
@@ -220,6 +224,8 @@ export default function App() {
           return <DailyExpensesPage dailyExpenses={data.dailyExpenses} onAdd={addDailyExpense} mob={mob} reload={reloadDailyExpenses} />;
         case "docs":
           return <DocumentsPage documents={data.documents} mob={mob} reload={reloadDocuments} drive={drive} />;
+        case "owners":
+          return <OwnersPage mob={mob} />;
         case "inspections":
           return <InspectionsPage mob={mob} drive={drive} />;
         default:
