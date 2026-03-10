@@ -225,7 +225,7 @@ export default function App() {
         case "docs":
           return <DocumentsPage documents={data.documents} mob={mob} reload={reloadDocuments} drive={drive} />;
         case "owners":
-          return <OwnersPage mob={mob} />;
+          return <OwnersPage mob={mob} drive={drive} />;
         case "inspections":
           return <InspectionsPage mob={mob} drive={drive} />;
         default:
