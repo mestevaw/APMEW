@@ -1,15 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/App.jsx
-// Versión: V5 — Página de Dueños
-// Fecha: 2026-03-10
+// Versión: V6 — goToOwner desde lista de propiedades
+// Fecha: 2026-03-16
 // ═══════════════════════════════════════════
-// CAMBIOS EN V5:
-// - Nueva página "Dueños" (OwnersPage) accesible desde el sidebar
-// - Muestra 4 tabs por dueño: Documentos, Impuestos, Cuentas Bancarias, Gastos
-// - Documentos: filtra tabla `documents` por dueño/propiedades
-// - Impuestos: agrega property_taxes de todas sus propiedades, historial por año
-// - Cuentas: lee/escribe en tabla `owner_bank_accounts` (graceful fallback si no existe)
-// - Gastos: agrega property_expenses por tipo y año, expandible por categoría
+// CAMBIOS EN V6:
+// - Nuevo estado ownerTarget: permite navegar a OwnersPage con un dueño pre-seleccionado
+// - goToOwner(name): setea ownerTarget + navega a "owners"
+// - DashboardPage recibe goToOwner como prop
+// - OwnersPage recibe initialOwner + onConsumed para abrir el dueño directo
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
@@ -53,6 +51,7 @@ export default function App() {
   const [loading, setLoading]         = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dashKey, setDashKey]         = useState(0);
+  const [ownerTarget, setOwnerTarget] = useState(null); // pre-selects an owner in OwnersPage
 
   const mob   = useIsMobile();
   const drive = useGoogleDrive();
@@ -158,6 +157,7 @@ export default function App() {
 
   const goHome    = () => { setPage("dashboard"); setDashKey(k => k + 1); if (mob) setSidebarOpen(false); };
   const handleNav = (id) => { setPage(id); if (mob) setSidebarOpen(false); };
+  const goToOwner = (name) => { setOwnerTarget(name); setPage("owners"); if (mob) setSidebarOpen(false); };
 
   // ─── Page Router ──────────────────────────────────────────────────────────
   const renderPage = () => {
@@ -170,6 +170,7 @@ export default function App() {
             <DashboardPage
               key={dashKey} data={data} mob={mob} drive={drive}
               goToPage={(p) => { setPage(p); if (mob) setSidebarOpen(false); }}
+              goToOwner={goToOwner}
             />
           );
         case "income":
@@ -225,7 +226,7 @@ export default function App() {
         case "docs":
           return <DocumentsPage documents={data.documents} mob={mob} reload={reloadDocuments} drive={drive} />;
         case "owners":
-          return <OwnersPage mob={mob} drive={drive} />;
+          return <OwnersPage mob={mob} drive={drive} initialOwner={ownerTarget} onConsumed={() => setOwnerTarget(null)} />;
         case "inspections":
           return <InspectionsPage mob={mob} drive={drive} />;
         default:
@@ -233,6 +234,7 @@ export default function App() {
             <DashboardPage
               key={dashKey} data={data} mob={mob} drive={drive}
               goToPage={(p) => { setPage(p); if (mob) setSidebarOpen(false); }}
+              goToOwner={goToOwner}
             />
           );
       }

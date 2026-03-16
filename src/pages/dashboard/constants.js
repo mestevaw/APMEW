@@ -1,11 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/constants.js
 // Versión: 3
-// Fecha: 2026-03-10
+// Fecha: 2026-03-16
 // CAMBIOS EN V3:
-// - Agregado OWNER_BANK_FOLDERS: mapeo de carpetas Drive de estados de cuenta
-//   Mango Nest → carpeta "FROST MANGO" en Drive (subcarpetas por año)
-//   Llenar los IDs null con los IDs reales de Google Drive.
+// - OWNER_BANK_FOLDERS: carpetas Drive de estados de cuenta por dueño
+//   Ruta Mango Nest: PROPERTY MANAGEMENT → MANGO NEST → FROST MANGO
+//   Para obtener el ID: abre la carpeta en drive.google.com y copia el ID de la URL
 // ═══════════════════════════════════════════
 
 const base = import.meta.env.BASE_URL || "/";
@@ -67,13 +67,14 @@ export const OWNER_COLORS = { "Mango Nest": "#4ADE80", "MNA Works": "#60A5FA", "
 export const OWNER_SHORT = { "Mango Nest": "Mango", "MNA Works": "MNA", "Tortuga Home": "Tortuga", "Argo Real": "Argo", "Miguel y AnaP": "AnaPMEW" };
 
 // ─── Carpetas Drive de estados de cuenta por dueño ───────────────────────────
-// Cada dueño puede tener una carpeta Drive con subcarpetas por año (ej. FROST MANGO)
-// Llenar el drive_folder_id con el ID real de Google Drive
+// Para obtener el ID de una carpeta: ábrela en drive.google.com
+// y copia el ID al final de la URL:
+//   https://drive.google.com/drive/folders/ESTE_ES_EL_ID
 export const OWNER_BANK_FOLDERS = {
-  "Mango Nest":   { label: "FROST MANGO",  drive_folder_id: null }, // ← pegar ID de Drive aquí
-  "MNA Works":    { label: "MNA Cuentas",  drive_folder_id: null },
-  "Tortuga Home": { label: "Tortuga Ctas", drive_folder_id: null },
-  "Miguel y AnaP":{ label: "Cuentas",      drive_folder_id: null },
+  "Mango Nest":    { label: "FROST MANGO",  drive_folder_id: null }, // ← pegar ID aquí
+  "MNA Works":     { label: "MNA Cuentas",  drive_folder_id: null },
+  "Tortuga Home":  { label: "Tortuga Ctas", drive_folder_id: null },
+  "Miguel y AnaP": { label: "Cuentas",      drive_folder_id: null },
 };
 
 export const CARS = [

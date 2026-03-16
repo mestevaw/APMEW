@@ -16,7 +16,7 @@ import CarsView from "./CarsView";
 import DeadlinesView from "./DeadlinesView";
 import ChoresView from "./ChoresView";
 
-export const DashboardPage = ({ data, mob, drive, goToPage }) => {
+export const DashboardPage = ({ data, mob, drive, goToPage, goToOwner }) => {
   const { profiles, income, retIncome, expenses, assets, debts, checklist, dailyExpenses } = data;
   const [showKids, setShowKids] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState(null);
@@ -92,8 +92,8 @@ export const DashboardPage = ({ data, mob, drive, goToPage }) => {
   // ═══ SUBVIEWS ═══
   if (selectedPerson) return <PersonDetail person={selectedPerson} mob={mob} drive={drive} onBack={goBack} />;
   if (selectedOwner) return <OwnerDetail ownerName={selectedOwner} mob={mob} onBack={() => setSelectedOwner(null)} onSelectProperty={(p) => { setSelectedOwner(null); setSelectedProperty(p); }} />;
-  if (selectedProperty) return <PropertyDetail property={selectedProperty} mob={mob} drive={drive} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} onOwnerClick={(owner) => { setSelectedOwner(owner); }} />;
-  if (showProperties) return <PropertiesView mob={mob} drive={drive} onSelectProperty={(p) => { setSelectedProperty(p); setShowProperties(false); }} onBack={goBack} />;
+  if (selectedProperty) return <PropertyDetail property={selectedProperty} mob={mob} drive={drive} onBack={() => { setSelectedProperty(null); setShowProperties(true); }} onOwnerClick={(owner) => { goToOwner ? goToOwner(owner) : setSelectedOwner(owner); }} />;
+  if (showProperties) return <PropertiesView mob={mob} drive={drive} onSelectProperty={(p) => { setSelectedProperty(p); setShowProperties(false); }} onBack={goBack} onOwnerClick={goToOwner} />;
   if (showCars) return <CarsView mob={mob} drive={drive} onBack={goBack} />;
   if (showDeadlines) return <DeadlinesView mob={mob} onBack={goBack} />;
   if (showChores) return <ChoresView mob={mob} onBack={goBack} />;

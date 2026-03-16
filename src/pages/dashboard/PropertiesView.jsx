@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/PropertiesView.jsx
-// Versión: V3
-// Fecha: 2026-03-06
+// Versión: V4
+// Fecha: 2026-03-16
 // ═══════════════════════════════════════════
-// CAMBIOS EN V3 (desde V2):
-// - Fix: quitado position:sticky del thead — causaba que la única fila
-//   filtrada quedara tapada por el header cuando solo había 1 resultado
+// CAMBIOS EN V4 (desde V3):
+// - Encabezado de tabla congelado (sticky) dentro del contenedor con scroll
+// - Nombre del dueño: primeras 2 palabras (no abreviatura)
+// - Celda del dueño clickeable → llama onOwnerClick(owner) para ir a su página
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef } from "react";
@@ -23,7 +24,7 @@ import { VendorSearch } from "../../components/VendorSearch";
 import { BulkAnaPIndexer } from "../../components/BulkAnaPIndexer";
 import { CorrespondenciaUpload } from "../../components/CorrespondenciaUpload";
 
-const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
+const PropertiesView = ({ mob, drive, onSelectProperty, onBack, onOwnerClick }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("address"); // address, owner, rent
   const [sortDir, setSortDir] = useState("asc"); // asc, desc
@@ -358,8 +359,17 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
                 </div>
                 {/* Línea 2: Dueño + Estado */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontFamily: "DM Sans", fontSize: 12, color: ownerColor }}>
-                    {OWNER_SHORT[prop.owner] || prop.owner}
+                  <span
+                    onClick={e => { e.stopPropagation(); onOwnerClick && onOwnerClick(prop.owner); }}
+                    style={{
+                      fontFamily: "DM Sans", fontSize: 12, color: ownerColor,
+                      cursor: onOwnerClick ? "pointer" : "default",
+                      textDecoration: onOwnerClick ? "underline" : "none",
+                      textDecorationColor: ownerColor + "80",
+                      textUnderlineOffset: 3,
+                    }}
+                  >
+                    {prop.owner.split(" ").slice(0, 2).join(" ")}
                   </span>
                   <span style={{
                     padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600,
@@ -377,7 +387,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
 
       {/* ── Desktop: tabla completa ── */}
       {!mob && <Card style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ overflowX: "auto" }}>
+        <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "65vh" }}>
           <table style={{ 
             width: "100%", 
             borderCollapse: "collapse",
@@ -386,7 +396,10 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
             <thead>
               <tr style={{ 
                 background: C.surface2, 
-                borderBottom: `2px solid ${C.border}` 
+                borderBottom: `2px solid ${C.border}`,
+                position: "sticky",
+                top: 0,
+                zIndex: 2,
               }}>
                 <th 
                   onClick={() => handleSort("address")}
@@ -475,7 +488,17 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack }) => {
                       fontSize: 13,
                       color: ownerColor,
                     }}>
-                      {OWNER_SHORT[prop.owner] || prop.owner}
+                      <span
+                        onClick={e => { e.stopPropagation(); onOwnerClick && onOwnerClick(prop.owner); }}
+                        style={{
+                          cursor: onOwnerClick ? "pointer" : "default",
+                          textDecoration: onOwnerClick ? "underline" : "none",
+                          textDecorationColor: ownerColor + "80",
+                          textUnderlineOffset: 3,
+                        }}
+                      >
+                        {prop.owner.split(" ").slice(0, 2).join(" ")}
+                      </span>
                     </td>
                     <td style={{ 
                       padding: "12px 16px",

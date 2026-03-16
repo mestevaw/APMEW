@@ -1,15 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/OwnersPage.jsx
-// Versión: V2
-// Fecha: 2026-03-10
+// Versión: V3
+// Fecha: 2026-03-16
 // ═══════════════════════════════════════════
-// CAMBIOS EN V2:
-// - Tab "Resumen" nuevo: porta el contenido completo de OwnerDetail (resumen
-//   financiero por tipo/año + lista de propiedades clickeable → PropertyDetail)
-// - Tab "Cuentas": agrega Drive browser para carpeta bancaria del dueño
-//   (FROST MANGO para Mango Nest). Lista subcarpetas por año con sus archivos.
-// - OwnersPage ahora recibe `drive` prop para navegar Drive en Cuentas
-// - Navegación interna: Owner list → Owner detail → Property detail (con back)
+// CAMBIOS EN V3:
+// - Acepta prop initialOwner: abre directamente el dueño indicado al cargar
+// - Acepta prop onConsumed: callback para limpiar el estado en App.jsx
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useCallback } from "react";
@@ -841,10 +837,19 @@ const OwnerCard = ({ ownerName, onClick, mob }) => {
 // =============================================================================
 // MAIN EXPORT
 // =============================================================================
-export const OwnersPage = ({ mob, drive }) => {
-  const [selected,         setSelected]         = useState(null);
+export const OwnersPage = ({ mob, drive, initialOwner, onConsumed }) => {
+  const [selected,         setSelected]         = useState(initialOwner || null);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [prevOwner,        setPrevOwner]         = useState(null);
+
+  // When initialOwner changes (user clicks owner from PropertiesView), open it
+  useEffect(() => {
+    if (initialOwner) {
+      setSelected(initialOwner);
+      setSelectedProperty(null);
+      onConsumed && onConsumed();
+    }
+  }, [initialOwner]);
 
   if (selectedProperty) {
     return (
