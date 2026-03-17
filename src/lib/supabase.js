@@ -1,8 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/lib/supabase.js
-// Versión: 2
-// Fecha: 2026-03-04
-// Cambios: Integración con Supabase Auth
+// Versión: V3
+// Fecha: 2026-03-16
+// ═══════════════════════════════════════════
+// CAMBIOS EN V3:
+// - supaFetch: auto-paginación cuando limit>1000 (max_rows server-side de Supabase)
+// - supaUpsert: acepta parámetro on_conflict
+// CAMBIOS EN V2:
 //   - Se añade cliente @supabase/supabase-js para manejar sesiones
 //   - Las llamadas REST usan el JWT de la sesión activa (no la clave anon)
 //   - Exporta `supabase` para gestión de auth en App.jsx
@@ -52,13 +56,44 @@ const checkResponse = async (res, action) => {
 
 export const supaFetch = async (table, options = {}) => {
   const { select = "*", order, filters, limit } = options;
-  let url = `${SUPABASE_URL}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
-  if (order)   url += `&order=${order}`;
-  if (filters) url += `&${filters}`;
-  if (limit)   url += `&limit=${limit}`;
-  const res = await fetch(url, { headers: getHeaders() });
-  await checkResponse(res, `GET ${table}`);
-  return res.json();
+
+  // ── Auto-paginación: Supabase tiene max_rows=1000 server-side ──
+  // Si se pide más de 1000, hacemos requests de 1000 hasta completar.
+  const PAGE = 1000;
+  const maxRows = limit || PAGE;
+
+  const fetchPage = async (from, to) => {
+    let url = `${SUPABASE_URL}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
+    if (order)   url += `&order=${order}`;
+    if (filters) url += `&${filters}`;
+    url += `&limit=${PAGE}&offset=${from}`;
+    const res = await fetch(url, { headers: getHeaders() });
+    await checkResponse(res, `GET ${table}`);
+    return res.json();
+  };
+
+  if (maxRows <= PAGE) {
+    // Request normal de una sola página
+    let url = `${SUPABASE_URL}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
+    if (order)   url += `&order=${order}`;
+    if (filters) url += `&${filters}`;
+    url += `&limit=${maxRows}`;
+    const res = await fetch(url, { headers: getHeaders() });
+    await checkResponse(res, `GET ${table}`);
+    return res.json();
+  }
+
+  // Paginación automática para tablas grandes
+  let all = [];
+  let offset = 0;
+  while (offset < maxRows) {
+    const page = await fetchPage(offset, Math.min(offset + PAGE, maxRows) - 1);
+    if (!page || page.length === 0) break;
+    all = all.concat(page);
+    if (page.length < PAGE) break; // última página
+    offset += PAGE;
+  }
+  return all;
 };
 
 export const supaUpdate = async (table, id, data) => {

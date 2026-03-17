@@ -1,8 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V14
+// Versión: V15
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V15:
+// - Modal siempre accesible sin requerir Drive al inicio
+// - Drop zone desaparece cuando hay archivo, imagen ocupa todo el ancho
+// - Drive connect aparece solo en el botón de guardar
+// - Fix regex monto: captura "TOTAL A PAGAR 247.00" correctamente
 // CAMBIOS EN V14:
 // - Thumbnail más grande (160px) con sombra
 // - Modal se ensancha a 620px cuando hay thumbnail
@@ -249,10 +254,13 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
       // ── Extraer datos estructurados del texto ──
       const original = rawText;
 
-      // Monto: busca patrones como "total a pagar 247.00" o "$1,234.56"
-      const amountMatch = original.match(/total\s+a\s+pagar[\s:$]*([0-9,]+\.?\d{0,2})|total[\s:$]*([0-9,]+\.?\d{0,2})/i)
-        || original.match(/\$\s*([0-9,]+\.\d{2})/);
-      const amount = amountMatch ? (amountMatch[1] || amountMatch[2] || amountMatch[0]).replace(/[^0-9.]/g,"") : null;
+      // Monto: "TOTAL A PAGAR 247.00" o "Total a Pagar $1,234.56"
+      const amountMatch =
+        original.match(/total\s+a\s+pagar[\s:$]*([0-9,]+\.?\d{0,2})/i) ||
+        original.match(/total[\s:$]+([0-9,]+\.\d{2})/i) ||
+        original.match(/\$\s*([0-9,]+\.\d{2})/);
+      const rawAmount = amountMatch ? (amountMatch[1]).replace(/,/g, "") : null;
+      const amount = rawAmount && Number(rawAmount) > 0 ? rawAmount : null;
 
       // Fecha de vencimiento
       const dueMatch = original.match(/(?:limite\s+de\s+pago|fecha\s+l[ií]mite|vencimiento|due\s+date)[:\s]+(\d{1,2}[\s\/\-]\w+[\s\/\-]\d{2,4}|\w+\d{1,2},?\s*\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
@@ -362,144 +370,132 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
         </div>
 
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
-          {!token ? (
-            <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, marginBottom: 16 }}>
-                Conecta Google Drive para subir documentos
-              </p>
-              <Btn onClick={signIn} disabled={!gisLoaded}>
-                {I.google} <span style={{ marginLeft: 6 }}>Conectar Google Drive</span>
-              </Btn>
-            </div>
-          ) : (
-            <>
+          <>
               <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, margin: 0, textAlign: "center" }}>
                 Sube el PDF o archivo — la IA sugerirá dónde guardarlo
               </p>
 
-              {/* Zona drag & drop */}
-              <div
-                onDragOver={e => { e.preventDefault(); setDragging(true); }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={handleDrop}
-                onClick={() => document.getElementById("doc-file-input").click()}
-                style={{
-                  border: `2px dashed ${dragging ? C.accent : C.border}`,
-                  borderRadius: 12,
-                  background: dragging ? `${C.accent}12` : `${C.accent}06`,
-                  padding: "32px 20px", textAlign: "center", cursor: "pointer",
-                  transition: "all 0.2s",
-                }}
-              >
-                <input
-                  id="doc-file-input" type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                  style={{ display: "none" }}
-                  onChange={e => e.target.files[0] && selectFile(e.target.files[0])}
-                />
-                {file ? (
-                  <div>
-                    <div style={{ fontSize: 34, marginBottom: 8 }}>✅</div>
-                    <p style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.accent, margin: 0 }}>{file.name}</p>
-                    <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, margin: "4px 0 0" }}>{(file.size / 1024).toFixed(0)} KB</p>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontSize: 34, marginBottom: 10 }}>📁</div>
-                    <p style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.accent, margin: "0 0 4px" }}>
-                      Arrastra · Haz clic · Pega (Ctrl+V)
-                    </p>
-                    <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, margin: 0 }}>
-                      PDF, imagen o archivo desde cualquier fuente
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Sugerencia IA */}
-              {aiLoading && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: `${C.accent}08`, border: `1px solid ${C.accent}25`, borderRadius: 10 }}>
-                  <span style={{ fontSize: 18 }}>🔍</span>
-                  <div>
-                    <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Analizando documento...</div>
-                    <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>Extrayendo datos con PDF.js</div>
-                  </div>
+              {/* Zona drag & drop — se oculta cuando hay archivo seleccionado */}
+              {!file && (
+                <div
+                  onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={handleDrop}
+                  onClick={() => document.getElementById("doc-file-input").click()}
+                  style={{
+                    border: `2px dashed ${dragging ? C.accent : C.border}`,
+                    borderRadius: 12,
+                    background: dragging ? `${C.accent}12` : `${C.accent}06`,
+                    padding: "40px 20px", textAlign: "center", cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  <input
+                    id="doc-file-input" type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                    style={{ display: "none" }}
+                    onChange={e => e.target.files[0] && selectFile(e.target.files[0])}
+                  />
+                  <div style={{ fontSize: 36, marginBottom: 10 }}>📁</div>
+                  <p style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.accent, margin: "0 0 4px" }}>
+                    Arrastra · Haz clic · Pega (Ctrl+V)
+                  </p>
+                  <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, margin: 0 }}>
+                    PDF, imagen o archivo desde cualquier fuente
+                  </p>
                 </div>
               )}
+
+              {/* Con archivo: nombre + botón cambiar */}
+              {file && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: C.surface2, borderRadius: 8 }}>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</span>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, flexShrink: 0 }}>{(file.size / 1024).toFixed(0)} KB</span>
+                  <button onClick={() => { setFile(null); setAiSuggestion(null); setAiError(null); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 14, flexShrink: 0, padding: "0 4px" }}>✕</button>
+                  <input id="doc-file-input" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                    style={{ display: "none" }} onChange={e => e.target.files[0] && selectFile(e.target.files[0])} />
+                </div>
+              )}
+
+              {/* Analizando */}
+              {aiLoading && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: `${C.accent}08`, border: `1px solid ${C.accent}25`, borderRadius: 10 }}>
+                  <span style={{ fontSize: 16 }}>🔍</span>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.accent }}>Analizando documento con PDF.js...</span>
+                </div>
+              )}
+
+              {/* Resultado: thumbnail grande + datos */}
               {aiSuggestion && !aiLoading && (
-                <div style={{ display: "flex", gap: 12, padding: 14, background: `${C.green}08`, border: `1px solid ${C.green}30`, borderRadius: 10 }}>
-                  {/* Thumbnail */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {/* Imagen grande del documento */}
                   {aiSuggestion.thumbnail && (
-                    <div style={{ flexShrink: 0, width: 160, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, alignSelf: "flex-start", boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+                    <div style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${C.border}`, boxShadow: "0 4px 16px rgba(0,0,0,0.3)" }}>
                       <img src={aiSuggestion.thumbnail} alt="preview" style={{ width: "100%", display: "block" }} />
                     </div>
                   )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* Datos extraídos */}
+                  <div style={{ padding: "12px 14px", background: `${C.green}08`, border: `1px solid ${C.green}30`, borderRadius: 10 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                      <span style={{ fontSize: 15 }}>🤖</span>
+                      <span style={{ fontSize: 14 }}>🤖</span>
                       <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 700, color: C.green }}>Análisis del documento</span>
                     </div>
-                    {/* Tipo */}
                     <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, marginBottom: 6 }}>{aiSuggestion.reason}</div>
-                    {/* Propiedad específica */}
                     {aiSuggestion.property && (
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                        <span style={{ fontSize: 13 }}>🏠</span>
-                        <span style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.accent }}>
-                          Propiedad: {aiSuggestion.property}
-                        </span>
+                        <span style={{ fontSize: 12 }}>🏠</span>
+                        <span style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.accent }}>Propiedad: {aiSuggestion.property}</span>
                       </div>
                     )}
-                    {/* Monto */}
                     {aiSuggestion.amount && (
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                        <span style={{ fontSize: 13 }}>💰</span>
+                        <span style={{ fontSize: 12 }}>💰</span>
                         <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: C.green }}>
                           ${Number(aiSuggestion.amount).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
                         </span>
                       </div>
                     )}
-                    {/* Fecha de vencimiento */}
                     {aiSuggestion.dueDate && (
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
-                        <span style={{ fontSize: 13 }}>📅</span>
-                        <span style={{ fontFamily: "DM Sans", fontSize: 12, color: "#F59E0B", fontWeight: 600 }}>
-                          Vence: {aiSuggestion.dueDate}
-                        </span>
+                        <span style={{ fontSize: 12 }}>📅</span>
+                        <span style={{ fontFamily: "DM Sans", fontSize: 12, color: "#F59E0B", fontWeight: 600 }}>Vence: {aiSuggestion.dueDate}</span>
                       </div>
                     )}
-                    {/* Carpeta sugerida */}
                     {aiSuggestion.path && (
                       <div style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.accent, background: `${C.accent}10`, borderRadius: 6, padding: "5px 8px", marginTop: 4, wordBreak: "break-all" }}>
                         📂 {aiSuggestion.path}
                       </div>
                     )}
                     {aiSuggestion.altPath && (
-                      <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 4 }}>
-                        También: {aiSuggestion.altPath}
-                      </div>
-                    )}
-                    {!aiSuggestion.path && (
-                      <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, marginTop: 4 }}>
-                        ⚠️ No encontré carpeta — selecciona manualmente
-                      </div>
+                      <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 4 }}>También: {aiSuggestion.altPath}</div>
                     )}
                   </div>
                 </div>
               )}
+
               {aiError && !aiLoading && (
-                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, padding: "8px 12px", background: C.surface2, borderRadius: 8 }}>
-                  ⚠️ {aiError}
-                </div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, padding: "8px 12px", background: C.surface2, borderRadius: 8 }}>⚠️ {aiError}</div>
               )}
 
+              {/* Botón guardar — pide Drive solo aquí */}
               {file && !aiLoading && (
-                <Btn style={{ width: "100%", justifyContent: "center" }}>
-                  ⬆️ Subir a Google Drive
-                </Btn>
+                !token ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, margin: 0, textAlign: "center" }}>
+                      Conecta Google Drive para guardar el documento
+                    </p>
+                    <Btn onClick={signIn} disabled={!gisLoaded} style={{ width: "100%", justifyContent: "center" }}>
+                      {I.google} <span style={{ marginLeft: 6 }}>Conectar y guardar en Drive</span>
+                    </Btn>
+                  </div>
+                ) : (
+                  <Btn style={{ width: "100%", justifyContent: "center" }}>
+                    ⬆️ Guardar en Google Drive{aiSuggestion?.path ? ` → ${aiSuggestion.path.split("/").slice(-1)[0]}` : ""}
+                  </Btn>
+                )
               )}
             </>
-          )}
 
           {/* Registrar sin archivo */}
           <button
