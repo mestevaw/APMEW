@@ -1,21 +1,22 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/constants.js
-// Versión: 4
-// Fecha: 2026-03-16
-// CAMBIOS EN V4:
-// - OWNER_DRIVE_FOLDERS: "Miguel y AnaP" ahora apunta a PROPIEDADES MEXICO
-//   ID: 0B9ZOcVkjNKRIUTRRWTJkajNyODQ
-// - PROPERTY_FOLDER_IDS: mapa directo address → google_drive_id para propiedades
-//   fuera de PROPERTY MANAGEMENT (ej. Progreso 15 C101)
-//   findFolderByAddress lo consulta primero → sin roundtrip a Supabase
-// - DRIVE_ROOT_FOLDER_ID: raíz real del Drive para DriveReindex
-// CAMBIOS EN V3:
+// Versión: 5
+// Fecha: 2026-03-17
+// CAMBIOS EN V5:
+// - OWNER_DRIVE_FOLDERS: IDs de carpetas de documentos por owner
+// - OWNER_BANK_FOLDERS: IDs directos de carpetas bancarias (no solo nombre)
+// - Nueva carpeta de gastos por owner: OWNER_GASTOS_FOLDERS
+// CAMBIOS EN V4 (anterior):
+// - Miguel y AnaP apunta a PROPIEDADES MEXICO
+// CAMBIOS EN V3 (anterior):
 // - OWNER_BANK_FOLDERS: carpetas Drive de estados de cuenta por dueño
+//   Ruta Mango Nest: PROPERTY MANAGEMENT → MANGO NEST → FROST MANGO
+//   Para obtener el ID: abre la carpeta en drive.google.com y copia el ID de la URL
 // ═══════════════════════════════════════════
 
 const base = import.meta.env.BASE_URL || "/";
 
-// ─── Fotos de los hijos ───
+// ─── Fotos de los hijos (antes base64, ahora en /public/img/) ───
 export const KIDS = [
   { name: "Miki",   img: `${base}img/miki.jpg`,   folderId: "1sd8nbfGFBYO7aIdYjRHeTsM_tbP-WVJF" },
   { name: "Nico",   img: `${base}img/nico.jpg`,   folderId: "1OEn8nMjpJ3TYb7WgPC0kHfI6l4vKVq7o" },
@@ -68,92 +69,98 @@ export const PROPERTY_VALUES_2025 = {
   "9319 Caen": 230000, "12118 Allegheny River": 260000, "11636 Midnight Rain": 254000,
   "7039 Cozy Run": 215000,
 };
-
 export const OWNER_COLORS = { "Mango Nest": "#4ADE80", "MNA Works": "#60A5FA", "Tortuga Home": "#F59E0B", "Argo Real": "#A78BFA", "Miguel y AnaP": "#C8A862" };
-export const OWNER_SHORT  = { "Mango Nest": "Mango", "MNA Works": "MNA", "Tortuga Home": "Tortuga", "Argo Real": "Argo", "Miguel y AnaP": "AnaPMEW" };
-
-// ─── Carpeta raíz del Drive completo (para DriveReindex) ──────────────────────
-export const DRIVE_ROOT_FOLDER_ID = "0B9ZOcVkjNKRIYndnQmlFaFJoWjQ";
+export const OWNER_SHORT = { "Mango Nest": "Mango", "MNA Works": "MNA", "Tortuga Home": "Tortuga", "Argo Real": "Argo", "Miguel y AnaP": "AnaPMEW" };
 
 // ─── Carpeta raíz de documentos en Drive por dueño ───────────────────────────
+// La tab "Documentos" navega esta carpeta (subcarpetas por propiedad)
+// La tab "Cuentas" busca la subcarpeta bancaria dentro de esta misma carpeta
+// ─── Carpeta de DOCUMENTOS (la tab "Documentos" navega esta) ─────────────────
 export const OWNER_DRIVE_FOLDERS = {
-  "Mango Nest":    { drive_folder_id: "1NqfKtpdkGnhyV7X_-Vsg5pf7T5HC-ix6" }, // MANGO NEST
-  "MNA Works":     { drive_folder_id: "1r3T9xXjQZnMHg36dtFIrUNWN49Ayfnwy" }, // MNA WORKS
-  "Tortuga Home":  { drive_folder_id: "1SL-eH7AA7ToLUWC_vDxUAvdhiuHAMXub" }, // FROST TORTUGA
+  "Mango Nest":    { drive_folder_id: "1NqfKtpdkGnhyV7X_-Vsg5pf7T5HC-ix6" }, // MANGO NEST general
+  "MNA Works":     { drive_folder_id: "1r3T9xXjQZnMHg36dtFIrUNWN49Ayfnwy" }, // MNA WORKS general
+  "Tortuga Home":  { drive_folder_id: "1p54M-9-lMcy6Wm-Hk3U3oqaK9LIvHTqF" }, // TORTUGA docs
   "Miguel y AnaP": { drive_folder_id: "0B9ZOcVkjNKRIUTRRWTJkajNyODQ"       }, // PROPIEDADES MEXICO
 };
 
-// ─── IDs directos de propiedades fuera de PROPERTY MANAGEMENT ─────────────────
-// findFolderByAddress los consulta primero (sin Supabase) para propiedades
-// en carpetas paralelas como PROPIEDADES MEXICO
-export const PROPERTY_FOLDER_IDS = {
-  "Ave Progreso 15, Depto C101": {
-    google_drive_id: "1iHjjMzSWdMzaG9Lgeu5JG7YvXkEBHMDs",
-    folder_path:     "PROPIEDADES MEXICO/Progreso 15 C101",
-  },
-  // Agregar más propiedades fuera de PROPERTY MANAGEMENT aquí si aplica
+// ─── Carpeta de CUENTAS/ESTADOS DE CUENTA (tab "Cuentas") ────────────────────
+export const OWNER_BANK_DRIVE_FOLDERS = {
+  "Mango Nest":    "1NqfKtpdkGnhyV7X_-Vsg5pf7T5HC-ix6",  // MANGO NEST (mismo — FROST MANGO está dentro)
+  "MNA Works":     "1r3T9xXjQZnMHg36dtFIrUNWN49Ayfnwy",  // MNA WORKS
+  "Tortuga Home":  "1SL-eH7AA7ToLUWC_vDxUAvdhiuHAMXub",  // FROST TORTUGA
+  "Miguel y AnaP": null,
+};
+
+// ─── Carpeta de GASTOS ────────────────────────────────────────────────────────
+export const OWNER_GASTOS_FOLDERS = {
+  "Mango Nest":    "1NYhFUQG_qLAk1iKMcZ4TTx5GCm0sGmoW",
+  "MNA Works":     "0B9ZOcVkjNKRITDJ2cTFRazI4S0E",
+  "Tortuga Home":  null,
+  "Miguel y AnaP": null,
 };
 
 // ─── Nombre de la subcarpeta bancaria dentro de OWNER_DRIVE_FOLDERS ──────────
 export const OWNER_BANK_FOLDERS = {
   "Mango Nest":    { label: "FROST MANGO",   subfolder_name: "FROST MANGO"   },
-  "MNA Works":     { label: "FROST MNA",     subfolder_name: null            },
-  "Tortuga Home":  { label: "FROST TORTUGA", subfolder_name: null            },
+  "MNA Works":     { label: "FROST MNA",     subfolder_name: null            }, // ← llenar cuando confirmes el nombre
+  "Tortuga Home":  { label: "FROST TORTUGA", subfolder_name: null            }, // carpeta raíz ya ES la bancaria
   "Miguel y AnaP": { label: "Cuentas",       subfolder_name: null            },
 };
 
 export const CARS = [
-  { name: "Honda CRV",      brand: "Honda",   color: "#E11D48", folderId: "1bRNwYy_7oOBrpsfM6L3CXkNqJkDf9ez2" },
+  { name: "Honda CRV", brand: "Honda", color: "#E11D48", folderId: "1bRNwYy_7oOBrpsfM6L3CXkNqJkDf9ez2" },
   { name: "Hyundai Tucson", brand: "Hyundai", color: "#0EA5E9", folderId: "16xmawC5FseVanmCF7vRS_lmeJdwwo3KJ" },
-  { name: "Mazda 6",        brand: "Mazda",   color: "#8B5CF6", folderId: "1KoWVscaou96uzaB3w-92OmydVdtjEzf7" },
+  { name: "Mazda 6", brand: "Mazda", color: "#8B5CF6", folderId: "1KoWVscaou96uzaB3w-92OmydVdtjEzf7" },
 ];
 
 export const DEADLINE_TYPES = [
-  { key: "seguro",       label: "Seguro",                  icon: "🛡️" },
-  { key: "verificacion", label: "Verificación",            icon: "✅" },
-  { key: "servicio",     label: "Servicio/Mantenimiento",  icon: "🔧" },
-  { key: "utilidad",     label: "Utilidad/Pago",           icon: "💡" },
-  { key: "impuesto",     label: "Impuesto",                icon: "🏛️" },
-  { key: "renovacion",   label: "Renovación",              icon: "🔄" },
-  { key: "otro",         label: "Otro",                    icon: "📌" },
+  { key: "seguro", label: "Seguro", icon: "🛡️" },
+  { key: "verificacion", label: "Verificación", icon: "✅" },
+  { key: "servicio", label: "Servicio/Mantenimiento", icon: "🔧" },
+  { key: "utilidad", label: "Utilidad/Pago", icon: "💡" },
+  { key: "impuesto", label: "Impuesto", icon: "🏛️" },
+  { key: "renovacion", label: "Renovación", icon: "🔄" },
+  { key: "otro", label: "Otro", icon: "📌" },
 ];
 
 export const DEADLINE_CATEGORIES = [
-  { key: "coche",      label: "Coches",      icon: "🚗", color: "#0EA5E9" },
-  { key: "propiedad",  label: "Propiedades", icon: "🏠", color: "#F59E0B" },
-  { key: "personal",   label: "Personal",    icon: "👤", color: "#A78BFA" },
-  { key: "negocio",    label: "Negocio",     icon: "💼", color: "#4ADE80" },
+  { key: "coche", label: "Coches", icon: "🚗", color: "#0EA5E9" },
+  { key: "propiedad", label: "Propiedades", icon: "🏠", color: "#F59E0B" },
+  { key: "personal", label: "Personal", icon: "👤", color: "#A78BFA" },
+  { key: "negocio", label: "Negocio", icon: "💼", color: "#4ADE80" },
 ];
 
 export const RECURRENCE_OPTIONS = [
-  { key: null,          label: "Una vez"     },
-  { key: "mensual",     label: "Mensual"     },
-  { key: "trimestral",  label: "Trimestral"  },
-  { key: "semestral",   label: "Semestral"   },
-  { key: "anual",       label: "Anual"       },
+  { key: null, label: "Una vez" },
+  { key: "mensual", label: "Mensual" },
+  { key: "trimestral", label: "Trimestral" },
+  { key: "semestral", label: "Semestral" },
+  { key: "anual", label: "Anual" },
 ];
+
 
 export const getPropExpenseTypes = (addr) => {
   const mx = addr.includes("Progreso");
   const personal = mx || addr.includes("Argo");
   if (personal) return [
-    { key: "electricity",  label: mx ? "Luz"           : "Electricity",  icon: "💡" },
-    { key: "water",        label: mx ? "Agua"          : "Water",        icon: "💧" },
-    { key: "gas",          label: "Gas",                                  icon: "🔥" },
-    { key: "property_tax", label: mx ? "Predial"       : "Property Tax", icon: "🏛️" },
-    { key: "insurance",    label: mx ? "Seguro"        : "Insurance",    icon: "🛡️" },
-    { key: "hoa",          label: "Mantenimiento",                        icon: "🏘️" },
+    { key: "electricity", label: mx ? "Luz" : "Electricity", icon: "💡" },
+    { key: "water", label: mx ? "Agua" : "Water", icon: "💧" },
+    { key: "gas", label: "Gas", icon: "🔥" },
+    { key: "property_tax", label: mx ? "Predial" : "Property Tax", icon: "🏛️" },
+    { key: "insurance", label: mx ? "Seguro" : "Insurance", icon: "🛡️" },
+    { key: "hoa", label: "Mantenimiento", icon: "🏘️" },
   ];
+  // US rental properties (Form 8825 categories)
   return [
-    { key: "gross_rents",   label: "Rentas Totales", icon: "💰", income: true },
-    { key: "maintenance",   label: "Maintenance",    icon: "🔧" },
-    { key: "insurance",     label: "Insurance",      icon: "🛡️" },
-    { key: "legal_fees",    label: "Legal Fees",     icon: "⚖️" },
-    { key: "repairs",       label: "Repairs",        icon: "🔨" },
-    { key: "property_tax",  label: "Property Taxes", icon: "🏛️" },
-    { key: "utilities",     label: "Utilities",      icon: "💡" },
-    { key: "depreciation",  label: "Depreciation",   icon: "📉" },
-    { key: "other_expenses",label: "Other",          icon: "📋" },
+    { key: "gross_rents", label: "Rentas Totales", icon: "💰", income: true },
+    { key: "maintenance", label: "Maintenance", icon: "🔧" },
+    { key: "insurance", label: "Insurance", icon: "🛡️" },
+    { key: "legal_fees", label: "Legal Fees", icon: "⚖️" },
+    { key: "repairs", label: "Repairs", icon: "🔨" },
+    { key: "property_tax", label: "Property Taxes", icon: "🏛️" },
+    { key: "utilities", label: "Utilities", icon: "💡" },
+    { key: "depreciation", label: "Depreciation", icon: "📉" },
+    { key: "other_expenses", label: "Other", icon: "📋" },
   ];
 };
 

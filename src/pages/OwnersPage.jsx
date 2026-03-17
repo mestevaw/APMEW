@@ -1,9 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/OwnersPage.jsx
-// Versión: V10
+// Versión: V11
 // Fecha: 2026-03-17
 // ═══════════════════════════════════════════
-// CAMBIOS EN V10:
+// CAMBIOS EN V11:
+// - CuentasTab usa OWNER_BANK_DRIVE_FOLDERS para ID directo de carpeta bancaria
+// CAMBIOS EN V10 (anterior):
 // - DocumentosTab: búsqueda en tiempo real con debounce 400ms, sin botón de navegar
 // - Lupa integrada en el input directamente
 // CAMBIOS EN V9 (anterior):
@@ -32,7 +34,7 @@ import { supaFetch, supaInsert, supaDelete } from "../lib/supabase";
 import { Card, Badge, Spinner, Btn } from "../components/UI";
 import { FilePreviewModal } from "../components/FilePreviewModal";
 import {
-  PROPERTIES, OWNER_COLORS, OWNER_SHORT, OWNER_BANK_FOLDERS, OWNER_DRIVE_FOLDERS,
+  PROPERTIES, OWNER_COLORS, OWNER_SHORT, OWNER_BANK_FOLDERS, OWNER_DRIVE_FOLDERS, OWNER_BANK_DRIVE_FOLDERS, OWNER_GASTOS_FOLDERS,
   getPropExpenseTypes,
 } from "./dashboard/constants";
 import PropertyDetail from "./dashboard/PropertyDetail";
@@ -867,36 +869,16 @@ const CuentasTab = ({ ownerName, mob, drive }) => {
     setLoadingAcc(false);
   }, [ownerName]);
 
-  // V9: Cargar documentos bancarios desde Drive directamente (sin Supabase)
+  // V11: Usar OWNER_BANK_DRIVE_FOLDERS — ID directo de carpeta bancaria
   useEffect(() => {
     const load = async () => {
       if (!driveToken) { setLoadingDocs(false); return; }
       setLoadingDocs(true);
       try {
-        const ownerFolderId = OWNER_DRIVE_FOLDERS[ownerName]?.drive_folder_id;
-        const bankSubfolder = OWNER_BANK_FOLDERS[ownerName]?.subfolder_name;
-        if (!ownerFolderId) { setBankDocs([]); setLoadingDocs(false); return; }
-
-        if (bankSubfolder) {
-          const ownerFiles = await drive.listAllFiles(ownerFolderId);
-          const bankFolder = (ownerFiles || []).find(f =>
-            f.mimeType === "application/vnd.google-apps.folder" &&
-            f.name.toUpperCase().includes(bankSubfolder.toUpperCase())
-          );
-          if (bankFolder) {
-            setBankRootId(bankFolder.id);
-            setBankRootName(bankFolder.name);
-            const bankFiles = await drive.listAllFiles(bankFolder.id);
-            setBankDocs(bankFiles || []);
-          } else {
-            setBankDocs([]);
-          }
-        } else {
-          setBankRootId(ownerFolderId);
-          setBankRootName(ownerName);
-          const files = await drive.listAllFiles(ownerFolderId);
-          setBankDocs(files || []);
-        }
+        const bankFolderId = OWNER_BANK_DRIVE_FOLDERS[ownerName];
+        if (!bankFolderId) { setBankDocs([]); setLoadingDocs(false); return; }
+        const files = await drive.listAllFiles(bankFolderId);
+        setBankDocs(files || []);
       } catch (err) { console.error("[CuentasTab]", err); }
       setLoadingDocs(false);
     };

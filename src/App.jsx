@@ -1,11 +1,14 @@
 // ═══════════════════════════════════════════
 // Archivo: src/App.jsx
-// Versión: V11
+// Versión: V12
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
-// CAMBIOS EN V10:
-// - Documents fetch con limit:50000 (11000 cortaba en la P por superar el tope)
-// CAMBIOS EN V10:
+// CAMBIOS EN V12:
+// - Overlay de conexión Drive al entrar a la app (si no está conectado)
+//   Aparece una sola vez por sesión; se puede cerrar para usar la app igualmente
+// CAMBIOS EN V11 (anterior):
+// - limit:50000 en documentos
+// CAMBIOS EN V10 (anterior):
 // - Documents fetch con limit:11000 para mostrar todos los documentos indexados
 // CAMBIOS EN V9:
 // - Regresa "Gastos Diarios" al menú lateral izquierdo
@@ -61,6 +64,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dashKey, setDashKey]         = useState(0);
   const [ownerTarget, setOwnerTarget] = useState(null); // pre-selects an owner in OwnersPage
+  const [drivePromptDismissed, setDrivePromptDismissed] = useState(false);
 
   const mob   = useIsMobile();
   const drive = useGoogleDrive();
@@ -90,7 +94,7 @@ export default function App() {
         supaFetch("assets",               { order: "sort_order" }),
         supaFetch("debts",                { order: "sort_order" }),
         supaFetch("checklist_items",      { order: "sort_order" }),
-        supaFetch("documents",            { order: "folder_path,title", limit: 50000 }),
+        supaFetch("documents",            { order: "folder_path,title", limit: 11000 }),
         supaFetch("daily_expenses",       { order: "expense_date.desc,created_at.desc", limit: 10000 }),
       ]);
       setData({ profiles, assumptions, income, retIncome, expenses, expenseCategories, assets, debts, checklist, documents, dailyExpenses });
@@ -124,7 +128,7 @@ export default function App() {
   const reloadExpenses      = () => reloadTable("expenses",      "retirement_expenses", { order: "sort_order" });
   const reloadAssets        = () => reloadTable("assets",        "assets",              { order: "sort_order" });
   const reloadDebts         = () => reloadTable("debts",         "debts",               { order: "sort_order" });
-  const reloadDocuments     = () => reloadTable("documents",     "documents",           { order: "folder_path,title", limit: 50000 });
+  const reloadDocuments     = () => reloadTable("documents",     "documents",           { order: "folder_path,title", limit: 11000 });
   const reloadPatrimony     = () => Promise.all([reloadAssets(), reloadDebts()]);
 
   // ─── Actions ──────────────────────────────────────────────────────────────
@@ -255,6 +259,55 @@ export default function App() {
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "DM Sans" }}>
       <style>{baseStyles}</style>
+
+      {/* ─── Drive connect overlay (aparece al entrar si no está conectado) ─── */}
+      {!drive.token && !drivePromptDismissed && drive.gisLoaded && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.82)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 24,
+        }}>
+          <div style={{
+            background: C.surface, border: `1px solid ${C.accent}40`,
+            borderRadius: 18, padding: "36px 40px",
+            maxWidth: 400, width: "100%", textAlign: "center",
+            boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+          }}>
+            <div style={{ fontSize: 52, marginBottom: 16 }}>{I.google}</div>
+            <h2 style={{ fontFamily: "DM Sans", fontSize: 22, fontWeight: 700, color: C.text, marginBottom: 10 }}>
+              Conectar Google Drive
+            </h2>
+            <p style={{ fontFamily: "DM Sans", fontSize: 14, color: C.textDim, marginBottom: 28, lineHeight: 1.6 }}>
+              APMEW usa Google Drive para documentos, fotos e inspecciones. Conecta tu cuenta para acceder a todo.
+            </p>
+            <button
+              onClick={drive.signIn}
+              style={{
+                width: "100%", padding: "13px 0",
+                background: C.accent, color: "white",
+                border: "none", borderRadius: 10,
+                fontFamily: "DM Sans", fontSize: 15, fontWeight: 700,
+                cursor: "pointer", marginBottom: 12,
+              }}
+            >
+              Conectar Drive
+            </button>
+            <button
+              onClick={() => setDrivePromptDismissed(true)}
+              style={{
+                width: "100%", padding: "10px 0",
+                background: "transparent", color: C.textDim,
+                border: `1px solid ${C.border}`, borderRadius: 10,
+                fontFamily: "DM Sans", fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              Continuar sin Drive
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Mobile top bar */}
       {mob && (
