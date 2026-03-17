@@ -1,15 +1,19 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/CorrespondenciaUpload.jsx
-// Versión: V5
+// Versión: V6
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V6:
+// - Preview del PDF: en el step "confirm" el modal se abre en dos columnas:
+//   izquierda con la info extraída y controles, derecha con el iframe del PDF
+//   (usando URL.createObjectURL — sin costo, sin subir nada todavía)
+// - Fix matching numérico: el número se normaliza con parseInt antes de comparar,
+//   así "0015" → "15" y empareja correctamente con "Ave Progreso 15, Depto C101"
 // CAMBIOS EN V5:
-// - DUPLICADO FIX: eliminada definición local de MONTHS_ES;
-//   ahora se importa desde lib/helpers (fuente canónica)
+// - DUPLICADO FIX: MONTHS_ES importado desde lib/helpers (no redefinido aquí)
 // CAMBIOS EN V4 (desde V3):
 // - Nomenclatura corregida: [remitente] [tipo] Cta [fecha carta] [domicilio] [fecha guardado]
 //   Ejemplo: HOA NEC Aviso Cortesía Cta 25 feb 26 6515 Hazy Glen 6 mar 26.pdf
-// - Eliminada dirección duplicada (ya no se usa suggestedName que la incluía)
 // ═══════════════════════════════════════════
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -17,23 +21,38 @@ import { C } from "../lib/theme";
 import { Card, Spinner } from "./UI";
 import { PROPERTIES } from "../pages/dashboard/constants";
 import { findFolderByAddress } from "../pages/dashboard/helpers";
-import { MONTHS_ES } from "../lib/helpers";   // ← FIX V5: importado, no redefinido
+import { MONTHS_ES } from "../lib/helpers";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-// Formatea fecha como "6 mar 26"
 const fmtShortDate = (date) => {
   if (!date) return "";
   const d = typeof date === "string" ? new Date(date + "T12:00:00") : date;
   return `${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
 };
 
-// Limpia string para usarlo en nombre de archivo
 const safeStr = (s, maxLen = 40) =>
   (s || "").replace(/[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ\s\-]/g, "").trim().slice(0, maxLen);
 
-// Detecta si un nombre de carpeta es un año (4 dígitos 2000-2099)
 const isYearFolder = (name) => /^20\d{2}$/.test(name?.trim());
+
+// V6 FIX: normaliza números con ceros iniciales ("0015" → "15") para
+// que empaten correctamente con la lista de propiedades
+const matchAddress = (detectedAddress) => {
+  if (!detectedAddress) return null;
+  const normalized = detectedAddress.toLowerCase();
+  const numMatch   = detectedAddress.match(/\d+/);
+  if (!numMatch) return null;
+  // parseInt elimina ceros iniciales: "0015" → 15 → "15"
+  const num = String(parseInt(numMatch[0], 10));
+  const activeProps = PROPERTIES.filter(p => !p.sold);
+  return activeProps.find(p => {
+    const pNorm = p.address.toLowerCase();
+    if (!pNorm.includes(num)) return false;
+    const words = normalized.split(/[\s,]+/).filter(w => w.length >= 4);
+    return words.some(w => pNorm.includes(w));
+  }) || null;
+};
 
 const Btn = ({ onClick, disabled, color, children, style = {} }) => (
   <button onClick={onClick} disabled={disabled} style={{
@@ -66,21 +85,6 @@ const fileToBase64 = (file) =>
     r.readAsDataURL(file);
   });
 
-const matchAddress = (detectedAddress) => {
-  if (!detectedAddress) return null;
-  const normalized = detectedAddress.toLowerCase();
-  const numMatch = detectedAddress.match(/\d+/);
-  if (!numMatch) return null;
-  const num = numMatch[0];
-  const activeProps = PROPERTIES.filter(p => !p.sold);
-  return activeProps.find(p => {
-    const pNorm = p.address.toLowerCase();
-    if (!pNorm.includes(num)) return false;
-    const words = normalized.split(/[\s,]+/).filter(w => w.length >= 4);
-    return words.some(w => pNorm.includes(w));
-  }) || null;
-};
-
 // ═══════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════
@@ -89,6 +93,7 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
   const [step, setStep]                         = useState("select");
   const [dragOver, setDragOver]                 = useState(false);
   const [pdfFile, setPdfFile]                   = useState(null);
+  const [pdfUrl, setPdfUrl]                     = useState(null);   // V6: URL objeto para preview
   const [error, setError]                       = useState("");
   const [docMeta, setDocMeta]                   = useState(null);
   const [resolvedFolderId, setResolvedFolderId] = useState(propFolderId || null);
@@ -109,19 +114,25 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
   const fileInputRef = useRef(null);
   const activeProps  = PROPERTIES.filter(p => !p.sold);
 
-  // ── Genera nombre de archivo ─────────────────────────────────────────────
+  // V6: Crear/revocar URL objeto para el preview del PDF
+  useEffect(() => {
+    if (!pdfFile) return;
+    const url = URL.createObjectURL(pdfFile);
+    setPdfUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pdfFile]);
+
   const buildFileName = useCallback((meta, property) => {
-    const today    = new Date();
-    const docDate  = meta?.docDate ? fmtShortDate(meta.docDate) : "";
+    const today   = new Date();
+    const docDate = meta?.docDate ? fmtShortDate(meta.docDate) : "";
     const saveDate = fmtShortDate(today);
-    const sender   = safeStr(meta?.sender  || "", 30);
-    const docType  = safeStr(meta?.docType || "", 30);
-    const address  = safeStr(property?.address || "", 30);
-    const parts = [sender, docType, "Cta", docDate, address, saveDate].filter(Boolean);
+    const sender  = safeStr(meta?.sender  || "", 30);
+    const docType = safeStr(meta?.docType || "", 30);
+    const address = safeStr(property?.address || "", 30);
+    const parts   = [sender, docType, "Cta", docDate, address, saveDate].filter(Boolean);
     return `${parts.join(" ")}.pdf`;
   }, []);
 
-  // ── Cargar subcarpetas nivel 1 ───────────────────────────────────────────
   const loadSubfolders = useCallback(async (fId) => {
     if (!fId || !drive?.token) return;
     setLoadingFolders(true);
@@ -137,7 +148,6 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
     }
   }, [drive]);
 
-  // ── Cuando cambia la carpeta seleccionada, revisar si tiene años ─────────
   const handleFolderChange = useCallback(async (folderId) => {
     setSelectedFolder(folderId);
     setYearFolders([]);
@@ -174,13 +184,12 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
   useEffect(() => {
     if (selectedFolder) handleFolderChange(selectedFolder);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // solo al montar si ya hay selectedFolder
+  }, []);
 
   useEffect(() => {
     if (propFolderId) loadSubfolders(propFolderId);
   }, [propFolderId, loadSubfolders]);
 
-  // ── Procesar PDF ─────────────────────────────────────────────────────────
   const processFile = useCallback(async (file) => {
     if (!file || file.type !== "application/pdf") {
       setError("Solo se aceptan archivos PDF.");
@@ -231,7 +240,7 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
 
       setDocMeta(meta);
 
-      let fId = propFolderId || null;
+      let fId  = propFolderId || null;
       let prop = propProperty || null;
       if (!fId) {
         const matched = matchAddress(meta.address);
@@ -297,7 +306,7 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
     if (!hasYearSubfolders) return selectedFolder;
     if (selectedYear && selectedYear !== "__new__") return selectedYear;
     const yearName = newYearName || String(new Date().getFullYear());
-    const created = await drive.createFolder(yearName, selectedFolder);
+    const created  = await drive.createFolder(yearName, selectedFolder);
     return created.id;
   };
 
@@ -320,15 +329,27 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
   const canUpload = !!selectedFolder && !!fileName.trim() &&
     (!hasYearSubfolders || !!selectedYear);
 
+  // V6: en confirm usamos un modal más ancho para el layout de dos columnas
+  const isConfirm   = step === "confirm";
+  const modalMaxW   = isConfirm && !mob ? 1100 : 620;
+
+  // ── RENDER ───────────────────────────────────────────────────────────────
   return (
     <div style={{
       position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
       background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center",
       justifyContent: "center", zIndex: 9999, padding: mob ? 12 : 32,
     }}>
-      <Card style={{ maxWidth: 620, width: "100%", maxHeight: "92vh", overflow: "auto", padding: mob ? 18 : 28 }}>
+      <Card style={{
+        maxWidth: modalMaxW, width: "100%",
+        maxHeight: "92vh", overflow: "hidden",   // V6: overflow hidden; columnas hacen scroll interno
+        padding: mob ? 18 : 28,
+        display: "flex", flexDirection: "column",
+        transition: "max-width 0.25s ease",
+      }}>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        {/* Header siempre fijo */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexShrink: 0 }}>
           <h2 style={{ fontFamily: "DM Sans", fontSize: mob ? 16 : 18, fontWeight: 700, color: C.text, margin: 0 }}>
             📬 Agregar Correspondencia
           </h2>
@@ -336,13 +357,14 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
         </div>
 
         {resolvedProperty && (
-          <div style={{ padding: "7px 12px", marginBottom: 16, borderRadius: 8, background: `${C.accent}12`, border: `1px solid ${C.accent}30`, fontFamily: "DM Sans", fontSize: 12, color: C.accent }}>
+          <div style={{ padding: "7px 12px", marginBottom: 14, borderRadius: 8, background: `${C.accent}12`, border: `1px solid ${C.accent}30`, fontFamily: "DM Sans", fontSize: 12, color: C.accent, flexShrink: 0 }}>
             🏠 {resolvedProperty.address}
           </div>
         )}
 
+        {/* ══ SELECT ══ */}
         {step === "select" && (
-          <>
+          <div style={{ overflowY: "auto" }}>
             <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, textAlign: "center", marginBottom: 14 }}>
               Sube el PDF de la correspondencia para extraer los datos automáticamente
             </p>
@@ -378,17 +400,17 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
                 flex: 1, padding: "12px 10px", background: "transparent",
                 border: `1px solid ${C.border}`, borderRadius: 10,
                 cursor: "default", fontFamily: "DM Sans", fontSize: 13, color: C.textDim,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                flexDirection: "column", gap: 4,
+                display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 4,
               }}>
                 <span>📋 Pega aquí</span>
                 <span style={{ fontSize: 11 }}>(Ctrl+V)</span>
               </button>
             </div>
             {error && <div style={{ marginTop: 12, fontFamily: "DM Sans", fontSize: 12, color: C.red, textAlign: "center" }}>{error}</div>}
-          </>
+          </div>
         )}
 
+        {/* ══ ANALYZING ══ */}
         {step === "analyzing" && (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <Spinner />
@@ -397,95 +419,140 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </div>
         )}
 
+        {/* ══ CONFIRM — layout de dos columnas en desktop ══ */}
         {step === "confirm" && (
-          <div>
-            {docMeta && (
-              <InfoBox color={C.accent}>
-                <div style={{ fontWeight: 700, marginBottom: 8, color: C.accent }}>📄 Documento detectado</div>
-                {docMeta.docType  && <div style={{ marginBottom: 3 }}><span style={{ color: C.textDim }}>Tipo: </span><span style={{ color: C.text }}>{docMeta.docType}</span></div>}
-                {docMeta.sender   && <div style={{ marginBottom: 3 }}><span style={{ color: C.textDim }}>Remitente: </span><span style={{ color: C.text }}>{docMeta.sender}</span></div>}
-                {docMeta.docDate  && <div style={{ marginBottom: 3 }}><span style={{ color: C.textDim }}>Fecha carta: </span><span style={{ color: C.text }}>{fmtShortDate(docMeta.docDate)}</span></div>}
-                {docMeta.address  && <div><span style={{ color: C.textDim }}>Dirección detectada: </span><span style={{ color: C.text }}>{docMeta.address}</span></div>}
-              </InfoBox>
-            )}
+          <div style={{
+            display: "flex",
+            gap: 20,
+            flex: 1,
+            minHeight: 0,   // necesario para que los hijos puedan hacer scroll
+          }}>
 
-            {error && <InfoBox color={C.orange}>⚠️ {error}</InfoBox>}
+            {/* ── Columna izquierda: controles ── */}
+            <div style={{
+              flex: "0 0 360px",
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: 0,
+            }}>
+              {docMeta && (
+                <InfoBox color={C.accent}>
+                  <div style={{ fontWeight: 700, marginBottom: 8, color: C.accent }}>📄 Documento detectado</div>
+                  {docMeta.docType  && <div style={{ marginBottom: 3 }}><span style={{ color: C.textDim }}>Tipo: </span><span style={{ color: C.text }}>{docMeta.docType}</span></div>}
+                  {docMeta.sender   && <div style={{ marginBottom: 3 }}><span style={{ color: C.textDim }}>Remitente: </span><span style={{ color: C.text }}>{docMeta.sender}</span></div>}
+                  {docMeta.docDate  && <div style={{ marginBottom: 3 }}><span style={{ color: C.textDim }}>Fecha carta: </span><span style={{ color: C.text }}>{fmtShortDate(docMeta.docDate)}</span></div>}
+                  {docMeta.address  && <div><span style={{ color: C.textDim }}>Dirección detectada: </span><span style={{ color: C.text }}>{docMeta.address}</span></div>}
+                </InfoBox>
+              )}
 
-            {!propFolderId && (
+              {error && <InfoBox color={C.orange}>⚠️ {error}</InfoBox>}
+
+              {!propFolderId && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>🏠 Propiedad</label>
+                  <select value={resolvedProperty?.address || ""} onChange={e => handlePropertyChange(e.target.value)} style={{
+                    width: "100%", padding: "9px 12px", background: C.surface2,
+                    border: `1px solid ${resolvedProperty ? C.border : C.red}`,
+                    borderRadius: 8, fontFamily: "DM Sans", fontSize: 13, color: C.text, boxSizing: "border-box",
+                  }}>
+                    <option value="">Seleccionar propiedad...</option>
+                    {activeProps.map(p => <option key={p.address} value={p.address}>{p.address}</option>)}
+                  </select>
+                </div>
+              )}
+
               <div style={{ marginBottom: 16 }}>
-                <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>🏠 Propiedad</label>
-                <select value={resolvedProperty?.address || ""} onChange={e => handlePropertyChange(e.target.value)} style={{
-                  width: "100%", padding: "9px 12px", background: C.surface2,
-                  border: `1px solid ${resolvedProperty ? C.border : C.red}`,
-                  borderRadius: 8, fontFamily: "DM Sans", fontSize: 13, color: C.text, boxSizing: "border-box",
-                }}>
-                  <option value="">Seleccionar propiedad...</option>
-                  {activeProps.map(p => <option key={p.address} value={p.address}>{p.address}</option>)}
-                </select>
-              </div>
-            )}
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>Nombre del archivo</label>
-              <input type="text" value={fileName} onChange={e => setFileName(e.target.value)} style={{
-                width: "100%", padding: "9px 12px", background: C.surface2,
-                border: `1px solid ${C.border}`, borderRadius: 8,
-                fontFamily: "DM Sans", fontSize: 13, color: C.text, boxSizing: "border-box",
-              }} />
-            </div>
-
-            <div style={{ marginBottom: hasYearSubfolders ? 12 : 20 }}>
-              <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>📂 Carpeta destino</label>
-              {loadingFolders ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 10 }}>
-                  <Spinner /><span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>Cargando carpetas...</span>
-                </div>
-              ) : !resolvedFolderId && !propFolderId ? (
-                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, padding: "8px 0" }}>
-                  Selecciona una propiedad primero.
-                </div>
-              ) : subfolders.length === 0 ? (
-                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.orange }}>⚠️ No se encontraron subcarpetas.</div>
-              ) : (
-                <select value={selectedFolder || ""} onChange={e => handleFolderChange(e.target.value)} style={{
+                <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>Nombre del archivo</label>
+                <input type="text" value={fileName} onChange={e => setFileName(e.target.value)} style={{
                   width: "100%", padding: "9px 12px", background: C.surface2,
                   border: `1px solid ${C.border}`, borderRadius: 8,
                   fontFamily: "DM Sans", fontSize: 13, color: C.text, boxSizing: "border-box",
-                }}>
-                  <option value="" disabled>Seleccionar carpeta...</option>
-                  {subfolders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
-              )}
-            </div>
+                }} />
+              </div>
 
-            {hasYearSubfolders && selectedFolder && (
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>📅 Año</label>
-                {loadingYears ? (
+              <div style={{ marginBottom: hasYearSubfolders ? 12 : 20 }}>
+                <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>📂 Carpeta destino</label>
+                {loadingFolders ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 10 }}>
-                    <Spinner /><span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>Cargando años...</span>
+                    <Spinner /><span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>Cargando carpetas...</span>
                   </div>
+                ) : !resolvedFolderId && !propFolderId ? (
+                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, padding: "8px 0" }}>
+                    Selecciona una propiedad primero.
+                  </div>
+                ) : subfolders.length === 0 ? (
+                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.orange }}>⚠️ No se encontraron subcarpetas.</div>
                 ) : (
-                  <select value={selectedYear || ""} onChange={e => setSelectedYear(e.target.value)} style={{
+                  <select value={selectedFolder || ""} onChange={e => handleFolderChange(e.target.value)} style={{
                     width: "100%", padding: "9px 12px", background: C.surface2,
-                    border: `1px solid ${selectedYear ? C.border : C.red}`,
-                    borderRadius: 8, fontFamily: "DM Sans", fontSize: 13, color: C.text, boxSizing: "border-box",
+                    border: `1px solid ${C.border}`, borderRadius: 8,
+                    fontFamily: "DM Sans", fontSize: 13, color: C.text, boxSizing: "border-box",
                   }}>
-                    <option value="" disabled>Seleccionar año...</option>
-                    {yearFolders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                    <option value="__new__">+ Crear {newYearName || String(new Date().getFullYear())}</option>
+                    <option value="" disabled>Seleccionar carpeta...</option>
+                    {subfolders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                   </select>
                 )}
               </div>
-            )}
 
-            <div style={{ display: "flex", gap: 10 }}>
-              <Btn onClick={onClose} style={{ flex: 1, background: "transparent", border: `1px solid ${C.border}`, color: C.textDim }}>Cancelar</Btn>
-              <Btn onClick={handleUpload} disabled={!canUpload} style={{ flex: 2 }}>📤 Archivar en Drive</Btn>
+              {hasYearSubfolders && selectedFolder && (
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>📅 Año</label>
+                  {loadingYears ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 10 }}>
+                      <Spinner /><span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>Cargando años...</span>
+                    </div>
+                  ) : (
+                    <select value={selectedYear || ""} onChange={e => setSelectedYear(e.target.value)} style={{
+                      width: "100%", padding: "9px 12px", background: C.surface2,
+                      border: `1px solid ${selectedYear ? C.border : C.red}`,
+                      borderRadius: 8, fontFamily: "DM Sans", fontSize: 13, color: C.text, boxSizing: "border-box",
+                    }}>
+                      <option value="" disabled>Seleccionar año...</option>
+                      {yearFolders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                      <option value="__new__">+ Crear {newYearName || String(new Date().getFullYear())}</option>
+                    </select>
+                  )}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, marginTop: "auto", paddingTop: 8 }}>
+                <Btn onClick={onClose} style={{ flex: 1, background: "transparent", border: `1px solid ${C.border}`, color: C.textDim }}>Cancelar</Btn>
+                <Btn onClick={handleUpload} disabled={!canUpload} style={{ flex: 2 }}>📤 Archivar en Drive</Btn>
+              </div>
             </div>
+
+            {/* ── Columna derecha: preview del PDF ── */}
+            {!mob && pdfUrl && (
+              <div style={{
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                minWidth: 0,
+                borderLeft: `1px solid ${C.border}`,
+                paddingLeft: 20,
+              }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginBottom: 8, flexShrink: 0 }}>
+                  Vista previa — {pdfFile?.name}
+                </div>
+                <iframe
+                  src={pdfUrl}
+                  style={{
+                    flex: 1,
+                    width: "100%",
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 8,
+                    background: "#fff",
+                    minHeight: 0,
+                  }}
+                  title="Vista previa del documento"
+                />
+              </div>
+            )}
           </div>
         )}
 
+        {/* ══ UPLOADING ══ */}
         {step === "uploading" && (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <Spinner />
@@ -493,6 +560,7 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </div>
         )}
 
+        {/* ══ DONE ══ */}
         {step === "done" && (
           <div>
             <InfoBox color={C.green}>

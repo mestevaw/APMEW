@@ -1,8 +1,10 @@
 // ═══════════════════════════════════════════
 // Archivo: src/App.jsx
-// Versión: V10
+// Versión: V11
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V11:
+// - Documents fetch con limit:50000 (antes 11000 cortaba en la P por orden alfabético)
 // CAMBIOS EN V10:
 // - Documents fetch con limit:11000 para mostrar todos los documentos indexados
 // CAMBIOS EN V9:
@@ -88,7 +90,7 @@ export default function App() {
         supaFetch("assets",               { order: "sort_order" }),
         supaFetch("debts",                { order: "sort_order" }),
         supaFetch("checklist_items",      { order: "sort_order" }),
-        supaFetch("documents",            { order: "folder_path,title", limit: 11000 }),
+        supaFetch("documents",            { order: "folder_path,title", limit: 50000 }),
         supaFetch("daily_expenses",       { order: "expense_date.desc,created_at.desc", limit: 10000 }),
       ]);
       setData({ profiles, assumptions, income, retIncome, expenses, expenseCategories, assets, debts, checklist, documents, dailyExpenses });
@@ -122,7 +124,7 @@ export default function App() {
   const reloadExpenses      = () => reloadTable("expenses",      "retirement_expenses", { order: "sort_order" });
   const reloadAssets        = () => reloadTable("assets",        "assets",              { order: "sort_order" });
   const reloadDebts         = () => reloadTable("debts",         "debts",               { order: "sort_order" });
-  const reloadDocuments     = () => reloadTable("documents",     "documents",           { order: "folder_path,title", limit: 11000 });
+  const reloadDocuments     = () => reloadTable("documents",     "documents",           { order: "folder_path,title", limit: 50000 });
   const reloadPatrimony     = () => Promise.all([reloadAssets(), reloadDebts()]);
 
   // ─── Actions ──────────────────────────────────────────────────────────────

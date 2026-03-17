@@ -1,8 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/OwnersPage.jsx
-// Versión: V7
+// Versión: V8
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V8:
+// - CuentasTab: árbol empieza desde la subcarpeta bancaria (ej. FROST MANGO)
+//   en lugar de mostrar la ruta completa APMEW → MANGO LLC DOCS → FROST MANGO
 // CAMBIOS EN V7:
 // - DocumentosTab: árbol jerárquico (tree view) igual que DocumentsPage
 // - Lupa en esquina superior derecha (siempre visible, sin hamburguesa)
@@ -884,15 +887,30 @@ const CuentasTab = ({ ownerName, mob }) => {
       try {
         const short = (OWNER_SHORT[ownerName] || ownerName).toLowerCase();
         const low   = ownerName.toLowerCase();
-        const allDocs = await supaFetch("documents", { order: "folder_path,title", limit: 11000 });
+        const allDocs = await supaFetch("documents", { order: "folder_path,title", limit: 50000 });
         const bankKeywords = ["frost","bank","cuenta","estado","statement","account","hsb","chase","amex","capital one","bmo"];
+
+        // Nombre de la subcarpeta bancaria (ej. "FROST MANGO") — para recortar el árbol
+        const bankSubfolder = OWNER_BANK_FOLDERS[ownerName]?.subfolder_name?.toLowerCase();
+
         const filtered = (allDocs || []).filter(d => {
           const path  = (d.folder_path || "").toLowerCase();
           const title = (d.title || "").toLowerCase();
           const isOwner = path.includes(short) || path.includes(low);
           const isBank  = bankKeywords.some(k => path.includes(k) || title.includes(k));
           return isOwner && isBank;
+        }).map(d => {
+          // V8 FIX: recortar folder_path para que el árbol empiece desde la subcarpeta bancaria
+          // En lugar de mostrar: APMEW / MANGO LLC DOCS / FROST MANGO / 2024 / archivo
+          // Muestra: FROST MANGO / 2024 / archivo
+          if (bankSubfolder) {
+            const parts = (d.folder_path || "").split("/");
+            const idx = parts.findIndex(p => p.toLowerCase().includes(bankSubfolder));
+            if (idx >= 0) return { ...d, folder_path: parts.slice(idx).join("/") };
+          }
+          return d;
         });
+
         setBankDocs(filtered);
       } catch (err) { console.error("[CuentasTab]", err); }
       setLoadingDocs(false);
