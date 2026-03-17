@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V17
+// Versión: V18
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
 // CAMBIOS EN V15:
@@ -569,36 +569,53 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
   }, []);
 
   // ─── Sync manual ───
+  // V18: sync inteligente — en modo incremental NO entra a carpetas ya conocidas
+  // Esto reduce las llamadas a Drive de miles a solo las carpetas nuevas,
+  // evitando que el token OAuth expire antes de terminar (antes tardaba >1h)
   const runSync = async (incremental = true) => {
     if (!token || syncing) return;
     setSyncing(true);
-    setSyncMsg(incremental ? "Verificando cambios..." : "Sincronización completa...");
+    setSyncMsg(incremental ? "Cargando índice..." : "Sincronización completa...");
     let totalFiles = 0, totalFolders = 0;
     let knownFolders = new Set(), knownFiles = new Set();
 
-    if (incremental) {
-      try {
-        const ef = await supaFetch("drive_folders", { order: "id" });
-        if (ef) ef.forEach(f => knownFolders.add(f.google_drive_id));
-        const ed = await supaFetch("documents", { filters: "synced_from_drive=eq.true", order: "id" });
-        if (ed) ed.forEach(d => knownFiles.add(d.google_drive_file_id));
-      } catch (e) { console.error(e); }
-      setSyncMsg(`Índice: ${knownFolders.size} carpetas, ${knownFiles.size} archivos. Buscando nuevos...`);
-    }
+    // Cargar lo que ya está en Supabase
+    try {
+      const ef = await supaFetch("drive_folders", { order: "id", limit: 50000 });
+      if (ef) ef.forEach(f => knownFolders.add(f.google_drive_id));
+      const ed = await supaFetch("documents", { filters: "synced_from_drive=eq.true", order: "id", limit: 50000 });
+      if (ed) ed.forEach(d => knownFiles.add(d.google_drive_file_id));
+    } catch (e) { console.error(e); }
+
+    setSyncMsg(`Índice: ${knownFolders.size} carpetas, ${knownFiles.size} archivos. Buscando nuevos...`);
 
     const syncFolder = async (folderId, path) => {
       const items = await listAllFiles(folderId);
       if (!items) return;
       for (const f of items) {
         if (isFolder(f)) {
-          if (!(incremental && knownFolders.has(f.id))) {
-            await supaUpsert("drive_folders", { google_drive_id: f.id, name: f.name, parent_drive_id: folderId, folder_path: path + "/" + f.name }, "google_drive_id");
+          const isNew = !knownFolders.has(f.id);
+          if (isNew) {
+            // Carpeta nueva — registrar en Supabase
+            try {
+              await supaUpsert("drive_folders", {
+                google_drive_id: f.id, name: f.name,
+                parent_drive_id: folderId,
+                folder_path: path + "/" + f.name,
+              }, "google_drive_id");
+            } catch (e) { console.error("[sync] folder upsert:", e.message); }
             totalFolders++;
             knownFolders.add(f.id);
-            if (totalFolders % 3 === 0) setSyncMsg(`Nuevos: ${totalFolders} carpetas, ${totalFiles} archivos...`);
+            if (totalFolders % 3 === 0) setSyncMsg(`Nuevas: ${totalFolders} carpetas, ${totalFiles} archivos...`);
           }
-          await syncFolder(f.id, path + "/" + f.name);
-        } else if (!(incremental && knownFiles.has(f.id))) {
+          // V18 KEY FIX: en modo incremental, si la carpeta ya era conocida
+          // NO entramos a ella — sus archivos ya están indexados.
+          // Solo entramos si es nueva (o si es sync completo).
+          if (isNew || !incremental) {
+            await syncFolder(f.id, path + "/" + f.name);
+          }
+        } else if (!knownFiles.has(f.id)) {
+          // Archivo nuevo
           const doc = {
             title: f.name, google_drive_file_id: f.id,
             google_drive_url: f.webViewLink, folder_path: path,
@@ -608,9 +625,12 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
           };
           try { await supaUpsert("documents", doc, "google_drive_file_id"); }
           catch (e) {
-            const ex = await supaFetch("documents", { filters: `google_drive_file_id=eq.${f.id}` });
-            if (ex?.length > 0) await supaUpdate("documents", ex[0].id, doc);
-            else await supaInsert("documents", doc);
+            // Fallback por si aún no existe el constraint UNIQUE (ver instrucciones SQL)
+            try {
+              const ex = await supaFetch("documents", { filters: `google_drive_file_id=eq.${f.id}`, limit: 1 });
+              if (ex?.length > 0) await supaUpdate("documents", ex[0].id, doc);
+              else await supaInsert("documents", doc);
+            } catch (e2) { console.error("[sync] doc insert:", e2.message); }
           }
           totalFiles++;
           knownFiles.add(f.id);
@@ -622,10 +642,13 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
       await syncFolder(DRIVE_ROOT_FOLDER, "APMEW");
       setSyncMsg(totalFolders === 0 && totalFiles === 0
         ? "✓ Todo al día — no hay cambios nuevos"
-        : `✓ ${totalFolders} carpetas y ${totalFiles} archivos nuevos`
+        : `✓ ${totalFolders} carpetas y ${totalFiles} archivos nuevos indexados`
       );
       if (totalFiles > 0) reload();
-    } catch (e) { setSyncMsg("Error: " + e.message); }
+    } catch (e) {
+      setSyncMsg("Error: " + e.message);
+      console.error("[sync] error:", e);
+    }
     setSyncing(false);
     setTimeout(() => setSyncMsg(""), 8000);
   };
