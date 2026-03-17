@@ -1,26 +1,31 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/AnaPIndexer.jsx
-// Versión: V1
-// Fecha: 2026-03-04
+// Versión: V2
+// Fecha: 2026-03-16
 // ═══════════════════════════════════════════
-// Lee el PDF "Doc AnaP" de cada propiedad desde Drive,
-// lo manda a Claude API para extracción estructurada de gastos,
-// y guarda los resultados en la tabla property_expenses de Supabase.
-//
-// Uso: llamar desde GastosPanel cuando hay un anaPDoc disponible.
+// CAMBIOS EN V2:
+// - BUG CRÍTICO FIX: headers de Claude API ahora completos
+//   (antes faltaban x-api-key, anthropic-version,
+//    anthropic-dangerous-direct-browser-access, anthropic-beta)
+// - Eliminado import de PROPERTIES (no se usaba en este componente)
 // ═══════════════════════════════════════════
 
 import { useState } from "react";
 import { C } from "../lib/theme";
 import { Card, Spinner } from "./UI";
-import { supaFetch, supaInsert, supaUpsert } from "../lib/supabase";
-import { PROPERTIES } from "../pages/dashboard/constants";
+import { supaInsert } from "../lib/supabase";
 
 // ─── Claude API call ──────────────────────────────────────────────────────
 const extractExpensesFromPDF = async (base64Data) => {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY || "",
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "anthropic-beta": "pdfs-2024-09-25",
+    },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
       max_tokens: 4000,
@@ -66,7 +71,6 @@ Reglas:
 
   const data = await response.json();
   const text = data.content?.find(b => b.type === "text")?.text || "";
-  // Strip markdown fences if present
   const clean = text.replace(/```json|```/g, "").trim();
   return JSON.parse(clean);
 };
@@ -91,25 +95,22 @@ const downloadPDFAsBase64 = async (fileId, token) => {
 // MODAL COMPONENT
 // ═══════════════════════════════════════════
 export const AnaPIndexer = ({ fileId, property, drive, onClose, onDone }) => {
-  const [step, setStep]       = useState("preview"); // preview → reading → reviewing → saving → done
-  const [log, setLog]         = useState([]);
+  const [step, setStep]           = useState("preview");
+  const [log, setLog]             = useState([]);
   const [extracted, setExtracted] = useState(null);
   const [editedExp, setEditedExp] = useState([]);
-  const [saving, setSaving]   = useState(false);
+  const [saving, setSaving]       = useState(false);
 
   const addLog = (msg) => setLog(prev => [...prev, msg]);
 
-  // ── Step 1: Leer PDF y extraer con Claude ─────────────────────────────
   const handleExtract = async () => {
     setStep("reading");
     setLog([]);
     try {
       addLog("📥 Descargando PDF de Drive...");
       const base64 = await downloadPDFAsBase64(fileId, drive.token);
-
       addLog("🤖 Enviando a Claude para extracción...");
       const result = await extractExpensesFromPDF(base64);
-
       addLog(`✅ Extraídos ${result.expenses?.length || 0} gastos`);
       setExtracted(result);
       setEditedExp(result.expenses || []);
@@ -120,7 +121,6 @@ export const AnaPIndexer = ({ fileId, property, drive, onClose, onDone }) => {
     }
   };
 
-  // ── Step 2: Guardar en Supabase ───────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
     setStep("saving");
@@ -169,7 +169,6 @@ export const AnaPIndexer = ({ fileId, property, drive, onClose, onDone }) => {
     }}>
       <Card style={{ maxWidth: 680, width: "100%", maxHeight: "90vh", overflow: "auto", padding: 24 }}>
 
-        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <div>
             <h2 style={{ fontFamily: "DM Sans", fontSize: 17, fontWeight: 700, color: C.text, margin: 0 }}>
@@ -184,7 +183,6 @@ export const AnaPIndexer = ({ fileId, property, drive, onClose, onDone }) => {
           )}
         </div>
 
-        {/* ── PREVIEW ── */}
         {step === "preview" && (
           <div>
             <div style={{
@@ -192,30 +190,24 @@ export const AnaPIndexer = ({ fileId, property, drive, onClose, onDone }) => {
               background: `${C.accent}10`, border: `1px solid ${C.accent}40`,
               borderRadius: 10, fontFamily: "DM Sans", fontSize: 13, color: C.text, lineHeight: 1.7,
             }}>
-              <p style={{ margin: "0 0 8px" }}>
-                Claude va a leer el PDF y extraer los gastos automáticamente.
-              </p>
+              <p style={{ margin: "0 0 8px" }}>Claude va a leer el PDF y extraer los gastos automáticamente.</p>
               <p style={{ margin: 0, fontSize: 12, color: C.textDim }}>
                 • Podrás revisar y editar cada fila antes de guardar<br/>
                 • Los gastos se guardan en <strong style={{ color: C.text }}>property_expenses</strong><br/>
                 • Si ya existen registros del mismo período, se agregarán como nuevas entradas
               </p>
             </div>
-            <button
-              onClick={handleExtract}
-              style={{
-                width: "100%", padding: "12px 0",
-                background: C.accent, color: "white",
-                border: "none", borderRadius: 8,
-                fontFamily: "DM Sans", fontSize: 14, fontWeight: 700, cursor: "pointer",
-              }}
-            >
+            <button onClick={handleExtract} style={{
+              width: "100%", padding: "12px 0",
+              background: C.accent, color: "white",
+              border: "none", borderRadius: 8,
+              fontFamily: "DM Sans", fontSize: 14, fontWeight: 700, cursor: "pointer",
+            }}>
               🤖 Leer y Extraer con Claude
             </button>
           </div>
         )}
 
-        {/* ── READING ── */}
         {step === "reading" && (
           <div style={{ textAlign: "center", padding: "20px 0" }}>
             <Spinner />
@@ -225,7 +217,6 @@ export const AnaPIndexer = ({ fileId, property, drive, onClose, onDone }) => {
           </div>
         )}
 
-        {/* ── REVIEWING ── */}
         {step === "reviewing" && extracted && (
           <div>
             <div style={{
@@ -243,7 +234,6 @@ export const AnaPIndexer = ({ fileId, property, drive, onClose, onDone }) => {
                   background: C.surface2, border: `1px solid ${C.border}`,
                   borderRadius: 8, display: "flex", gap: 8, alignItems: "flex-start",
                 }}>
-                  {/* Type */}
                   <select
                     value={exp.expense_type || "other"}
                     onChange={e => updateExp(idx, { expense_type: e.target.value })}
@@ -251,95 +241,67 @@ export const AnaPIndexer = ({ fileId, property, drive, onClose, onDone }) => {
                   >
                     {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
-
-                  {/* Amount */}
                   <input
-                    type="number"
-                    value={exp.amount || ""}
+                    type="number" value={exp.amount || ""}
                     onChange={e => updateExp(idx, { amount: e.target.value })}
                     placeholder="$"
                     style={{ width: 80, padding: "4px 6px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, color: C.green, fontFamily: "JetBrains Mono", fontSize: 12 }}
                   />
-
-                  {/* Month/Year */}
                   <input
-                    type="number"
-                    value={exp.period_month || ""}
+                    type="number" value={exp.period_month || ""}
                     onChange={e => updateExp(idx, { period_month: parseInt(e.target.value) })}
-                    placeholder="Mes"
-                    min={1} max={12}
+                    placeholder="Mes" min={1} max={12}
                     style={{ width: 46, padding: "4px 6px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, fontFamily: "DM Sans", fontSize: 11 }}
                   />
                   <input
-                    type="number"
-                    value={exp.period_year || ""}
+                    type="number" value={exp.period_year || ""}
                     onChange={e => updateExp(idx, { period_year: parseInt(e.target.value) })}
                     placeholder="Año"
                     style={{ width: 58, padding: "4px 6px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, fontFamily: "DM Sans", fontSize: 11 }}
                   />
-
-                  {/* Notes */}
                   <input
-                    type="text"
-                    value={exp.notes || exp.vendor || ""}
+                    type="text" value={exp.notes || exp.vendor || ""}
                     onChange={e => updateExp(idx, { notes: e.target.value })}
                     placeholder="Proveedor / nota"
                     style={{ flex: 1, padding: "4px 6px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, color: C.textDim, fontFamily: "DM Sans", fontSize: 11 }}
                   />
-
-                  {/* Delete */}
-                  <button
-                    onClick={() => removeExp(idx)}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: C.red, fontSize: 14, padding: "2px 4px" }}
-                  >✕</button>
+                  <button onClick={() => removeExp(idx)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: C.red, fontSize: 14, padding: "2px 4px" }}>✕</button>
                 </div>
               ))}
             </div>
 
             <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={onClose}
-                style={{ flex: 1, padding: "10px 0", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8, color: C.textDim, fontFamily: "DM Sans", fontSize: 13, cursor: "pointer" }}
-              >
+              <button onClick={onClose}
+                style={{ flex: 1, padding: "10px 0", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 8, color: C.textDim, fontFamily: "DM Sans", fontSize: 13, cursor: "pointer" }}>
                 Cancelar
               </button>
-              <button
-                onClick={handleSave}
-                disabled={editedExp.length === 0}
-                style={{ flex: 2, padding: "10px 0", background: C.green, color: "white", border: "none", borderRadius: 8, fontFamily: "DM Sans", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
-              >
+              <button onClick={handleSave} disabled={editedExp.length === 0}
+                style={{ flex: 2, padding: "10px 0", background: C.green, color: "white", border: "none", borderRadius: 8, fontFamily: "DM Sans", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                 💾 Guardar {editedExp.length} gastos en Supabase
               </button>
             </div>
           </div>
         )}
 
-        {/* ── SAVING ── */}
         {step === "saving" && (
           <div style={{ textAlign: "center", padding: "30px 0" }}>
             <Spinner />
-            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>
-              Guardando en Supabase...
-            </div>
+            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, marginTop: 12 }}>Guardando en Supabase...</div>
           </div>
         )}
 
-        {/* ── DONE ── */}
         {step === "done" && (
           <div>
             <div style={{ padding: "14px 16px", background: `${C.green}12`, border: `1px solid ${C.green}40`, borderRadius: 10, fontFamily: "DM Sans", fontSize: 13, color: C.green, marginBottom: 16 }}>
               {log.map((l, i) => <div key={i}>{l}</div>)}
             </div>
-            <button
-              onClick={onClose}
-              style={{ width: "100%", padding: "12px 0", background: C.green, color: "white", border: "none", borderRadius: 8, fontFamily: "DM Sans", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
-            >
+            <button onClick={onClose} style={{ width: "100%", padding: "12px 0", background: C.green, color: "white", border: "none", borderRadius: 8, fontFamily: "DM Sans", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
               Cerrar
             </button>
           </div>
         )}
 
-        {/* ── ERROR ── */}
         {step === "error" && (
           <div>
             <div style={{ padding: "14px 16px", background: `${C.red}12`, border: `1px solid ${C.red}40`, borderRadius: 10, fontFamily: "DM Sans", fontSize: 13, color: C.red, marginBottom: 16 }}>

@@ -1,8 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/CorrespondenciaUpload.jsx
-// Versión: V4
-// Fecha: 2026-03-06
+// Versión: V5
+// Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V5:
+// - DUPLICADO FIX: eliminada definición local de MONTHS_ES;
+//   ahora se importa desde lib/helpers (fuente canónica)
 // CAMBIOS EN V4 (desde V3):
 // - Nomenclatura corregida: [remitente] [tipo] Cta [fecha carta] [domicilio] [fecha guardado]
 //   Ejemplo: HOA NEC Aviso Cortesía Cta 25 feb 26 6515 Hazy Glen 6 mar 26.pdf
@@ -14,10 +17,9 @@ import { C } from "../lib/theme";
 import { Card, Spinner } from "./UI";
 import { PROPERTIES } from "../pages/dashboard/constants";
 import { findFolderByAddress } from "../pages/dashboard/helpers";
+import { MONTHS_ES } from "../lib/helpers";   // ← FIX V5: importado, no redefinido
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
-
-const MONTHS_ES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 
 // Formatea fecha como "6 mar 26"
 const fmtShortDate = (date) => {
@@ -92,16 +94,14 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
   const [resolvedFolderId, setResolvedFolderId] = useState(propFolderId || null);
   const [resolvedProperty, setResolvedProperty] = useState(propProperty || null);
 
-  // Nivel 1: subcarpetas directas de la propiedad
   const [subfolders, setSubfolders]             = useState([]);
   const [loadingFolders, setLoadingFolders]     = useState(false);
   const [selectedFolder, setSelectedFolder]     = useState(null);
 
-  // Nivel 2: subcarpetas de año (si el folder seleccionado las tiene)
-  const [yearFolders, setYearFolders]           = useState([]);   // carpetas de año existentes
+  const [yearFolders, setYearFolders]           = useState([]);
   const [loadingYears, setLoadingYears]         = useState(false);
-  const [selectedYear, setSelectedYear]         = useState(null); // id de la carpeta año, o "__new__"
-  const [newYearName, setNewYearName]           = useState("");   // año a crear si "__new__"
+  const [selectedYear, setSelectedYear]         = useState(null);
+  const [newYearName, setNewYearName]           = useState("");
   const [hasYearSubfolders, setHasYearSubfolders] = useState(false);
 
   const [fileName, setFileName]                 = useState("");
@@ -109,9 +109,7 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
   const fileInputRef = useRef(null);
   const activeProps  = PROPERTIES.filter(p => !p.sold);
 
-  // ── Genera nombre de archivo con la nueva nomenclatura ──────────────────
-  // Formato: [remitente] [tipo doc] Cta [fecha carta] [domicilio] [fecha guardado]
-  // Ejemplo: HOA NEC Aviso Cortesía Cta 25 feb 26 6515 Hazy Glen 6 mar 26.pdf
+  // ── Genera nombre de archivo ─────────────────────────────────────────────
   const buildFileName = useCallback((meta, property) => {
     const today    = new Date();
     const docDate  = meta?.docDate ? fmtShortDate(meta.docDate) : "";
@@ -119,7 +117,6 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
     const sender   = safeStr(meta?.sender  || "", 30);
     const docType  = safeStr(meta?.docType || "", 30);
     const address  = safeStr(property?.address || "", 30);
-    // [remitente] [tipo] Cta [fecha carta] [domicilio] [fecha guardado]
     const parts = [sender, docType, "Cta", docDate, address, saveDate].filter(Boolean);
     return `${parts.join(" ")}.pdf`;
   }, []);
@@ -153,12 +150,11 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
       const files = await drive.listAllFiles(folderId);
       const years = (files || [])
         .filter(f => f.mimeType === "application/vnd.google-apps.folder" && isYearFolder(f.name))
-        .sort((a, b) => b.name.localeCompare(a.name)); // más reciente primero
+        .sort((a, b) => b.name.localeCompare(a.name));
 
       if (years.length > 0) {
         setHasYearSubfolders(true);
         setYearFolders(years);
-        // Pre-seleccionar el año actual si existe, si no "__new__"
         const currentYear = String(new Date().getFullYear());
         const match = years.find(y => y.name === currentYear);
         if (match) {
@@ -175,7 +171,6 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
     }
   }, [drive]);
 
-  // Sincronizar cuando subfolders carga y selecciona el primero
   useEffect(() => {
     if (selectedFolder) handleFolderChange(selectedFolder);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -207,7 +202,7 @@ export const CorrespondenciaUpload = ({ drive, folderId: propFolderId, property:
           "anthropic-beta": "pdfs-2024-09-25",
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
+          model: "claude-sonnet-4-20250514",
           max_tokens: 1000,
           messages: [{
             role: "user",
@@ -236,7 +231,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
 
       setDocMeta(meta);
 
-      // Resolver propiedad + folderId si no vienen de props
       let fId = propFolderId || null;
       let prop = propProperty || null;
       if (!fId) {
@@ -299,11 +293,9 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
     finally { setLoadingFolders(false); }
   };
 
-  // ── Determina la carpeta final destino (nivel 1 o nivel 2) ───────────────
   const getFinalFolderId = async () => {
     if (!hasYearSubfolders) return selectedFolder;
     if (selectedYear && selectedYear !== "__new__") return selectedYear;
-    // Crear carpeta del año
     const yearName = newYearName || String(new Date().getFullYear());
     const created = await drive.createFolder(yearName, selectedFolder);
     return created.id;
@@ -328,7 +320,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
   const canUpload = !!selectedFolder && !!fileName.trim() &&
     (!hasYearSubfolders || !!selectedYear);
 
-  // ── RENDER ───────────────────────────────────────────────────────────────
   return (
     <div style={{
       position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
@@ -337,7 +328,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
     }}>
       <Card style={{ maxWidth: 620, width: "100%", maxHeight: "92vh", overflow: "auto", padding: mob ? 18 : 28 }}>
 
-        {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
           <h2 style={{ fontFamily: "DM Sans", fontSize: mob ? 16 : 18, fontWeight: 700, color: C.text, margin: 0 }}>
             📬 Agregar Correspondencia
@@ -351,7 +341,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </div>
         )}
 
-        {/* ══ SELECT ══ */}
         {step === "select" && (
           <>
             <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, textAlign: "center", marginBottom: 14 }}>
@@ -400,7 +389,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </>
         )}
 
-        {/* ══ ANALYZING ══ */}
         {step === "analyzing" && (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <Spinner />
@@ -409,7 +397,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </div>
         )}
 
-        {/* ══ CONFIRM ══ */}
         {step === "confirm" && (
           <div>
             {docMeta && (
@@ -424,7 +411,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
 
             {error && <InfoBox color={C.orange}>⚠️ {error}</InfoBox>}
 
-            {/* Selector propiedad — solo sin folderId de props */}
             {!propFolderId && (
               <div style={{ marginBottom: 16 }}>
                 <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>🏠 Propiedad</label>
@@ -439,7 +425,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
               </div>
             )}
 
-            {/* Nombre del archivo */}
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>Nombre del archivo</label>
               <input type="text" value={fileName} onChange={e => setFileName(e.target.value)} style={{
@@ -449,7 +434,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
               }} />
             </div>
 
-            {/* Carpeta destino — nivel 1 */}
             <div style={{ marginBottom: hasYearSubfolders ? 12 : 20 }}>
               <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>📂 Carpeta destino</label>
               {loadingFolders ? (
@@ -474,12 +458,9 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
               )}
             </div>
 
-            {/* Carpeta destino — nivel 2 (año) */}
             {hasYearSubfolders && selectedFolder && (
               <div style={{ marginBottom: 20 }}>
-                <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>
-                  📅 Año
-                </label>
+                <label style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, display: "block", marginBottom: 6 }}>📅 Año</label>
                 {loadingYears ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 10 }}>
                     <Spinner /><span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>Cargando años...</span>
@@ -505,7 +486,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </div>
         )}
 
-        {/* ══ UPLOADING ══ */}
         {step === "uploading" && (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <Spinner />
@@ -513,7 +493,6 @@ Responde ÚNICAMENTE con un objeto JSON sin markdown ni backticks, con esta estr
           </div>
         )}
 
-        {/* ══ DONE ══ */}
         {step === "done" && (
           <div>
             <InfoBox color={C.green}>

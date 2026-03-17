@@ -1,25 +1,25 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/VendorSearch.jsx
-// Versión: V1
-// Fecha: 2026-03-04
+// Versión: V2
+// Fecha: 2026-03-16
 // ═══════════════════════════════════════════
-// Búsqueda de proveedores/gastos a través de TODAS las propiedades.
-// Busca en property_expenses (notes, expense_type) y daily_expenses (concept, subcategory).
+// CAMBIOS EN V2:
+// - DUPLICADO FIX: eliminada definición local de MONTHS_ES;
+//   ahora se importa MONTHS_SHORT desde dashboard/constants
+//   (fuente canónica para meses capitalizados en display)
 // ═══════════════════════════════════════════
 
 import { useState, useRef, useEffect } from "react";
 import { C } from "../lib/theme";
 import { Card, Spinner } from "./UI";
 import { supaFetch } from "../lib/supabase";
-import { PROPERTIES, OWNER_COLORS } from "../pages/dashboard/constants";
+import { PROPERTIES, OWNER_COLORS, MONTHS_SHORT } from "../pages/dashboard/constants";  // ← FIX V2
 import { fmtMoney } from "../pages/dashboard/helpers";
-
-const MONTHS_ES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
 const formatPeriod = (month, year) => {
   if (!month && !year) return "—";
   if (!month) return String(year);
-  return `${MONTHS_ES[(month || 1) - 1]} ${year}`;
+  return `${MONTHS_SHORT[(month || 1) - 1]} ${year}`;
 };
 
 const TYPE_LABELS = {
@@ -53,7 +53,6 @@ export const VendorSearch = ({ onClose }) => {
     setResults([]);
 
     try {
-      // Buscar en property_expenses (campo notes)
       const [propExp, dailyExp] = await Promise.all([
         supaFetch("property_expenses", {
           filters: `notes=ilike.*${encodeURIComponent(q)}*`,
@@ -65,7 +64,6 @@ export const VendorSearch = ({ onClose }) => {
         }),
       ]);
 
-      // Normalizar property_expenses
       const propRows = (propExp || []).map(e => ({
         id:       `pe-${e.id}`,
         source:   "property",
@@ -77,9 +75,7 @@ export const VendorSearch = ({ onClose }) => {
         owner:    PROPERTIES.find(p => p.address === e.property_address)?.owner || "",
       }));
 
-      // Normalizar daily_expenses — mapear tag → address
       const dailyRows = (dailyExp || []).map(e => {
-        // Intentar asociar por tag (owner) o subcategory (address)
         const prop = PROPERTIES.find(p =>
           p.address === e.subcategory ||
           p.owner === e.tag ||
@@ -92,7 +88,7 @@ export const VendorSearch = ({ onClose }) => {
           address: prop?.address || e.tag || "General",
           type:    e.tag || "Gasto diario",
           amount:  Number(e.amount),
-          period:  `${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`,
+          period:  `${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`,
           label:   [e.concept, e.subcategory].filter(Boolean).join(" · "),
           owner:   prop?.owner || "",
         };
@@ -115,7 +111,6 @@ export const VendorSearch = ({ onClose }) => {
     if (e.key === "Enter") search();
   };
 
-  // Group by address
   const grouped = {};
   results.forEach(r => {
     if (!grouped[r.address]) grouped[r.address] = { rows: [], total: 0, owner: r.owner };
@@ -133,7 +128,6 @@ export const VendorSearch = ({ onClose }) => {
     }}>
       <Card style={{ maxWidth: 700, width: "100%", padding: 24 }}>
 
-        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <h2 style={{ fontFamily: "DM Sans", fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
             🔍 Buscar por Proveedor
@@ -141,7 +135,6 @@ export const VendorSearch = ({ onClose }) => {
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 22 }}>✕</button>
         </div>
 
-        {/* Search bar */}
         <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
           <div style={{
             flex: 1, display: "flex", alignItems: "center", gap: 8,
@@ -183,7 +176,6 @@ export const VendorSearch = ({ onClose }) => {
           </button>
         </div>
 
-        {/* Loading */}
         {loading && (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <Spinner />
@@ -193,17 +185,14 @@ export const VendorSearch = ({ onClose }) => {
           </div>
         )}
 
-        {/* No results */}
         {searched && !loading && results.length === 0 && (
           <div style={{ textAlign: "center", padding: "40px 0", fontFamily: "DM Sans", fontSize: 14, color: C.textDim }}>
             No se encontraron gastos con "<strong style={{ color: C.text }}>{query}</strong>"
           </div>
         )}
 
-        {/* Results */}
         {results.length > 0 && !loading && (
           <div>
-            {/* Summary bar */}
             <div style={{
               display: "flex", justifyContent: "space-between", alignItems: "center",
               padding: "10px 14px", marginBottom: 16,
@@ -221,7 +210,6 @@ export const VendorSearch = ({ onClose }) => {
               </div>
             </div>
 
-            {/* Grouped by property */}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {Object.entries(grouped)
                 .sort(([, a], [, b]) => b.total - a.total)
@@ -229,7 +217,6 @@ export const VendorSearch = ({ onClose }) => {
                   const ownerColor = OWNER_COLORS[group.owner] || C.textDim;
                   return (
                     <div key={address}>
-                      {/* Property header */}
                       <div style={{
                         display: "flex", justifyContent: "space-between", alignItems: "baseline",
                         padding: "6px 10px", marginBottom: 6,
@@ -251,7 +238,6 @@ export const VendorSearch = ({ onClose }) => {
                         </span>
                       </div>
 
-                      {/* Expense rows */}
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         {group.rows.map(row => (
                           <div key={row.id} style={{
