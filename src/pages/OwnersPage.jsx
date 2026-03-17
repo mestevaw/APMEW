@@ -879,7 +879,8 @@ const ImpuestosTab = ({ ownerName, mob }) => {
 // =============================================================================
 // TAB: CUENTAS — documentos bancarios de Supabase + registro de cuentas
 // =============================================================================
-const CuentasTab = ({ ownerName, mob }) => {
+const CuentasTab = ({ ownerName, mob, drive }) => {
+  const driveToken = drive?.token || null;
   const [accounts,    setAccounts]   = useState([]);
   const [loadingAcc,  setLoadingAcc] = useState(true);
   const [tableExists, setTableExists]= useState(true);
@@ -901,7 +902,7 @@ const CuentasTab = ({ ownerName, mob }) => {
     } catch { setTableExists(false); setAccounts(  // V9: Cargar documentos bancarios desde Drive directamente (sin Supabase)
   useEffect(() => {
     const load = async () => {
-      if (!drive?.token) { setLoadingDocs(false); return; }
+      if (!driveToken) { setLoadingDocs(false); return; }
       setLoadingDocs(true);
       try {
         const ownerFolderId = OWNER_DRIVE_FOLDERS[ownerName]?.drive_folder_id;
@@ -932,7 +933,7 @@ const CuentasTab = ({ ownerName, mob }) => {
       setLoadingDocs(false);
     };
     load();
-  }, [ownerName, drive?.token]);
+  }, [ownerName, driveToken]);
 
   const handleAdd = async () => {
     if (!form.bank_name.trim()) return;
@@ -987,7 +988,7 @@ const CuentasTab = ({ ownerName, mob }) => {
         )}
         {loadingDocs ? (
           <div style={{ textAlign: "center", padding: 16 }}><Spinner /></div>
-        ) : !drive?.token ? (
+        ) : !driveToken ? (
           <div style={{ textAlign: "center", padding: "16px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
             Conecta Google Drive para ver estados de cuenta.
           </div>
