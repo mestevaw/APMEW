@@ -1,8 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V6
+// Versión: V7
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V7:
+// - Fix API: verifica resp.ok antes de parsear, muestra error real
+// - Fix modelo: usa claude-haiku-4-5-20251001 (más rápido y disponible)
+// - Fix JSON: si la IA no devuelve JSON válido, muestra el texto igual
 // CAMBIOS EN V6:
 // - Fix análisis IA: agrega x-api-key, anthropic-version y anthropic-dangerous-allow-browser
 // - Tree view: primer nivel (depth=0) abre, resto cerrado
@@ -213,13 +217,25 @@ Analiza el documento y responde SOLO con JSON sin markdown:
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-allow-browser": "true",
         },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 300, messages }),
+        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 400, messages }),
       });
       const data = await resp.json();
+      if (!resp.ok) {
+        const msg = data?.error?.message || `HTTP ${resp.status}`;
+        setAiError(`Error API: ${msg}`);
+        setAiLoading(false);
+        return;
+      }
       const text = data.content?.find(b => b.type === "text")?.text || "";
+      if (!text) { setAiError("La IA no devolvió respuesta."); setAiLoading(false); return; }
       const clean = text.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(clean);
-      setAiSuggestion(parsed);
+      try {
+        const parsed = JSON.parse(clean);
+        setAiSuggestion(parsed);
+      } catch {
+        // Si no devuelve JSON válido, mostrar la respuesta como texto
+        setAiSuggestion({ path: null, reason: text });
+      }
     } catch (e) {
       console.error("AI suggestion error:", e);
       setAiError("No se pudo analizar el documento.");
