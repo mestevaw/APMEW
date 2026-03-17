@@ -1,8 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V13
+// Versión: V14
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V14:
+// - Thumbnail más grande (160px) con sombra
+// - Modal se ensancha a 620px cuando hay thumbnail
 // CAMBIOS EN V13:
 // - UploadModal: thumbnail del PDF, monto, fecha vencimiento, propiedad específica
 // CAMBIOS EN V12:
@@ -341,8 +344,9 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
         onClick={e => e.stopPropagation()}
         style={{
           background: C.surface, border: `1px solid ${C.border}`,
-          borderRadius: 16, width: "100%", maxWidth: 480,
+          borderRadius: 16, width: "100%", maxWidth: aiSuggestion?.thumbnail ? 620 : 480,
           boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden",
+          transition: "max-width 0.3s ease",
         }}
       >
         {/* Header */}
@@ -426,7 +430,7 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
                 <div style={{ display: "flex", gap: 12, padding: 14, background: `${C.green}08`, border: `1px solid ${C.green}30`, borderRadius: 10 }}>
                   {/* Thumbnail */}
                   {aiSuggestion.thumbnail && (
-                    <div style={{ flexShrink: 0, width: 90, borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`, alignSelf: "flex-start" }}>
+                    <div style={{ flexShrink: 0, width: 160, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, alignSelf: "flex-start", boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
                       <img src={aiSuggestion.thumbnail} alt="preview" style={{ width: "100%", display: "block" }} />
                     </div>
                   )}
