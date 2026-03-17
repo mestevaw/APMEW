@@ -545,11 +545,14 @@ Responde SOLO con JSON, sin texto extra, sin backticks:
 // =============================================================================
 // TAB: DOCUMENTOS  — lee de Supabase, solo Drive para subir
 // =============================================================================
-const DocumentosTab = ({ ownerName, mob, drive, showSearch, setShowSearch, showUpload, setShowUpload }) => {
+const DocumentosTab = ({ ownerName, mob, drive }) => {
   const [docs,        setDocs]        = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [expanded,    setExpanded]    = useState({});
+  const [menuOpen,    setMenuOpen]    = useState(false);
+  const [showSearch,  setShowSearch]  = useState(false);
+  const [showUpload,  setShowUpload]  = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -610,31 +613,90 @@ const DocumentosTab = ({ ownerName, mob, drive, showSearch, setShowSearch, showU
         />
       )}
 
-      {/* Search bar — shown when toggled from hamburger */}
-      {showSearch && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <input
-            autoFocus
-            type="text"
-            placeholder="Buscar documento o carpeta…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+      {/* ── Barra superior: búsqueda + menú hamburguesa ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        {showSearch ? (
+          <>
+            <input
+              autoFocus
+              type="text"
+              placeholder="Buscar documento o carpeta…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{
+                flex: 1, fontFamily: "DM Sans", fontSize: 13,
+                background: C.surface2, border: `1px solid ${searchQuery ? C.accent : C.border}`,
+                borderRadius: 8, padding: "7px 12px", color: C.text, outline: "none",
+              }}
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")}
+                style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 16 }}>✕</button>
+            )}
+          </>
+        ) : (
+          <div style={{ flex: 1 }} />
+        )}
+
+        {/* Hamburguesa */}
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          <button
+            onClick={() => setMenuOpen(o => !o)}
             style={{
-              flex: 1, fontFamily: "DM Sans", fontSize: 13,
-              background: C.surface2, border: `1px solid ${searchQuery ? C.accent : C.border}`,
-              borderRadius: 8, padding: "7px 12px", color: C.text, outline: "none",
+              display: "flex", flexDirection: "column", gap: 4,
+              alignItems: "center", justifyContent: "center",
+              width: 34, height: 34,
+              background: menuOpen ? C.accentGlow : C.surface2,
+              border: `1px solid ${menuOpen ? C.accent : C.border}`,
+              borderRadius: 8, cursor: "pointer", transition: "all 0.15s",
             }}
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")}
-              style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 16 }}>✕</button>
-          )}
-          <button onClick={() => { setShowSearch(false); setSearchQuery(""); }}
-            style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: C.textDim, fontFamily: "DM Sans", fontSize: 12 }}>
-            Cerrar
+            onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
+            onMouseLeave={e => { if (!menuOpen) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}}
+          >
+            {[0,1,2].map(i => (
+              <div key={i} style={{ width: 14, height: 2, background: menuOpen ? C.accent : C.textDim, borderRadius: 1, transition: "background 0.15s" }} />
+            ))}
           </button>
+
+          {menuOpen && (
+            <>
+              <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 98 }} />
+              <div style={{
+                position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 99,
+                background: C.surface, border: `1px solid ${C.border}`,
+                borderRadius: 10, boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
+                minWidth: 180, overflow: "hidden",
+              }}>
+                <button onClick={() => { setShowSearch(s => !s); setMenuOpen(false); }} style={{
+                  width: "100%", textAlign: "left", padding: "11px 16px",
+                  background: "transparent", border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 10,
+                  borderBottom: `1px solid ${C.border}`,
+                  fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text,
+                  transition: "background 0.12s",
+                }}
+                  onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  🔍 Buscar
+                </button>
+                <button onClick={() => { setShowUpload(true); setMenuOpen(false); }} style={{
+                  width: "100%", textAlign: "left", padding: "11px 16px",
+                  background: "transparent", border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 10,
+                  fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text,
+                  transition: "background 0.12s",
+                }}
+                  onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  📤 Subir documento
+                </button>
+              </div>
+            </>
+          )}
         </div>
-      )}
+      </div>
 
       {docs.length === 0 ? (
         <Card>
@@ -1203,21 +1265,11 @@ const GastosTab = ({ ownerName, mob }) => {
 // OWNER DETAIL VIEW  (header + 5 tabs)
 // =============================================================================
 const OwnerPageDetail = ({ ownerName, mob, drive, onBack, onSelectProperty }) => {
-  const [tab,            setTab]            = useState("resumen");
-  const [showDocSearch,  setShowDocSearch]  = useState(false);
-  const [showDocUpload,  setShowDocUpload]  = useState(false);
+  const [tab, setTab] = useState("resumen");
   const color       = OWNER_COLORS[ownerName] || C.accent;
   const props       = ownerProps(ownerName);
   const activeProps = props.filter((p) => !p.sold);
   const soldProps   = props.filter((p) => p.sold);
-
-  // Hamburger menu shown only when on Documentos tab
-  const docMenuSlot = tab === "documentos" ? (
-    <DocMenu
-      onSearch={() => setShowDocSearch(s => !s)}
-      onUpload={() => setShowDocUpload(true)}
-    />
-  ) : null;
 
   return (
     <div>
@@ -1236,12 +1288,10 @@ const OwnerPageDetail = ({ ownerName, mob, drive, onBack, onSelectProperty }) =>
         </div>
       </div>
 
-      <TabBar active={tab} onChange={(t) => { setTab(t); setShowDocSearch(false); }} mob={mob} rightSlot={docMenuSlot} />
+      <TabBar active={tab} onChange={setTab} mob={mob} />
 
       {tab === "resumen"    && <ResumenTab    ownerName={ownerName} mob={mob} onSelectProperty={onSelectProperty} />}
-      {tab === "documentos" && <DocumentosTab ownerName={ownerName} mob={mob} drive={drive}
-          showSearch={showDocSearch} setShowSearch={setShowDocSearch}
-          showUpload={showDocUpload} setShowUpload={setShowDocUpload} />}
+      {tab === "documentos" && <DocumentosTab ownerName={ownerName} mob={mob} drive={drive} />}
       {tab === "impuestos"  && <ImpuestosTab  ownerName={ownerName} mob={mob} />}
       {tab === "cuentas"    && <CuentasTab    ownerName={ownerName} mob={mob} drive={drive} />}
       {tab === "gastos"     && <GastosTab     ownerName={ownerName} mob={mob} />}
