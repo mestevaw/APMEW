@@ -1,12 +1,9 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V16
+// Versión: V17
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
 // CAMBIOS EN V15:
-// CAMBIOS EN V16:
-// - TreeNode: orden de directorios Z→A (diagnóstico — antes cortaba en la P)
-// CAMBIOS EN V15 (anterior):
 // - Modal siempre accesible sin requerir Drive al inicio
 // - Drop zone desaparece cuando hay archivo, imagen ocupa todo el ancho
 // - Drive connect aparece solo en el botón de guardar
@@ -107,7 +104,7 @@ const TreeNode = ({ name, node, depth, onPreview, searchQuery }) => {
     if (searchQuery) setOpen(true);
   }, [searchQuery]);
 
-  const childKeys = Object.keys(node.children).sort().reverse(); // V16: orden Z→A para diagnóstico
+  const childKeys = Object.keys(node.children).sort();
   const indent    = depth * 16;
 
   return (
