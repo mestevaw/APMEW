@@ -1,8 +1,16 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V9
+// Versión: V11
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V11:
+// - Fix CORS PDF: usa PDF.js para extraer texto localmente, manda solo texto a Claude
+// - Fix carpetas: limit:5000 en supaFetch de drive_folders
+// - Modelo: claude-haiku-4-5-20251001 (más rápido para clasificar texto)
+// CAMBIOS EN V10:
+// - Fix CORS: llama al proxy Cloudflare Worker en lugar de Anthropic directo
+// - API key ya no está expuesta en el frontend
+// - Requiere VITE_PROXY_URL en .env con la URL del worker
 // CAMBIOS EN V9:
 // - Fix carpetas: trae drive_folders de Supabase (no solo docs indexados)
 // - Fix PDF: quita beta header (innecesario en claude-sonnet-4-6)
@@ -153,7 +161,7 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
   // Carga carpetas directamente de drive_folders (tabla completa)
   useEffect(() => {
     if (!token) return;
-    supaFetch("drive_folders", { order: "folder_path" })
+    supaFetch("drive_folders", { order: "folder_path", limit: 5000 })
       .then(rows => {
         if (!rows) return;
         setFolderPaths([...new Set(rows.map(r => r.folder_path).filter(Boolean))].sort());
@@ -179,51 +187,71 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
   const analyzeFile = async (f) => {
     setAiLoading(true);
     try {
-      const base64 = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(r.result.split(",")[1]);
-        r.onerror = rej;
-        r.readAsDataURL(f);
-      });
-
       const isPdf   = f.type === "application/pdf";
       const isImage = f.type.startsWith("image/");
       if (!isPdf && !isImage) {
-        setAiSuggestion({ path: null, reason: "Solo puedo analizar PDFs e imágenes para sugerir carpeta." });
+        setAiSuggestion({ path: null, reason: "Solo puedo analizar PDFs e imágenes." });
         setAiLoading(false);
         return;
       }
 
-      const folderList = folderPaths.join("\n") || "(Sin carpetas cargadas aún)";
+      let contentBlock;
 
+      if (isPdf) {
+        // ── PDF.js extrae el texto localmente — sin enviar el PDF a ningún servidor ──
+        const arrayBuffer = await f.arrayBuffer();
+        let pdfText = "";
+        try {
+          const lib = window.pdfjsLib;
+          if (!lib) throw new Error("PDF.js no cargado");
+          if (!lib.GlobalWorkerOptions.workerSrc)
+            lib.GlobalWorkerOptions.workerSrc =
+              "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+          const pdf     = await lib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+          const page    = await pdf.getPage(1);
+          const content = await page.getTextContent({ normalizeWhitespace: true });
+          pdfText = content.items.map(i => i.str).join(" ");
+        } catch (pdfErr) {
+          console.warn("PDF.js:", pdfErr);
+          pdfText = `Nombre del archivo: ${f.name}`;
+        }
+        contentBlock = { type: "text", text: `CONTENIDO DEL PDF:\n${pdfText}` };
+      } else {
+        // ── Imagen: base64 ──
+        const base64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result.split(",")[1]);
+          r.onerror = rej;
+          r.readAsDataURL(f);
+        });
+        contentBlock = { type: "image", source: { type: "base64", media_type: f.type, data: base64 } };
+      }
+
+      const folderList = folderPaths.join("\n") || "(Sin carpetas)";
       const messages = [{
         role: "user",
         content: [
-          isPdf
-            ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } }
-            : { type: "image",    source: { type: "base64", media_type: f.type, data: base64 } },
-          {
-            type: "text",
-            text: `Eres un asistente de organización de documentos para una familia mexicana llamada APMEW (Esteva Wurts).
-Analiza este documento e indica en cuál de las carpetas de Google Drive debería guardarse.
+          contentBlock,
+          { type: "text", text:
+`Eres un asistente de organización de documentos para APMEW (Esteva Wurts, México).
+Analiza el documento e indica en cuál carpeta de Google Drive debe guardarse.
 
-CONTEXTO: Los documentos pueden pertenecer a:
-- Propiedades / casas (recibos de luz, gas, agua, predial, mantenimiento de cada propiedad)
-- Cuentas bancarias y tarjetas (estados de cuenta, comprobantes)
-- Coches / vehículos (facturas, seguros, tenencia, servicios)
-- Empresas (facturas, contratos, estados financieros de LLC, ARGO, MNA WORKS, etc.)
-- Seguros (pólizas, recibos de seguros de vida, gastos médicos, casa, auto)
-- Inversiones (AFORE, annuities, BlackStone, EB5, etc.)
-- Impuestos / SAT (declaraciones, facturas CFDI, comprobantes fiscales)
-- Legal / notarial (escrituras, testamentos, poderes notariales)
-- Personal (identificaciones, pasaportes, documentos personales de cada miembro)
+CONTEXTO — los documentos pueden ser:
+- Propiedades/casas: recibos de luz, gas, agua, predial, mantenimiento
+- Cuentas bancarias y tarjetas: estados de cuenta, comprobantes
+- Coches: facturas, seguros, tenencia, servicios
+- Empresas: facturas, contratos (LLC, ARGO, MNA WORKS, etc.)
+- Seguros: pólizas, recibos de vida/gastos médicos/casa/auto
+- Inversiones: AFORE, annuities, BlackStone, EB5, etc.
+- Impuestos/SAT: declaraciones, CFDI, comprobantes fiscales
+- Legal/notarial: escrituras, testamentos, poderes
+- Personal: identificaciones, pasaportes
 
-CARPETAS DISPONIBLES EN GOOGLE DRIVE:
+CARPETAS DISPONIBLES:
 ${folderList}
 
-Responde SOLO con JSON sin markdown:
-{"path": "APMEW/CARPETA/SUBCARPETA", "reason": "Explicación breve en español: qué es el documento y por qué va en esa carpeta"}`
-          }
+Responde SOLO JSON sin markdown:
+{"path":"APMEW/CARPETA/SUBCARPETA","reason":"qué es y por qué va ahí"}` }
         ]
       }];
 
@@ -235,7 +263,7 @@ Responde SOLO con JSON sin markdown:
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-allow-browser": "true",
         },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 400, messages }),
+        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 400, messages }),
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -244,13 +272,9 @@ Responde SOLO con JSON sin markdown:
         return;
       }
       const text = data.content?.find(b => b.type === "text")?.text || "";
-      if (!text) { setAiError("La IA no devolvió respuesta."); setAiLoading(false); return; }
-      const clean = text.replace(/```json|```/g, "").trim();
-      try {
-        setAiSuggestion(JSON.parse(clean));
-      } catch {
-        setAiSuggestion({ path: null, reason: text });
-      }
+      if (!text) { setAiError("Sin respuesta de IA."); setAiLoading(false); return; }
+      try { setAiSuggestion(JSON.parse(text.replace(/```json|```/g,"").trim())); }
+      catch { setAiSuggestion({ path: null, reason: text }); }
     } catch (e) {
       console.error("AI error:", e);
       setAiError(`Error: ${e.message}`);
