@@ -932,11 +932,7 @@ const CuentasTab = ({ ownerName, mob }) => {
       setLoadingDocs(false);
     };
     load();
-  }, [ownerName, drive?.token]);rr) { console.error("[CuentasTab]", err); }
-      setLoadingDocs(false);
-    };
-    load();
-  }, [ownerName]);
+  }, [ownerName, drive?.token]);
 
   const handleAdd = async () => {
     if (!form.bank_name.trim()) return;
