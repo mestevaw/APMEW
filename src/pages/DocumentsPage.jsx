@@ -1,8 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V11
+// Versión: V12
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V12:
+// - Fix CORS definitivo: matching de carpetas 100% local con PDF.js + scoring
+// - Fix UPSERT 409: pasa on_conflict=google_drive_id/google_drive_file_id
+// - Sin llamadas a Anthropic desde el browser
 // CAMBIOS EN V11:
 // - Fix CORS PDF: usa PDF.js para extraer texto localmente, manda solo texto a Claude
 // - Fix carpetas: limit:5000 en supaFetch de drive_folders
@@ -195,88 +199,100 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
         return;
       }
 
-      let contentBlock;
-
+      // ── Extraer texto con PDF.js (todo local, sin llamadas externas) ──
+      let rawText = f.name.toLowerCase();
       if (isPdf) {
-        // ── PDF.js extrae el texto localmente — sin enviar el PDF a ningún servidor ──
-        const arrayBuffer = await f.arrayBuffer();
-        let pdfText = "";
         try {
+          const arrayBuffer = await f.arrayBuffer();
           const lib = window.pdfjsLib;
-          if (!lib) throw new Error("PDF.js no cargado");
-          if (!lib.GlobalWorkerOptions.workerSrc)
-            lib.GlobalWorkerOptions.workerSrc =
-              "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-          const pdf     = await lib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
-          const page    = await pdf.getPage(1);
-          const content = await page.getTextContent({ normalizeWhitespace: true });
-          pdfText = content.items.map(i => i.str).join(" ");
-        } catch (pdfErr) {
-          console.warn("PDF.js:", pdfErr);
-          pdfText = `Nombre del archivo: ${f.name}`;
-        }
-        contentBlock = { type: "text", text: `CONTENIDO DEL PDF:\n${pdfText}` };
-      } else {
-        // ── Imagen: base64 ──
-        const base64 = await new Promise((res, rej) => {
-          const r = new FileReader();
-          r.onload = () => res(r.result.split(",")[1]);
-          r.onerror = rej;
-          r.readAsDataURL(f);
+          if (lib) {
+            if (!lib.GlobalWorkerOptions.workerSrc)
+              lib.GlobalWorkerOptions.workerSrc =
+                "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+            const pdf     = await lib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+            const page    = await pdf.getPage(1);
+            const content = await page.getTextContent({ normalizeWhitespace: true });
+            rawText = content.items.map(i => i.str).join(" ").toLowerCase();
+          }
+        } catch (e) { console.warn("PDF.js:", e); }
+      }
+
+      // ── Matching local: puntúa cada carpeta contra el texto del doc ──
+      const scored = folderPaths.map(path => {
+        const p = path.toLowerCase();
+        let score = 0;
+        const t = rawText;
+
+        // Palabras del path que aparecen en el texto → puntos
+        p.split(/[\s\/\-_]+/).forEach(word => {
+          if (word.length > 3 && t.includes(word)) score += word.length; // más largo = más específico
         });
-        contentBlock = { type: "image", source: { type: "base64", media_type: f.type, data: base64 } };
-      }
 
-      const folderList = folderPaths.join("\n") || "(Sin carpetas)";
-      const messages = [{
-        role: "user",
-        content: [
-          contentBlock,
-          { type: "text", text:
-`Eres un asistente de organización de documentos para APMEW (Esteva Wurts, México).
-Analiza el documento e indica en cuál carpeta de Google Drive debe guardarse.
+        // Señales del documento → mapeo a carpetas
+        const rules = [
+          // Propiedades específicas
+          { keys: ["progreso","c-101","c101","barrio sta catarina","coyoacan"], folder: "propiedades mexico", bonus: 20 },
+          { keys: ["argo","232","villa marco","cozy run","dixon wood","midnight rain","allegheny","spring mist","escort","purple martin"], folder: "maud watson", bonus: 15 },
+          // Servicios de casa
+          { keys: ["metrogas","gas natural","naturgy","telmex","totalplay","izzi","cfe","comision federal","segiagua","agua","predial","mantenimiento"], folder: "propiedades mexico", bonus: 10 },
+          // Bancos
+          { keys: ["american express","amex"], folder: "amex", bonus: 15 },
+          { keys: ["capital one"], folder: "capital one", bonus: 15 },
+          { keys: ["bmo harris","bmo"], folder: "bmo harris", bonus: 15 },
+          { keys: ["chase","jpmorgan"], folder: "chase", bonus: 15 },
+          { keys: ["hsb","frost","bancomer","bbva","santander","banamex","banorte","scotiabank"], folder: "hsb", bonus: 10 },
+          // Empresas
+          { keys: ["mna works","mango nest","mango llc"], folder: "mna works", bonus: 15 },
+          { keys: ["argo real estate","argo llc"], folder: "argo real estate", bonus: 15 },
+          // Inversiones
+          { keys: ["blackstone","blackrock"], folder: "blackstone", bonus: 15 },
+          { keys: ["afore","pensionissste","infonavit"], folder: "afore", bonus: 15 },
+          { keys: ["annuit","renta vitalicia","annuities"], folder: "annuities", bonus: 15 },
+          { keys: ["eb-5","eb5","investor visa"], folder: "eb5", bonus: 15 },
+          { keys: ["ira","roth"], folder: "ira roth", bonus: 15 },
+          // Seguros
+          { keys: ["pacific life","seguro vida","life insurance","poliza"], folder: "pacific life", bonus: 15 },
+          { keys: ["seguro","insurance","prima","deducible"], folder: "seguros", bonus: 8 },
+          // Impuestos
+          { keys: ["sat","cfdi","declaracion","isr","iva","rfc","hacienda","shcp","impuesto"], folder: "declaraciones impuestos", bonus: 12 },
+          { keys: ["irs","federal tax","1040","w-2","w2"], folder: "irs", bonus: 15 },
+          // Coches
+          { keys: ["tenencia","verificacion","poliza auto","nissan","toyota","bmw","audi","ford","volkswagen","chevrolet"], folder: "coches", bonus: 12 },
+          // Legal
+          { keys: ["escritura","notario","testamento","poder notarial","contrato","convenio"], folder: "esteva hinojosa", bonus: 10 },
+          // Personas
+          { keys: ["miguel","esteva wurts"], folder: "eswu", bonus: 8 },
+        ];
 
-CONTEXTO — los documentos pueden ser:
-- Propiedades/casas: recibos de luz, gas, agua, predial, mantenimiento
-- Cuentas bancarias y tarjetas: estados de cuenta, comprobantes
-- Coches: facturas, seguros, tenencia, servicios
-- Empresas: facturas, contratos (LLC, ARGO, MNA WORKS, etc.)
-- Seguros: pólizas, recibos de vida/gastos médicos/casa/auto
-- Inversiones: AFORE, annuities, BlackStone, EB5, etc.
-- Impuestos/SAT: declaraciones, CFDI, comprobantes fiscales
-- Legal/notarial: escrituras, testamentos, poderes
-- Personal: identificaciones, pasaportes
+        rules.forEach(({ keys, folder, bonus }) => {
+          if (keys.some(k => t.includes(k)) && p.includes(folder.toLowerCase())) {
+            score += bonus;
+          }
+        });
 
-CARPETAS DISPONIBLES:
-${folderList}
-
-Responde SOLO JSON sin markdown:
-{"path":"APMEW/CARPETA/SUBCARPETA","reason":"qué es y por qué va ahí"}` }
-        ]
-      }];
-
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-allow-browser": "true",
-        },
-        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 400, messages }),
+        return { path, score };
       });
-      const data = await resp.json();
-      if (!resp.ok) {
-        setAiError(`Error API: ${data?.error?.message || `HTTP ${resp.status}`}`);
-        setAiLoading(false);
-        return;
+
+      // Mejor coincidencia
+      scored.sort((a, b) => b.score - a.score);
+      const best = scored[0];
+
+      if (!best || best.score === 0) {
+        setAiSuggestion({ path: null, reason: "No encontré una carpeta clara. Revisa manualmente." });
+      } else {
+        // Armar razón legible
+        const docType = rawText.includes("metrogas") ? "recibo de gas" :
+                        rawText.includes("cfdi") || rawText.includes("sat") ? "factura CFDI" :
+                        rawText.includes("seguro") ? "póliza/recibo de seguro" :
+                        rawText.includes("estado de cuenta") ? "estado de cuenta" :
+                        isPdf ? "documento PDF" : "imagen";
+        setAiSuggestion({
+          path: best.path,
+          reason: `Parece ser un ${docType}. Mejor coincidencia con score ${best.score} — también considera: ${scored[1]?.path || "—"}`,
+        });
       }
-      const text = data.content?.find(b => b.type === "text")?.text || "";
-      if (!text) { setAiError("Sin respuesta de IA."); setAiLoading(false); return; }
-      try { setAiSuggestion(JSON.parse(text.replace(/```json|```/g,"").trim())); }
-      catch { setAiSuggestion({ path: null, reason: text }); }
     } catch (e) {
-      console.error("AI error:", e);
+      console.error("Análisis error:", e);
       setAiError(`Error: ${e.message}`);
     }
     setAiLoading(false);
@@ -499,7 +515,7 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
       for (const f of items) {
         if (isFolder(f)) {
           if (!(incremental && knownFolders.has(f.id))) {
-            await supaUpsert("drive_folders", { google_drive_id: f.id, name: f.name, parent_drive_id: folderId, folder_path: path + "/" + f.name });
+            await supaUpsert("drive_folders", { google_drive_id: f.id, name: f.name, parent_drive_id: folderId, folder_path: path + "/" + f.name }, "google_drive_id");
             totalFolders++;
             knownFolders.add(f.id);
             if (totalFolders % 3 === 0) setSyncMsg(`Nuevos: ${totalFolders} carpetas, ${totalFiles} archivos...`);
@@ -513,7 +529,7 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
             file_type: getFileExt(f.mimeType), category: guessCategoryFromPath(path),
             synced_from_drive: true, last_synced_at: new Date().toISOString(),
           };
-          try { await supaUpsert("documents", doc); }
+          try { await supaUpsert("documents", doc, "google_drive_file_id"); }
           catch (e) {
             const ex = await supaFetch("documents", { filters: `google_drive_file_id=eq.${f.id}` });
             if (ex?.length > 0) await supaUpdate("documents", ex[0].id, doc);

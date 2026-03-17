@@ -108,8 +108,9 @@ export const supaDelete = async (table, id) => {
   await checkResponse(res, `DELETE ${table}/${id}`);
 };
 
-export const supaUpsert = async (table, data) => {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+export const supaUpsert = async (table, data, onConflict) => {
+  const conflictParam = onConflict ? `?on_conflict=${onConflict}` : "";
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${conflictParam}`, {
     method: "POST",
     headers: { ...getJsonHeaders(), Prefer: "return=representation,resolution=merge-duplicates" },
     body: JSON.stringify(data),
