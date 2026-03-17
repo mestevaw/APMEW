@@ -1,13 +1,14 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/OwnersPage.jsx
-// Versión: V5
+// Versión: V6
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
-// CAMBIOS EN V5:
-// - Filas de archivos clickeables (toda la fila abre Drive, sin flechita "Ver")
-// - CuentasTab: si subfolder_name es null, usa la carpeta raíz directamente
-//   como carpeta bancaria (caso Tortuga Home → FROST TORTUGA)
-// - constants: IDs de Tortuga Home y MNA Works agregados
+// CAMBIOS EN V6:
+// - DocumentosTab: menú hamburguesa con "Subir" y "Buscar"
+// - Búsqueda en tiempo real filtra carpetas y archivos por nombre
+// - Modal de subida con drag-and-drop, click y paste
+// - Análisis automático con Claude API: lee el PDF y sugiere
+//   a qué dueño/propiedad/tipo corresponde el documento
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useCallback } from "react";
@@ -238,17 +239,323 @@ const ResumenTab = ({ ownerName, mob, onSelectProperty }) => {
 // =============================================================================
 // TAB: DOCUMENTOS  (navega Drive directamente)
 // =============================================================================
+// ─── Mini hamburger + dropdown for DocumentosTab ─────────────────────────────
+const DocMenu = ({ onSearch, onUpload }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          background: open ? C.accentGlow : "none",
+          border: `1px solid ${open ? C.accent + "60" : C.border}`,
+          borderRadius: 8, padding: "6px 10px", cursor: "pointer",
+          display: "flex", flexDirection: "column", gap: 4, alignItems: "center",
+          transition: "all 0.15s",
+        }}
+        onMouseEnter={e => !open && (e.currentTarget.style.borderColor = C.accent + "60")}
+        onMouseLeave={e => !open && (e.currentTarget.style.borderColor = C.border)}
+      >
+        {[0,1,2].map(i => (
+          <div key={i} style={{ width: 16, height: 2, background: open ? C.accent : C.textDim, borderRadius: 1, transition: "all 0.15s" }} />
+        ))}
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 98 }} />
+          <div style={{
+            position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 99,
+            background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
+            boxShadow: "0 8px 30px rgba(0,0,0,0.4)", minWidth: 170, overflow: "hidden",
+          }}>
+            {[
+              { icon: "📤", label: "Subir documento", action: () => { onUpload(); setOpen(false); } },
+              { icon: "🔍", label: "Buscar",           action: () => { onSearch(); setOpen(false); } },
+            ].map((item, i) => (
+              <button key={i} onClick={item.action} style={{
+                width: "100%", textAlign: "left", padding: "11px 16px",
+                background: "transparent", border: "none", cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 10,
+                borderBottom: i === 0 ? `1px solid ${C.border}` : "none",
+                fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text,
+                transition: "background 0.12s",
+              }}
+                onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+              >
+                <span>{item.icon}</span>{item.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// ─── Upload modal with AI analysis ───────────────────────────────────────────
+const UploadModal = ({ onClose, ownerName }) => {
+  const [file,        setFile]        = useState(null);
+  const [analyzing,   setAnalyzing]   = useState(false);
+  const [result,      setResult]      = useState(null);
+  const [dragOver,    setDragOver]    = useState(false);
+  const fileRef = React.useRef(null);
+
+  const PROPERTIES_LIST = PROPERTIES.map(p => `${p.address} (${p.owner})`).join("\n");
+
+  const analyzeFile = async (f) => {
+    setFile(f);
+    setAnalyzing(true);
+    setResult(null);
+    try {
+      // Read file as base64
+      const base64 = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result.split(",")[1]);
+        reader.onerror = rej;
+        reader.readAsDataURL(f);
+      });
+
+      const isPdf = f.type === "application/pdf";
+      const mediaType = isPdf ? "application/pdf" : f.type;
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: isPdf ? "document" : "image",
+                source: { type: "base64", media_type: mediaType, data: base64 },
+              },
+              {
+                type: "text",
+                text: `Analiza este documento y determina dónde debe archivarse dentro de este sistema de propiedades.
+
+PROPIEDADES DISPONIBLES:
+${PROPERTIES_LIST}
+
+Responde SOLO con JSON, sin texto extra, sin backticks:
+{
+  "tipo": "factura/estado_cuenta/impuesto/seguro/contrato/correspondencia/otro",
+  "emisor": "nombre del emisor o empresa",
+  "fecha": "fecha del documento (YYYY-MM-DD o null)",
+  "monto": "monto total con moneda o null",
+  "propiedadSugerida": "dirección exacta de la propiedad de la lista de arriba, o null si es general",
+  "dueno": "nombre exacto del dueño de la lista de arriba",
+  "razon": "explicación breve de por qué este documento va aquí (max 2 líneas)",
+  "carpetaSugerida": "nombre de subcarpeta sugerida dentro de la propiedad"
+}`
+              }
+            ]
+          }]
+        })
+      });
+
+      const data = await response.json();
+      const text = data.content?.[0]?.text || "";
+      const clean = text.replace(/```json|```/g, "").trim();
+      setResult(JSON.parse(clean));
+    } catch (err) {
+      console.error("[UploadModal] analyze:", err);
+      setResult({ error: "No se pudo analizar el documento. Intenta de nuevo." });
+    }
+    setAnalyzing(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault(); setDragOver(false);
+    const f = e.dataTransfer.files[0];
+    if (f) analyzeFile(f);
+  };
+
+  const handlePaste = (e) => {
+    const f = e.clipboardData.files[0];
+    if (f) analyzeFile(f);
+  };
+
+  React.useEffect(() => {
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, []);
+
+  const ownerColor = OWNER_COLORS[result?.dueno] || C.accent;
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 500,
+      background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20,
+    }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{
+        background: C.surface, border: `1px solid ${C.border}`, borderRadius: 18,
+        width: "100%", maxWidth: 480, padding: 28,
+        boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+        animation: "fadeIn 0.2s ease",
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 22 }}>📎</span>
+            <span style={{ fontFamily: "DM Sans", fontSize: 17, fontWeight: 700, color: C.text }}>
+              Subir Documento
+            </span>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 18, lineHeight: 1 }}>✕</button>
+        </div>
+
+        {/* Drop zone */}
+        {!result && (
+          <div
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => fileRef.current?.click()}
+            style={{
+              border: `2px dashed ${dragOver ? C.accent : C.border}`,
+              borderRadius: 14,
+              padding: "36px 20px",
+              textAlign: "center",
+              cursor: "pointer",
+              background: dragOver ? C.accentGlow : C.surface2,
+              transition: "all 0.2s",
+              marginBottom: 16,
+            }}
+          >
+            <input ref={fileRef} type="file" accept=".pdf,image/*" style={{ display: "none" }}
+              onChange={e => e.target.files[0] && analyzeFile(e.target.files[0])} />
+            {analyzing ? (
+              <div>
+                <Spinner />
+                <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.accent, marginTop: 12 }}>
+                  Analizando con Claude…
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>
+                  {dragOver ? "📂" : "📁"}
+                </div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 700, color: dragOver ? C.accent : C.text, marginBottom: 6 }}>
+                  Arrastra · Haz clic · Pega (Ctrl+V)
+                </div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>
+                  PDF, imagen o archivo desde cualquier fuente
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* AI result */}
+        {result && !result.error && (
+          <div style={{ animation: "fadeIn 0.3s ease" }}>
+            {/* File name */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: C.surface2, borderRadius: 10, marginBottom: 14 }}>
+              <span style={{ fontSize: 16 }}>📕</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {file?.name}
+              </span>
+            </div>
+
+            {/* Suggestion card */}
+            <div style={{ border: `1px solid ${ownerColor}40`, borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
+              <div style={{ background: `${ownerColor}15`, padding: "12px 16px", borderBottom: `1px solid ${ownerColor}30` }}>
+                <div style={{ fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: ownerColor, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                  📍 Archivar en
+                </div>
+                <div style={{ fontFamily: "DM Sans", fontSize: 15, fontWeight: 700, color: ownerColor }}>
+                  {result.dueno}
+                </div>
+                {result.propiedadSugerida && (
+                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, marginTop: 2 }}>
+                    {result.propiedadSugerida}
+                  </div>
+                )}
+                {result.carpetaSugerida && (
+                  <div style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.textDim, marginTop: 2 }}>
+                    📁 {result.carpetaSugerida}
+                  </div>
+                )}
+              </div>
+              <div style={{ padding: "10px 16px", background: C.surface }}>
+                {[
+                  result.tipo      && ["Tipo",    result.tipo],
+                  result.emisor    && ["Emisor",  result.emisor],
+                  result.fecha     && ["Fecha",   result.fecha],
+                  result.monto     && ["Monto",   result.monto],
+                ].filter(Boolean).map(([label, val]) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>{label}</span>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.text }}>{val}</span>
+                  </div>
+                ))}
+                {result.razon && (
+                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, marginTop: 8, lineHeight: 1.5, fontStyle: "italic" }}>
+                    {result.razon}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setFile(null); setResult(null); }} style={{
+                flex: 1, padding: "10px", fontFamily: "DM Sans", fontSize: 13, fontWeight: 600,
+                background: "none", border: `1px solid ${C.border}`, borderRadius: 10,
+                color: C.textDim, cursor: "pointer", transition: "all 0.15s",
+              }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+                onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
+              >
+                Subir otro
+              </button>
+              <button onClick={onClose} style={{
+                flex: 2, padding: "10px", fontFamily: "DM Sans", fontSize: 13, fontWeight: 600,
+                background: ownerColor, border: "none", borderRadius: 10,
+                color: "#000", cursor: "pointer", opacity: 0.9, transition: "opacity 0.15s",
+              }}
+                onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                onMouseLeave={e => e.currentTarget.style.opacity = "0.9"}
+              >
+                Entendido ✓
+              </button>
+            </div>
+          </div>
+        )}
+
+        {result?.error && (
+          <div style={{ padding: "14px 16px", background: `${C.red}15`, border: `1px solid ${C.red}40`, borderRadius: 10, fontFamily: "DM Sans", fontSize: 13, color: C.red }}>
+            {result.error}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
+// TAB: DOCUMENTOS  (navega Drive directamente)
+// =============================================================================
 const DocumentosTab = ({ ownerName, mob, drive }) => {
-  const driveFolder  = OWNER_DRIVE_FOLDERS?.[ownerName];
-  const bankFolder   = OWNER_BANK_FOLDERS?.[ownerName];
+  const driveFolder = OWNER_DRIVE_FOLDERS?.[ownerName];
+  const bankFolder  = OWNER_BANK_FOLDERS?.[ownerName];
 
   const [subfolders,     setSubfolders]     = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [expandedFolder, setExpandedFolder] = useState(null);
   const [folderFiles,    setFolderFiles]    = useState({});
   const [loadingFiles,   setLoadingFiles]   = useState({});
+  const [searchQuery,    setSearchQuery]    = useState("");
+  const [showSearch,     setShowSearch]     = useState(false);
+  const [showUpload,     setShowUpload]     = useState(false);
 
-  // Load subfolders of owner's root Drive folder
   useEffect(() => {
     if (!driveFolder?.drive_folder_id || !drive?.token) { setLoading(false); return; }
     const load = async () => {
@@ -258,7 +565,6 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
         const folders = (items || [])
           .filter(f => f.mimeType === "application/vnd.google-apps.folder")
           .filter(f => {
-            // Exclude the bank subfolder so it doesn't duplicate Cuentas tab
             if (!bankFolder?.subfolder_name) return true;
             return f.name.toUpperCase() !== bankFolder.subfolder_name.toUpperCase();
           })
@@ -298,107 +604,134 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
     return `https://drive.google.com/file/d/${f.id}/view`;
   };
 
-  // No Drive folder configured
   if (!driveFolder?.drive_folder_id) return (
-    <Card>
-      <div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-        📌 Carpeta Drive no configurada para este dueño.
-      </div>
-    </Card>
+    <Card><div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
+      📌 Carpeta Drive no configurada para este dueño.
+    </div></Card>
   );
 
-  // Drive not connected
   if (!drive?.token) return (
-    <Card>
-      <div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-        Conecta Google Drive para ver los documentos.
-      </div>
-    </Card>
+    <Card><div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
+      Conecta Google Drive para ver los documentos.
+    </div></Card>
   );
 
   if (loading) return <div style={{ textAlign: "center", padding: 40 }}><Spinner /></div>;
 
   if (!subfolders.length) return (
-    <Card>
-      <div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-        No se encontraron carpetas en Drive.
-      </div>
-    </Card>
+    <Card><div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
+      No se encontraron carpetas en Drive.
+    </div></Card>
   );
+
+  const q = searchQuery.trim().toLowerCase();
+  const visibleFolders = q
+    ? subfolders.filter(f => {
+        if (f.name.toLowerCase().includes(q)) return true;
+        const files = folderFiles[f.id] || [];
+        return files.some(file => (file.name || "").toLowerCase().includes(q));
+      })
+    : subfolders;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      {subfolders.map((folder) => {
-        const isOpen  = expandedFolder === folder.id;
-        const files   = folderFiles[folder.id] || [];
-        const isLoad  = loadingFiles[folder.id];
-        return (
-          <div key={folder.id}>
-            <button
-              onClick={() => toggleFolder(folder)}
-              style={{
-                width: "100%", display: "flex", alignItems: "center", gap: 8,
-                padding: "10px 14px",
-                background: isOpen ? C.accentGlow : C.surface,
-                border: `1px solid ${isOpen ? C.accent + "40" : C.border}`,
-                borderRadius: isOpen ? "10px 10px 0 0" : 10,
-                cursor: "pointer", transition: "all 0.15s",
-              }}
-              onMouseEnter={e => !isOpen && (e.currentTarget.style.background = C.surface2)}
-              onMouseLeave={e => !isOpen && (e.currentTarget.style.background = C.surface)}
-            >
-              <span style={{ fontSize: 15, flexShrink: 0 }}>📁</span>
-              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: isOpen ? C.accent : C.text, flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {folder.name}
-              </span>
-              {files.length > 0 && <Badge color={C.textDim}>{files.length}</Badge>}
-              <span style={{ color: C.textMuted, fontSize: 11, marginLeft: 4 }}>{isOpen ? "▲" : "▼"}</span>
-            </button>
+    <>
+      {showUpload && <UploadModal onClose={() => setShowUpload(false)} ownerName={ownerName} />}
 
-            {isOpen && (
-              <div style={{
-                background: C.surface, border: `1px solid ${C.border}`,
-                borderTop: "none", borderRadius: "0 0 10px 10px",
-                maxHeight: 320, overflowY: "auto",
-              }}>
-                {isLoad ? (
-                  <div style={{ textAlign: "center", padding: 16 }}><Spinner /></div>
-                ) : files.length === 0 ? (
-                  <div style={{ padding: "12px 16px", fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>
-                    Carpeta vacía
-                  </div>
-                ) : files.map((f, i) => (
-                  <a key={f.id || i}
-                    href={driveLink(f)}
-                    target="_blank" rel="noreferrer"
-                    style={{
-                      display: "flex", alignItems: "center", gap: 8,
-                      padding: "8px 16px",
-                      borderBottom: i < files.length - 1 ? `1px solid ${C.border}` : "none",
-                      textDecoration: "none", cursor: "pointer",
-                      transition: "background 0.12s",
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = C.accentGlow}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                  >
-                    <span style={{ fontSize: 13, flexShrink: 0 }}>{fileIcon(f)}</span>
-                    <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {f.name}
-                    </span>
-                    <span style={{ fontSize: 11, color: C.accent, flexShrink: 0 }}>↗</span>
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
+      {/* Header: search bar + hamburger menu */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        {showSearch && (
+          <input
+            autoFocus
+            type="text"
+            placeholder="Buscar documento o carpeta…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{
+              flex: 1, fontFamily: "DM Sans", fontSize: 13,
+              background: C.surface2, border: `1px solid ${searchQuery ? C.accent : C.border}`,
+              borderRadius: 8, padding: "7px 12px", color: C.text, outline: "none",
+            }}
+          />
+        )}
+        {showSearch && searchQuery && (
+          <button onClick={() => setSearchQuery("")} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 16 }}>✕</button>
+        )}
+        <div style={{ flex: showSearch ? 0 : 1 }} />
+        <DocMenu
+          onSearch={() => setShowSearch(s => !s)}
+          onUpload={() => setShowUpload(true)}
+        />
+      </div>
+
+      {q && visibleFolders.length === 0 && (
+        <div style={{ textAlign: "center", padding: "20px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
+          Sin resultados para "{searchQuery}"
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {visibleFolders.map((folder) => {
+          const isOpen = expandedFolder === folder.id;
+          const files  = (folderFiles[folder.id] || []).filter(f =>
+            !q || (f.name || "").toLowerCase().includes(q) || folder.name.toLowerCase().includes(q)
+          );
+          const isLoad = loadingFiles[folder.id];
+          return (
+            <div key={folder.id}>
+              <button
+                onClick={() => toggleFolder(folder)}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 8,
+                  padding: "10px 14px",
+                  background: isOpen ? C.accentGlow : C.surface,
+                  border: `1px solid ${isOpen ? C.accent + "40" : C.border}`,
+                  borderRadius: isOpen ? "10px 10px 0 0" : 10,
+                  cursor: "pointer", transition: "all 0.15s",
+                }}
+                onMouseEnter={e => !isOpen && (e.currentTarget.style.background = C.surface2)}
+                onMouseLeave={e => !isOpen && (e.currentTarget.style.background = C.surface)}
+              >
+                <span style={{ fontSize: 15, flexShrink: 0 }}>📁</span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: isOpen ? C.accent : C.text, flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {folder.name}
+                </span>
+                {files.length > 0 && <Badge color={C.textDim}>{files.length}</Badge>}
+                <span style={{ color: C.textMuted, fontSize: 11, marginLeft: 4 }}>{isOpen ? "▲" : "▼"}</span>
+              </button>
+
+              {isOpen && (
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 10px 10px", maxHeight: 320, overflowY: "auto" }}>
+                  {isLoad ? (
+                    <div style={{ textAlign: "center", padding: 16 }}><Spinner /></div>
+                  ) : files.length === 0 ? (
+                    <div style={{ padding: "12px 16px", fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>Carpeta vacía</div>
+                  ) : files.map((f, i) => (
+                    <a key={f.id || i}
+                      href={driveLink(f)}
+                      target="_blank" rel="noreferrer"
+                      style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "8px 16px",
+                        borderBottom: i < files.length - 1 ? `1px solid ${C.border}` : "none",
+                        textDecoration: "none", cursor: "pointer", transition: "background 0.12s",
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.accentGlow}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <span style={{ fontSize: 13, flexShrink: 0 }}>{fileIcon(f)}</span>
+                      <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                      <span style={{ fontSize: 11, color: C.accent, flexShrink: 0 }}>↗</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 };
-
-// =============================================================================
-// TAB: IMPUESTOS
 // =============================================================================
 const ImpuestosTab = ({ ownerName, mob }) => {
   const [taxes, setTaxes]     = useState([]);
