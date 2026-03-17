@@ -1,16 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/OwnersPage.jsx
-// Versión: V4
+// Versión: V5
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
-// CAMBIOS EN V4:
-// - DocumentosTab: navega Drive directamente (OWNER_DRIVE_FOLDERS)
-//   en lugar de buscar en Supabase. Muestra subcarpetas por propiedad,
-//   expandibles para ver archivos, con link "Ver ↗" a Drive.
-//   Excluye la subcarpeta bancaria (FROST MANGO) para no duplicarla.
-// - CuentasTab: encuentra FROST MANGO dinámicamente como subcarpeta
-//   dentro de la carpeta raíz del dueño (no necesita ID separado).
-// - Importa OWNER_DRIVE_FOLDERS de constants
+// CAMBIOS EN V5:
+// - Filas de archivos clickeables (toda la fila abre Drive, sin flechita "Ver")
+// - CuentasTab: si subfolder_name es null, usa la carpeta raíz directamente
+//   como carpeta bancaria (caso Tortuga Home → FROST TORTUGA)
+// - constants: IDs de Tortuga Home y MNA Works agregados
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useCallback } from "react";
@@ -371,23 +368,25 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
                     Carpeta vacía
                   </div>
                 ) : files.map((f, i) => (
-                  <div key={f.id || i} style={{
-                    display: "flex", alignItems: "center", gap: 8,
-                    padding: "8px 16px",
-                    borderBottom: i < files.length - 1 ? `1px solid ${C.border}` : "none",
-                  }}>
+                  <a key={f.id || i}
+                    href={driveLink(f)}
+                    target="_blank" rel="noreferrer"
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      padding: "8px 16px",
+                      borderBottom: i < files.length - 1 ? `1px solid ${C.border}` : "none",
+                      textDecoration: "none", cursor: "pointer",
+                      transition: "background 0.12s",
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.accentGlow}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
                     <span style={{ fontSize: 13, flexShrink: 0 }}>{fileIcon(f)}</span>
                     <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {f.name}
                     </span>
-                    <a
-                      href={driveLink(f)}
-                      target="_blank" rel="noreferrer"
-                      style={{ fontFamily: "DM Sans", fontSize: 11, color: C.accent, textDecoration: "none", flexShrink: 0 }}
-                    >
-                      Ver ↗
-                    </a>
-                  </div>
+                    <span style={{ fontSize: 11, color: C.accent, flexShrink: 0 }}>↗</span>
+                  </a>
                 ))}
               </div>
             )}
@@ -524,19 +523,30 @@ const CuentasTab = ({ ownerName, mob, drive }) => {
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
 
   // Find bank subfolder by name inside root Drive folder, then load its year-subfolders
+  // If subfolder_name is null, the root folder itself IS the bank folder
   useEffect(() => {
-    if (!drive?.token || !rootFolderCfg?.drive_folder_id || !bankFolderCfg?.subfolder_name) return;
+    if (!drive?.token || !rootFolderCfg?.drive_folder_id) return;
     const load = async () => {
       setLoadingDrive(true);
       try {
-        const rootItems = await drive.listAllFiles(rootFolderCfg.drive_folder_id);
-        const bankSub = (rootItems || []).find(
-          f => f.mimeType === "application/vnd.google-apps.folder" &&
-               f.name.toUpperCase() === bankFolderCfg.subfolder_name.toUpperCase()
-        );
-        if (!bankSub) { setLoadingDrive(false); return; }
-        setBankFolderFound(bankSub);
-        const bankItems = await drive.listAllFiles(bankSub.id);
+        let bankFoldId = null;
+        if (!bankFolderCfg?.subfolder_name) {
+          // Root folder IS the bank folder (e.g. Tortuga Home → FROST TORTUGA)
+          bankFoldId = rootFolderCfg.drive_folder_id;
+          setBankFolderFound({ id: bankFoldId, name: bankFolderCfg?.label || "Cuentas" });
+        } else {
+          // Find subfolder by name inside root
+          const rootItems = await drive.listAllFiles(rootFolderCfg.drive_folder_id);
+          const bankSub = (rootItems || []).find(
+            f => f.mimeType === "application/vnd.google-apps.folder" &&
+                 f.name.toUpperCase() === bankFolderCfg.subfolder_name.toUpperCase()
+          );
+          if (!bankSub) { setLoadingDrive(false); return; }
+          bankFoldId = bankSub.id;
+          setBankFolderFound(bankSub);
+        }
+        // Load year-subfolders inside the bank folder
+        const bankItems = await drive.listAllFiles(bankFoldId);
         const folders = (bankItems || [])
           .filter(f => f.mimeType === "application/vnd.google-apps.folder")
           .sort((a, b) => {
@@ -650,12 +660,23 @@ const CuentasTab = ({ ownerName, mob, drive }) => {
                         ) : files.length === 0 ? (
                           <div style={{ padding: "12px 14px", fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>Carpeta vacía</div>
                         ) : files.map((f, i) => (
-                          <div key={f.id || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", borderBottom: i < files.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                          <a key={f.id || i}
+                            href={`https://drive.google.com/file/d/${f.id}/view`}
+                            target="_blank" rel="noreferrer"
+                            style={{
+                              display: "flex", alignItems: "center", gap: 8,
+                              padding: "8px 14px",
+                              borderBottom: i < files.length - 1 ? `1px solid ${C.border}` : "none",
+                              textDecoration: "none", cursor: "pointer",
+                              transition: "background 0.12s",
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = C.accentGlow}
+                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                          >
                             <span style={{ fontSize: 14, flexShrink: 0 }}>{fileIcon(f.name)}</span>
                             <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-                            <a href={`https://drive.google.com/file/d/${f.id}/view`} target="_blank" rel="noreferrer"
-                              style={{ fontFamily: "DM Sans", fontSize: 11, color: C.accent, textDecoration: "none", flexShrink: 0 }}>Ver ↗</a>
-                          </div>
+                            <span style={{ fontSize: 11, color: C.accent, flexShrink: 0 }}>↗</span>
+                          </a>
                         ))}
                       </div>
                     )}

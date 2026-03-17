@@ -71,18 +71,17 @@ export const OWNER_SHORT = { "Mango Nest": "Mango", "MNA Works": "MNA", "Tortuga
 // La tab "Cuentas" busca la subcarpeta bancaria dentro de esta misma carpeta
 export const OWNER_DRIVE_FOLDERS = {
   "Mango Nest":    { drive_folder_id: "1NqfKtpdkGnhyV7X_-Vsg5pf7T5HC-ix6" }, // MANGO NEST
-  "MNA Works":     { drive_folder_id: null },
-  "Tortuga Home":  { drive_folder_id: null },
+  "MNA Works":     { drive_folder_id: "0B9ZOcVkjNKRITDJ2cTFRazI4S0E", resource_key: "0-YxJm-q_bIHNne3Zti2pOpg" }, // MNA
+  "Tortuga Home":  { drive_folder_id: "1SL-eH7AA7ToLUWC_vDxUAvdhiuHAMXub" }, // FROST TORTUGA
   "Miguel y AnaP": { drive_folder_id: null },
 };
 
 // ─── Nombre de la subcarpeta bancaria dentro de OWNER_DRIVE_FOLDERS ──────────
-// Se busca dinámicamente por nombre dentro de la carpeta raíz del dueño
 export const OWNER_BANK_FOLDERS = {
-  "Mango Nest":    { label: "FROST MANGO",  subfolder_name: "FROST MANGO"  },
-  "MNA Works":     { label: "MNA Cuentas",  subfolder_name: null },
-  "Tortuga Home":  { label: "Tortuga Ctas", subfolder_name: null },
-  "Miguel y AnaP": { label: "Cuentas",      subfolder_name: null },
+  "Mango Nest":    { label: "FROST MANGO",   subfolder_name: "FROST MANGO"   },
+  "MNA Works":     { label: "FROST MNA",     subfolder_name: null            }, // ← llenar cuando confirmes el nombre
+  "Tortuga Home":  { label: "FROST TORTUGA", subfolder_name: null            }, // carpeta raíz ya ES la bancaria
+  "Miguel y AnaP": { label: "Cuentas",       subfolder_name: null            },
 };
 
 export const CARS = [
