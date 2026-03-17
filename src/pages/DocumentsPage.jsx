@@ -1,10 +1,14 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V8
+// Versión: V9
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V9:
+// - Fix carpetas: trae drive_folders de Supabase (no solo docs indexados)
+// - Fix PDF: quita beta header (innecesario en claude-sonnet-4-6)
+// - UI: toggle Indexados/Drive en header, quita fila de tabs separada
 // CAMBIOS EN V8:
-// - Fix PDF: agrega header anthropic-beta pdfs-2024-09-25
+// - Fix PDF: quita anthropic-beta header (innecesario en claude-sonnet-4-6)
 // - Fix modelo: claude-sonnet-4-6 con soporte nativo de PDFs
 // - Fix carpetas: aumenta slice de 120 a 600 para incluir PROPIEDADES MEXICO y todo lo demás
 // CAMBIOS EN V7:
@@ -138,12 +142,24 @@ const TreeNode = ({ name, node, depth, onPreview, searchQuery }) => {
 };
 
 // ─── Modal Subir Documento (con sugerencia IA) ───
-const UploadModal = ({ onClose, token, signIn, gisLoaded, folderPaths }) => {
-  const [dragging, setDragging]     = useState(false);
-  const [file, setFile]             = useState(null);
-  const [aiSuggestion, setAiSuggestion] = useState(null);   // { path, reason }
-  const [aiLoading, setAiLoading]   = useState(false);
-  const [aiError, setAiError]       = useState(null);
+const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
+  const [dragging, setDragging]         = useState(false);
+  const [file, setFile]                 = useState(null);
+  const [aiSuggestion, setAiSuggestion] = useState(null);
+  const [aiLoading, setAiLoading]       = useState(false);
+  const [aiError, setAiError]           = useState(null);
+  const [folderPaths, setFolderPaths]   = useState([]);
+
+  // Carga carpetas directamente de drive_folders (tabla completa)
+  useEffect(() => {
+    if (!token) return;
+    supaFetch("drive_folders", { order: "folder_path" })
+      .then(rows => {
+        if (!rows) return;
+        setFolderPaths([...new Set(rows.map(r => r.folder_path).filter(Boolean))].sort());
+      })
+      .catch(e => console.error("Error loading folders:", e));
+  }, [token]);
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -156,7 +172,6 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded, folderPaths }) => {
     setFile(f);
     setAiSuggestion(null);
     setAiError(null);
-    // Solo analizar si hay token (ya conectado a Drive)
     if (!token) return;
     await analyzeFile(f);
   };
@@ -164,7 +179,6 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded, folderPaths }) => {
   const analyzeFile = async (f) => {
     setAiLoading(true);
     try {
-      // Convertir a base64
       const base64 = await new Promise((res, rej) => {
         const r = new FileReader();
         r.onload = () => res(r.result.split(",")[1]);
@@ -180,7 +194,7 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded, folderPaths }) => {
         return;
       }
 
-      const folderList = folderPaths.slice(0, 600).join("\n");
+      const folderList = folderPaths.join("\n") || "(Sin carpetas cargadas aún)";
 
       const messages = [{
         role: "user",
@@ -207,7 +221,7 @@ CONTEXTO: Los documentos pueden pertenecer a:
 CARPETAS DISPONIBLES EN GOOGLE DRIVE:
 ${folderList}
 
-Analiza el documento y responde SOLO con JSON sin markdown:
+Responde SOLO con JSON sin markdown:
 {"path": "APMEW/CARPETA/SUBCARPETA", "reason": "Explicación breve en español: qué es el documento y por qué va en esa carpeta"}`
           }
         ]
@@ -219,15 +233,13 @@ Analiza el documento y responde SOLO con JSON sin markdown:
           "Content-Type": "application/json",
           "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY,
           "anthropic-version": "2023-06-01",
-          "anthropic-beta": "pdfs-2024-09-25",
           "anthropic-dangerous-allow-browser": "true",
         },
         body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 400, messages }),
       });
       const data = await resp.json();
       if (!resp.ok) {
-        const msg = data?.error?.message || `HTTP ${resp.status}`;
-        setAiError(`Error API: ${msg}`);
+        setAiError(`Error API: ${data?.error?.message || `HTTP ${resp.status}`}`);
         setAiLoading(false);
         return;
       }
@@ -235,15 +247,13 @@ Analiza el documento y responde SOLO con JSON sin markdown:
       if (!text) { setAiError("La IA no devolvió respuesta."); setAiLoading(false); return; }
       const clean = text.replace(/```json|```/g, "").trim();
       try {
-        const parsed = JSON.parse(clean);
-        setAiSuggestion(parsed);
+        setAiSuggestion(JSON.parse(clean));
       } catch {
-        // Si no devuelve JSON válido, mostrar la respuesta como texto
         setAiSuggestion({ path: null, reason: text });
       }
     } catch (e) {
-      console.error("AI suggestion error:", e);
-      setAiError("No se pudo analizar el documento.");
+      console.error("AI error:", e);
+      setAiError(`Error: ${e.message}`);
     }
     setAiLoading(false);
   };
@@ -521,16 +531,6 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     : documents;
   const tree = buildTree(filteredDocs);
 
-  const TabBtn = ({ id, label }) => (
-    <button onClick={() => setTab(id)} style={{
-      padding: "8px 20px", fontFamily: "DM Sans", fontSize: 14,
-      fontWeight: tab === id ? 600 : 400, color: tab === id ? C.accent : C.textDim,
-      background: tab === id ? C.accentGlow : "transparent",
-      border: `1px solid ${tab === id ? C.accent + "40" : C.border}`,
-      borderRadius: 8, cursor: "pointer",
-    }}>{label}</button>
-  );
-
   const MenuItem = ({ icon, label, onClick: h }) => (
     <button onClick={h} style={{
       display: "flex", alignItems: "center", gap: 10, width: "100%",
@@ -548,7 +548,7 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     <div>
       {/* ─── Modales ─── */}
       <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} mob={mob} />
-      {showUpload && <UploadModal onClose={() => setShowUpload(false)} token={token} signIn={signIn} gisLoaded={gisLoaded} folderPaths={documents.map(d => d.folder_path).filter(Boolean).filter((v,i,a) => a.indexOf(v)===i).sort()} />}
+      {showUpload && <UploadModal onClose={() => setShowUpload(false)} token={token} signIn={signIn} gisLoaded={gisLoaded} />}
 
       {/* ─── V4: Backdrop hamburguesa ─── */}
       {menuOpen && (
@@ -592,6 +592,27 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
         <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, margin: 0, flex: 1 }}>
           Documentos
         </h1>
+
+        {/* V9: Toggle Indexados / Google Drive */}
+        <button
+          onClick={() => setTab(t => t === "indexed" ? "drive" : "indexed")}
+          title={tab === "indexed" ? "Ver Google Drive" : "Ver Indexados"}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            background: C.surface2, border: `1px solid ${C.border}`,
+            borderRadius: 8, padding: "5px 10px", cursor: "pointer",
+            fontFamily: "DM Sans", fontSize: 12, fontWeight: 600,
+            color: C.accent, transition: "all 0.15s",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent + "60"; e.currentTarget.style.background = C.accentGlow; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+            <polyline points="1,4 1,10 7,10"/><polyline points="23,20 23,14 17,14"/>
+            <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+          </svg>
+          {tab === "indexed" ? "🗂️ Indexados" : "📁 Drive"}
+        </button>
 
         {/* V4: Lupa */}
         <button
@@ -672,28 +693,28 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
         </Card>
       )}
 
-      {/* ─── Tabs ─── */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
-        <TabBtn id="indexed" label="🗂️ Indexados" />
-        <TabBtn id="drive"   label="📁 Google Drive" />
-        {token && (
-          <button onClick={() => runSync(false)} disabled={syncing} style={{
-            fontFamily: "DM Sans", fontSize: 12,
-            color: syncing ? C.textDim : C.blue,
-            background: syncing ? C.surface2 : `${C.blue}15`,
-            border: `1px solid ${syncing ? C.border : C.blue}40`,
-            borderRadius: 8, padding: "6px 14px",
-            cursor: syncing ? "default" : "pointer", marginLeft: 4,
-          }}>
-            {syncing ? "⏳ Sincronizando..." : "🔄 Re-sincronizar"}
-          </button>
-        )}
-        {syncMsg && (
-          <span style={{ fontFamily: "DM Sans", fontSize: 13, marginLeft: 8, color: syncMsg.startsWith("✓") ? C.green : syncMsg.startsWith("Error") ? C.red : C.accent }}>
-            {syncMsg}
-          </span>
-        )}
-      </div>
+      {/* ─── Sync status ─── */}
+      {(token || syncMsg) && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+          {token && (
+            <button onClick={() => runSync(false)} disabled={syncing} style={{
+              fontFamily: "DM Sans", fontSize: 12,
+              color: syncing ? C.textDim : C.blue,
+              background: syncing ? C.surface2 : `${C.blue}15`,
+              border: `1px solid ${syncing ? C.border : C.blue}40`,
+              borderRadius: 8, padding: "6px 14px",
+              cursor: syncing ? "default" : "pointer",
+            }}>
+              {syncing ? "⏳ Sincronizando..." : "🔄 Re-sincronizar"}
+            </button>
+          )}
+          {syncMsg && (
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, color: syncMsg.startsWith("✓") ? C.green : syncMsg.startsWith("Error") ? C.red : C.accent }}>
+              {syncMsg}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ─── Tab: Indexados (Tree View) ─── */}
       {tab === "indexed" && (
