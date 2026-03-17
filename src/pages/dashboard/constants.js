@@ -107,6 +107,14 @@ export const OWNER_BANK_FOLDERS = {
   "Miguel y AnaP": { label: "Cuentas",       subfolder_name: null            },
 };
 
+// ─── IDs directos de propiedades fuera de PROPERTY MANAGEMENT ─────────────────
+export const PROPERTY_FOLDER_IDS = {
+  "Ave Progreso 15, Depto C101": {
+    google_drive_id: "1iHjjMzSWdMzaG9Lgeu5JG7YvXkEBHMDs",
+    folder_path:     "PROPIEDADES MEXICO/Progreso 15 C101",
+  },
+};
+
 export const CARS = [
   { name: "Honda CRV", brand: "Honda", color: "#E11D48", folderId: "1bRNwYy_7oOBrpsfM6L3CXkNqJkDf9ez2" },
   { name: "Hyundai Tucson", brand: "Hyundai", color: "#0EA5E9", folderId: "16xmawC5FseVanmCF7vRS_lmeJdwwo3KJ" },
