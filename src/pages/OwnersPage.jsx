@@ -604,24 +604,49 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
     return `https://drive.google.com/file/d/${f.id}/view`;
   };
 
+  // Header always visible — hamburger + search
+  const Header = () => (
+    <>
+      {showUpload && <UploadModal onClose={() => setShowUpload(false)} ownerName={ownerName} />}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        {showSearch && (
+          <input autoFocus type="text" placeholder="Buscar documento o carpeta…"
+            value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+            style={{ flex: 1, fontFamily: "DM Sans", fontSize: 13, background: C.surface2,
+              border: `1px solid ${searchQuery ? C.accent : C.border}`,
+              borderRadius: 8, padding: "7px 12px", color: C.text, outline: "none" }} />
+        )}
+        {showSearch && searchQuery && (
+          <button onClick={() => setSearchQuery("")}
+            style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 16 }}>✕</button>
+        )}
+        <div style={{ flex: 1 }} />
+        <DocMenu onSearch={() => setShowSearch(s => !s)} onUpload={() => setShowUpload(true)} />
+      </div>
+    </>
+  );
+
   if (!driveFolder?.drive_folder_id) return (
+    <><Header />
     <Card><div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
       📌 Carpeta Drive no configurada para este dueño.
-    </div></Card>
+    </div></Card></>
   );
 
   if (!drive?.token) return (
+    <><Header />
     <Card><div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
       Conecta Google Drive para ver los documentos.
-    </div></Card>
+    </div></Card></>
   );
 
-  if (loading) return <div style={{ textAlign: "center", padding: 40 }}><Spinner /></div>;
+  if (loading) return <><Header /><div style={{ textAlign: "center", padding: 40 }}><Spinner /></div></>;
 
   if (!subfolders.length) return (
+    <><Header />
     <Card><div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
       No se encontraron carpetas en Drive.
-    </div></Card>
+    </div></Card></>
   );
 
   const q = searchQuery.trim().toLowerCase();
