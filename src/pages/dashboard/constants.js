@@ -71,7 +71,7 @@ export const OWNER_SHORT = { "Mango Nest": "Mango", "MNA Works": "MNA", "Tortuga
 // La tab "Cuentas" busca la subcarpeta bancaria dentro de esta misma carpeta
 export const OWNER_DRIVE_FOLDERS = {
   "Mango Nest":    { drive_folder_id: "1NqfKtpdkGnhyV7X_-Vsg5pf7T5HC-ix6" }, // MANGO NEST
-  "MNA Works":     { drive_folder_id: "0B9ZOcVkjNKRITDJ2cTFRazI4S0E", resource_key: "0-YxJm-q_bIHNne3Zti2pOpg" }, // MNA
+  "MNA Works":     { drive_folder_id: "1r3T9xXjQZnMHg36dtFIrUNWN49Ayfnwy" }, // MNA WORKS
   "Tortuga Home":  { drive_folder_id: "1SL-eH7AA7ToLUWC_vDxUAvdhiuHAMXub" }, // FROST TORTUGA
   "Miguel y AnaP": { drive_folder_id: null },
 };

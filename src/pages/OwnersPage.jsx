@@ -1,8 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/OwnersPage.jsx
-// Versión: V6
+// Versión: V7
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V7:
+// - DocumentosTab: árbol jerárquico (tree view) igual que DocumentsPage
+// - Lupa en esquina superior derecha (siempre visible, sin hamburguesa)
+// - limit:11000 en fetch de documentos
 // CAMBIOS EN V6:
 // - DocumentosTab: menú hamburguesa con "Subir" y "Buscar"
 // - Búsqueda en tiempo real filtra carpetas y archivos por nombre
@@ -21,6 +25,8 @@ import {
   getPropExpenseTypes,
 } from "./dashboard/constants";
 import PropertyDetail from "./dashboard/PropertyDetail";
+
+import { getFileIcon, getFileExt } from "../lib/helpers";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const fmt = (n) =>
@@ -542,6 +548,83 @@ Responde SOLO con JSON, sin texto extra, sin backticks:
   );
 };
 
+// ─── Árbol de documentos para OwnersPage ────────────────────────────────────
+const buildOwnerTree = (docs) => {
+  const root = { children: {}, files: [] };
+  docs.forEach(doc => {
+    const parts = (doc.folder_path || "").split("/").filter(Boolean);
+    let node = root;
+    parts.forEach(part => {
+      if (!node.children[part]) node.children[part] = { children: {}, files: [] };
+      node = node.children[part];
+    });
+    node.files.push(doc);
+  });
+  return root;
+};
+
+const OwnerTreeNode = ({ name, node, depth, searchQuery }) => {
+  const hasChildren = Object.keys(node.children).length > 0;
+  const hasFiles    = node.files.length > 0;
+  const [open, setOpen] = useState(depth === 0);
+
+  useEffect(() => { if (searchQuery) setOpen(true); }, [searchQuery]);
+
+  const childKeys = Object.keys(node.children).sort();
+  const indent    = depth * 14;
+
+  return (
+    <div>
+      {name && (
+        <button
+          onClick={() => setOpen(v => !v)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            width: "100%", padding: `5px 12px 5px ${12 + indent}px`,
+            background: "transparent", border: "none", cursor: "pointer", textAlign: "left",
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+        >
+          <span style={{ color: C.textDim, fontSize: 10, width: 10, flexShrink: 0 }}>
+            {(hasChildren || hasFiles) ? (open ? "▼" : "▶") : ""}
+          </span>
+          <span style={{ color: C.accent, flexShrink: 0, fontSize: 14 }}>{I.folder}</span>
+          <span style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 500, color: C.text, flex: 1 }}>{name}</span>
+          {hasFiles && <span style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted }}>{node.files.length}</span>}
+        </button>
+      )}
+      {(open || !name) && (
+        <>
+          {childKeys.map(key => (
+            <OwnerTreeNode key={key} name={key} node={node.children[key]}
+              depth={name ? depth + 1 : depth} searchQuery={searchQuery} />
+          ))}
+          {open && node.files.map((d, i) => (
+            <a key={d.id || i}
+              href={d.google_drive_file_id ? `https://drive.google.com/file/d/${d.google_drive_file_id}/view` : "#"}
+              target="_blank" rel="noreferrer"
+              style={{
+                display: "flex", alignItems: "center", gap: 7,
+                padding: `4px 12px 4px ${12 + (name ? (depth + 1) * 14 + 16 : 16)}px`,
+                textDecoration: "none", cursor: d.google_drive_file_id ? "pointer" : "default",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <span style={{ fontSize: 13 }}>{getFileIcon(d.mime_type)}</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {d.title || "Sin nombre"}
+              </span>
+              {d.file_type && <Badge color={C.blue}>{d.file_type}</Badge>}
+            </a>
+          ))}
+        </>
+      )}
+    </div>
+  );
+};
+
 // =============================================================================
 // TAB: DOCUMENTOS  — lee de Supabase, solo Drive para subir
 // =============================================================================
@@ -549,9 +632,7 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
   const [docs,        setDocs]        = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [expanded,    setExpanded]    = useState({});
-  const [menuOpen,    setMenuOpen]    = useState(false);
-  const [showSearch,  setShowSearch]  = useState(false);
+  const [searchOpen,  setSearchOpen]  = useState(false);
   const [showUpload,  setShowUpload]  = useState(false);
 
   useEffect(() => {
@@ -561,7 +642,7 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
         const addrs  = ownerProps(ownerName).map(p => p.address);
         const short  = (OWNER_SHORT[ownerName] || ownerName).toLowerCase();
         const low    = ownerName.toLowerCase();
-        const allDocs = await supaFetch("documents", { order: "folder_path,title" });
+        const allDocs = await supaFetch("documents", { order: "folder_path,title", limit: 11000 });
         const filtered = (allDocs || []).filter(d => {
           const path  = (d.folder_path || "").toLowerCase();
           const title = (d.title || "").toLowerCase();
@@ -575,127 +656,83 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
     load();
   }, [ownerName]);
 
-  const fileIcon = (name = "") => {
-    const ext = name.split(".").pop().toLowerCase();
-    if (ext === "pdf") return "📕";
-    if (["xlsx","xls","numbers"].includes(ext)) return "📗";
-    if (["docx","doc","pages"].includes(ext)) return "📘";
-    if (["jpg","jpeg","png","heic"].includes(ext)) return "🖼️";
-    return "📄";
-  };
-
   if (loading) return <div style={{ textAlign: "center", padding: 40 }}><Spinner /></div>;
 
   const q = searchQuery.trim().toLowerCase();
+  const filteredDocs = q
+    ? docs.filter(d =>
+        (d.title || "").toLowerCase().includes(q) ||
+        (d.folder_path || "").toLowerCase().includes(q) ||
+        (d.file_type || "").toLowerCase().includes(q)
+      )
+    : docs;
 
-  // Group by folder_path
-  const byFolder = {};
-  docs.forEach(d => {
-    const f = d.folder_path || "Sin carpeta";
-    if (!byFolder[f]) byFolder[f] = [];
-    byFolder[f].push(d);
-  });
-
-  // Filter by search
-  const visibleFolders = Object.entries(byFolder).filter(([folder, items]) => {
-    if (!q) return true;
-    if (folder.toLowerCase().includes(q)) return true;
-    return items.some(d => (d.title || d.file_name || "").toLowerCase().includes(q));
-  });
+  const tree = buildOwnerTree(filteredDocs);
 
   return (
     <>
       {showUpload && (
-        <UploadModal
-          onClose={() => setShowUpload(false)}
-          ownerName={ownerName}
-          drive={drive}
-        />
+        <UploadModal onClose={() => setShowUpload(false)} ownerName={ownerName} drive={drive} />
       )}
 
-      {/* ── Barra superior: búsqueda + menú hamburguesa ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-        {showSearch ? (
-          <>
+      {/* ── Barra superior: lupa + subir ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <div style={{ flex: 1 }}>
+          {searchOpen && (
             <input
               autoFocus
               type="text"
               placeholder="Buscar documento o carpeta…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => e.key === "Escape" && setSearchOpen(false)}
               style={{
-                flex: 1, fontFamily: "DM Sans", fontSize: 13,
-                background: C.surface2, border: `1px solid ${searchQuery ? C.accent : C.border}`,
+                width: "100%", boxSizing: "border-box",
+                fontFamily: "DM Sans", fontSize: 13,
+                background: C.surface2, border: `1px solid ${C.accent}50`,
                 borderRadius: 8, padding: "7px 12px", color: C.text, outline: "none",
               }}
             />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery("")}
-                style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 16 }}>✕</button>
-            )}
-          </>
-        ) : (
-          <div style={{ flex: 1 }} />
-        )}
-
-        {/* Hamburguesa */}
-        <div style={{ position: "relative", flexShrink: 0 }}>
-          <button
-            onClick={() => setMenuOpen(o => !o)}
-            style={{
-              display: "flex", flexDirection: "column", gap: 4,
-              alignItems: "center", justifyContent: "center",
-              width: 34, height: 34,
-              background: menuOpen ? C.accentGlow : C.surface2,
-              border: `1px solid ${menuOpen ? C.accent : C.border}`,
-              borderRadius: 8, cursor: "pointer", transition: "all 0.15s",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
-            onMouseLeave={e => { if (!menuOpen) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}}
-          >
-            {[0,1,2].map(i => (
-              <div key={i} style={{ width: 14, height: 2, background: menuOpen ? C.accent : C.textDim, borderRadius: 1, transition: "background 0.15s" }} />
-            ))}
-          </button>
-
-          {menuOpen && (
-            <>
-              <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 98 }} />
-              <div style={{
-                position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 99,
-                background: C.surface, border: `1px solid ${C.border}`,
-                borderRadius: 10, boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
-                minWidth: 180, overflow: "hidden",
-              }}>
-                <button onClick={() => { setShowSearch(s => !s); setMenuOpen(false); }} style={{
-                  width: "100%", textAlign: "left", padding: "11px 16px",
-                  background: "transparent", border: "none", cursor: "pointer",
-                  display: "flex", alignItems: "center", gap: 10,
-                  borderBottom: `1px solid ${C.border}`,
-                  fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text,
-                  transition: "background 0.12s",
-                }}
-                  onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                >
-                  🔍 Buscar
-                </button>
-                <button onClick={() => { setShowUpload(true); setMenuOpen(false); }} style={{
-                  width: "100%", textAlign: "left", padding: "11px 16px",
-                  background: "transparent", border: "none", cursor: "pointer",
-                  display: "flex", alignItems: "center", gap: 10,
-                  fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text,
-                  transition: "background 0.12s",
-                }}
-                  onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                >
-                  📤 Subir documento
-                </button>
-              </div>
-            </>
+          )}
+          {searchOpen && q && (
+            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginTop: 3 }}>
+              {filteredDocs.length} resultado{filteredDocs.length !== 1 ? "s" : ""}
+            </div>
           )}
         </div>
+
+        {/* Lupa */}
+        <button
+          onClick={() => { setSearchOpen(v => !v); if (searchOpen) setSearchQuery(""); }}
+          title="Buscar"
+          style={{
+            background: searchOpen ? C.accentGlow : "transparent",
+            border: `1px solid ${searchOpen ? C.accent + "40" : C.border}`,
+            borderRadius: 8, padding: "5px 8px", cursor: "pointer",
+            color: searchOpen ? C.accent : C.textDim,
+            display: "flex", alignItems: "center", transition: "all 0.15s",
+          }}
+        >
+          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
+          </svg>
+        </button>
+
+        {/* Subir */}
+        <button
+          onClick={() => setShowUpload(true)}
+          title="Subir documento"
+          style={{
+            background: "transparent", border: `1px solid ${C.border}`,
+            borderRadius: 8, padding: "5px 8px", cursor: "pointer",
+            color: C.textDim, display: "flex", alignItems: "center",
+            fontFamily: "DM Sans", fontSize: 12, gap: 5, transition: "all 0.15s",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent + "60"; e.currentTarget.style.color = C.accent; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textDim; }}
+        >
+          ⬆️ <span style={{ display: mob ? "none" : "inline" }}>Subir</span>
+        </button>
       </div>
 
       {docs.length === 0 ? (
@@ -704,68 +741,20 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
             No hay documentos indexados para este dueño.
           </div>
         </Card>
-      ) : q && visibleFolders.length === 0 ? (
+      ) : q && filteredDocs.length === 0 ? (
         <div style={{ textAlign: "center", padding: "20px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
           Sin resultados para "{searchQuery}"
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {visibleFolders.map(([folder, allItems]) => {
-            const items = q
-              ? allItems.filter(d => (d.title || d.file_name || "").toLowerCase().includes(q) || folder.toLowerCase().includes(q))
-              : allItems;
-            const isOpen = expanded[folder];
-            return (
-              <div key={folder}>
-                <button
-                  onClick={() => setExpanded(ex => ({ ...ex, [folder]: !isOpen }))}
-                  style={{
-                    width: "100%", display: "flex", alignItems: "center", gap: 8,
-                    padding: "10px 14px",
-                    background: isOpen ? C.accentGlow : C.surface,
-                    border: `1px solid ${isOpen ? C.accent + "40" : C.border}`,
-                    borderRadius: isOpen ? "10px 10px 0 0" : 10,
-                    cursor: "pointer", transition: "all 0.15s",
-                  }}
-                  onMouseEnter={e => !isOpen && (e.currentTarget.style.background = C.surface2)}
-                  onMouseLeave={e => !isOpen && (e.currentTarget.style.background = C.surface)}
-                >
-                  <span style={{ fontSize: 14, flexShrink: 0 }}>📁</span>
-                  <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: isOpen ? C.accent : C.text, flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {folder}
-                  </span>
-                  <Badge color={C.textDim}>{items.length}</Badge>
-                  <span style={{ color: C.textMuted, fontSize: 11, marginLeft: 4 }}>{isOpen ? "▲" : "▼"}</span>
-                </button>
-
-                {isOpen && (
-                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 10px 10px" }}>
-                    {items.map((d, i) => (
-                      <a key={d.id || i}
-                        href={d.drive_file_id ? `https://drive.google.com/file/d/${d.drive_file_id}/view` : "#"}
-                        target="_blank" rel="noreferrer"
-                        style={{
-                          display: "flex", alignItems: "center", gap: 8,
-                          padding: "8px 16px",
-                          borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none",
-                          textDecoration: "none", cursor: d.drive_file_id ? "pointer" : "default",
-                          transition: "background 0.12s",
-                        }}
-                        onMouseEnter={e => d.drive_file_id && (e.currentTarget.style.background = C.accentGlow)}
-                        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                      >
-                        <span style={{ fontSize: 13, flexShrink: 0 }}>{fileIcon(d.title || d.file_name || "")}</span>
-                        <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {d.title || d.file_name || "Sin nombre"}
-                        </span>
-                        {d.drive_file_id && <span style={{ fontSize: 11, color: C.accent, flexShrink: 0 }}>↗</span>}
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ paddingTop: 4, paddingBottom: 4 }}>
+            <OwnerTreeNode name={null} node={tree} depth={0} searchQuery={q} />
+          </div>
+        </Card>
+      )}
+      {filteredDocs.length > 0 && (
+        <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, marginTop: 6 }}>
+          {filteredDocs.length} documentos
         </div>
       )}
     </>

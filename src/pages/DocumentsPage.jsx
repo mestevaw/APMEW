@@ -1,8 +1,10 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V12
+// Versión: V13
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V13:
+// - UploadModal: thumbnail del PDF, monto, fecha vencimiento, propiedad específica
 // CAMBIOS EN V12:
 // - Fix CORS definitivo: matching de carpetas 100% local con PDF.js + scoring
 // - Fix UPSERT 409: pasa on_conflict=google_drive_id/google_drive_file_id
@@ -188,6 +190,25 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
     await analyzeFile(f);
   };
 
+  // ── Generar thumbnail del PDF (primera página) ──
+  const generateThumbnail = async (arrayBuffer) => {
+    try {
+      const lib = window.pdfjsLib;
+      if (!lib) return null;
+      if (!lib.GlobalWorkerOptions.workerSrc)
+        lib.GlobalWorkerOptions.workerSrc =
+          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      const pdf      = await lib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+      const page     = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale: 1.2 });
+      const canvas   = document.createElement("canvas");
+      canvas.width   = viewport.width;
+      canvas.height  = viewport.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      return canvas.toDataURL("image/png");
+    } catch (e) { console.warn("thumbnail:", e); return null; }
+  };
+
   const analyzeFile = async (f) => {
     setAiLoading(true);
     try {
@@ -199,11 +220,13 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
         return;
       }
 
-      // ── Extraer texto con PDF.js (todo local, sin llamadas externas) ──
+      // ── Extraer texto + thumbnail con PDF.js ──
       let rawText = f.name.toLowerCase();
+      let thumbnail = null;
       if (isPdf) {
         try {
           const arrayBuffer = await f.arrayBuffer();
+          thumbnail = await generateThumbnail(arrayBuffer.slice(0));
           const lib = window.pdfjsLib;
           if (lib) {
             if (!lib.GlobalWorkerOptions.workerSrc)
@@ -215,82 +238,89 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
             rawText = content.items.map(i => i.str).join(" ").toLowerCase();
           }
         } catch (e) { console.warn("PDF.js:", e); }
+      } else {
+        // Para imagen, generar preview desde el archivo mismo
+        thumbnail = URL.createObjectURL(f);
       }
 
-      // ── Matching local: puntúa cada carpeta contra el texto del doc ──
+      // ── Extraer datos estructurados del texto ──
+      const original = rawText;
+
+      // Monto: busca patrones como "total a pagar 247.00" o "$1,234.56"
+      const amountMatch = original.match(/total\s+a\s+pagar[\s:$]*([0-9,]+\.?\d{0,2})|total[\s:$]*([0-9,]+\.?\d{0,2})/i)
+        || original.match(/\$\s*([0-9,]+\.\d{2})/);
+      const amount = amountMatch ? (amountMatch[1] || amountMatch[2] || amountMatch[0]).replace(/[^0-9.]/g,"") : null;
+
+      // Fecha de vencimiento
+      const dueMatch = original.match(/(?:limite\s+de\s+pago|fecha\s+l[ií]mite|vencimiento|due\s+date)[:\s]+(\d{1,2}[\s\/\-]\w+[\s\/\-]\d{2,4}|\w+\d{1,2},?\s*\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
+      const dueDate = dueMatch ? dueMatch[1].trim() : null;
+
+      // Propiedad específica — buscar direcciones conocidas en el texto
+      const KNOWN_PROPS = [
+        "progreso 15","progreso c101","progreso c-101","barrio sta catarina","coyoacan",
+        "argo 232","villa marco","cozy run","dixon wood","midnight rain","allegheny",
+        "spring mist","escort","purple martin","scarlet ibis","caen","france 17",
+        "france 19","tortuga","santana","maud watson",
+      ];
+      const foundProp = KNOWN_PROPS.find(p => rawText.includes(p));
+
+      // ── Scoring de carpetas ──
       const scored = folderPaths.map(path => {
         const p = path.toLowerCase();
         let score = 0;
         const t = rawText;
-
-        // Palabras del path que aparecen en el texto → puntos
         p.split(/[\s\/\-_]+/).forEach(word => {
-          if (word.length > 3 && t.includes(word)) score += word.length; // más largo = más específico
+          if (word.length > 3 && t.includes(word)) score += word.length;
         });
-
-        // Señales del documento → mapeo a carpetas
         const rules = [
-          // Propiedades específicas
-          { keys: ["progreso","c-101","c101","barrio sta catarina","coyoacan"], folder: "propiedades mexico", bonus: 20 },
+          { keys: ["progreso","c-101","c101","barrio sta catarina","coyoacan","metrogas","gas natural","naturgy"], folder: "propiedades mexico/progreso", bonus: 25 },
+          { keys: ["progreso","coyoacan","metrogas"], folder: "propiedades mexico", bonus: 15 },
           { keys: ["argo","232","villa marco","cozy run","dixon wood","midnight rain","allegheny","spring mist","escort","purple martin"], folder: "maud watson", bonus: 15 },
-          // Servicios de casa
-          { keys: ["metrogas","gas natural","naturgy","telmex","totalplay","izzi","cfe","comision federal","segiagua","agua","predial","mantenimiento"], folder: "propiedades mexico", bonus: 10 },
-          // Bancos
           { keys: ["american express","amex"], folder: "amex", bonus: 15 },
           { keys: ["capital one"], folder: "capital one", bonus: 15 },
           { keys: ["bmo harris","bmo"], folder: "bmo harris", bonus: 15 },
           { keys: ["chase","jpmorgan"], folder: "chase", bonus: 15 },
-          { keys: ["hsb","frost","bancomer","bbva","santander","banamex","banorte","scotiabank"], folder: "hsb", bonus: 10 },
-          // Empresas
           { keys: ["mna works","mango nest","mango llc"], folder: "mna works", bonus: 15 },
           { keys: ["argo real estate","argo llc"], folder: "argo real estate", bonus: 15 },
-          // Inversiones
           { keys: ["blackstone","blackrock"], folder: "blackstone", bonus: 15 },
           { keys: ["afore","pensionissste","infonavit"], folder: "afore", bonus: 15 },
-          { keys: ["annuit","renta vitalicia","annuities"], folder: "annuities", bonus: 15 },
+          { keys: ["annuit","renta vitalicia"], folder: "annuities", bonus: 15 },
           { keys: ["eb-5","eb5","investor visa"], folder: "eb5", bonus: 15 },
           { keys: ["ira","roth"], folder: "ira roth", bonus: 15 },
-          // Seguros
-          { keys: ["pacific life","seguro vida","life insurance","poliza"], folder: "pacific life", bonus: 15 },
-          { keys: ["seguro","insurance","prima","deducible"], folder: "seguros", bonus: 8 },
-          // Impuestos
-          { keys: ["sat","cfdi","declaracion","isr","iva","rfc","hacienda","shcp","impuesto"], folder: "declaraciones impuestos", bonus: 12 },
+          { keys: ["pacific life","seguro vida","life insurance"], folder: "pacific life", bonus: 15 },
+          { keys: ["sat","cfdi","declaracion","isr","iva","rfc","hacienda","shcp"], folder: "declaraciones impuestos", bonus: 12 },
           { keys: ["irs","federal tax","1040","w-2","w2"], folder: "irs", bonus: 15 },
-          // Coches
-          { keys: ["tenencia","verificacion","poliza auto","nissan","toyota","bmw","audi","ford","volkswagen","chevrolet"], folder: "coches", bonus: 12 },
-          // Legal
-          { keys: ["escritura","notario","testamento","poder notarial","contrato","convenio"], folder: "esteva hinojosa", bonus: 10 },
-          // Personas
-          { keys: ["miguel","esteva wurts"], folder: "eswu", bonus: 8 },
+          { keys: ["tenencia","verificacion","poliza auto","nissan","toyota","bmw","audi","ford"], folder: "coches", bonus: 12 },
+          { keys: ["escritura","notario","testamento","poder notarial"], folder: "esteva hinojosa", bonus: 10 },
+          { keys: ["seguro","insurance","prima","deducible"], folder: "seguros", bonus: 8 },
         ];
-
         rules.forEach(({ keys, folder, bonus }) => {
-          if (keys.some(k => t.includes(k)) && p.includes(folder.toLowerCase())) {
-            score += bonus;
-          }
+          if (keys.some(k => t.includes(k)) && p.includes(folder.toLowerCase())) score += bonus;
         });
-
         return { path, score };
       });
-
-      // Mejor coincidencia
       scored.sort((a, b) => b.score - a.score);
       const best = scored[0];
 
-      if (!best || best.score === 0) {
-        setAiSuggestion({ path: null, reason: "No encontré una carpeta clara. Revisa manualmente." });
-      } else {
-        // Armar razón legible
-        const docType = rawText.includes("metrogas") ? "recibo de gas" :
-                        rawText.includes("cfdi") || rawText.includes("sat") ? "factura CFDI" :
-                        rawText.includes("seguro") ? "póliza/recibo de seguro" :
-                        rawText.includes("estado de cuenta") ? "estado de cuenta" :
-                        isPdf ? "documento PDF" : "imagen";
-        setAiSuggestion({
-          path: best.path,
-          reason: `Parece ser un ${docType}. Mejor coincidencia con score ${best.score} — también considera: ${scored[1]?.path || "—"}`,
-        });
-      }
+      const docType = rawText.includes("metrogas") || rawText.includes("gas natural") ? "recibo de gas" :
+                      rawText.includes("cfdi") || rawText.includes("sat") ? "factura CFDI/SAT" :
+                      rawText.includes("seguro") ? "póliza/recibo de seguro" :
+                      rawText.includes("estado de cuenta") ? "estado de cuenta" :
+                      rawText.includes("cfe") || rawText.includes("comision federal") ? "recibo de luz" :
+                      rawText.includes("segiagua") || rawText.includes("agua") ? "recibo de agua" :
+                      isPdf ? "documento PDF" : "imagen";
+
+      setAiSuggestion({
+        path: best?.score > 0 ? best.path : null,
+        reason: best?.score > 0
+          ? `${docType.charAt(0).toUpperCase() + docType.slice(1)} detectado`
+          : "No encontré carpeta clara — revisa manualmente",
+        amount,
+        dueDate,
+        property: foundProp || null,
+        thumbnail,
+        altPath: scored[1]?.score > 0 ? scored[1].path : null,
+      });
     } catch (e) {
       console.error("Análisis error:", e);
       setAiError(`Error: ${e.message}`);
@@ -385,25 +415,72 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
               {/* Sugerencia IA */}
               {aiLoading && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: `${C.accent}08`, border: `1px solid ${C.accent}25`, borderRadius: 10 }}>
-                  <span style={{ fontSize: 18, animation: "spin 1s linear infinite" }}>🔍</span>
+                  <span style={{ fontSize: 18 }}>🔍</span>
                   <div>
                     <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Analizando documento...</div>
-                    <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>La IA está leyendo el contenido para sugerir carpeta</div>
+                    <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>Extrayendo datos con PDF.js</div>
                   </div>
                 </div>
               )}
               {aiSuggestion && !aiLoading && (
-                <div style={{ padding: "14px 16px", background: `${C.green}10`, border: `1px solid ${C.green}30`, borderRadius: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <span style={{ fontSize: 16 }}>🤖</span>
-                    <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 700, color: C.green }}>Sugerencia de carpeta</span>
-                  </div>
-                  {aiSuggestion.path && (
-                    <div style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: C.accent, background: `${C.accent}10`, borderRadius: 6, padding: "6px 10px", marginBottom: 8, wordBreak: "break-all" }}>
-                      📂 {aiSuggestion.path}
+                <div style={{ display: "flex", gap: 12, padding: 14, background: `${C.green}08`, border: `1px solid ${C.green}30`, borderRadius: 10 }}>
+                  {/* Thumbnail */}
+                  {aiSuggestion.thumbnail && (
+                    <div style={{ flexShrink: 0, width: 90, borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`, alignSelf: "flex-start" }}>
+                      <img src={aiSuggestion.thumbnail} alt="preview" style={{ width: "100%", display: "block" }} />
                     </div>
                   )}
-                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>{aiSuggestion.reason}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                      <span style={{ fontSize: 15 }}>🤖</span>
+                      <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 700, color: C.green }}>Análisis del documento</span>
+                    </div>
+                    {/* Tipo */}
+                    <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, marginBottom: 6 }}>{aiSuggestion.reason}</div>
+                    {/* Propiedad específica */}
+                    {aiSuggestion.property && (
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ fontSize: 13 }}>🏠</span>
+                        <span style={{ fontFamily: "DM Sans", fontSize: 12, fontWeight: 600, color: C.accent }}>
+                          Propiedad: {aiSuggestion.property}
+                        </span>
+                      </div>
+                    )}
+                    {/* Monto */}
+                    {aiSuggestion.amount && (
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ fontSize: 13 }}>💰</span>
+                        <span style={{ fontFamily: "JetBrains Mono", fontSize: 13, fontWeight: 700, color: C.green }}>
+                          ${Number(aiSuggestion.amount).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+                    {/* Fecha de vencimiento */}
+                    {aiSuggestion.dueDate && (
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ fontSize: 13 }}>📅</span>
+                        <span style={{ fontFamily: "DM Sans", fontSize: 12, color: "#F59E0B", fontWeight: 600 }}>
+                          Vence: {aiSuggestion.dueDate}
+                        </span>
+                      </div>
+                    )}
+                    {/* Carpeta sugerida */}
+                    {aiSuggestion.path && (
+                      <div style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.accent, background: `${C.accent}10`, borderRadius: 6, padding: "5px 8px", marginTop: 4, wordBreak: "break-all" }}>
+                        📂 {aiSuggestion.path}
+                      </div>
+                    )}
+                    {aiSuggestion.altPath && (
+                      <div style={{ fontFamily: "DM Sans", fontSize: 10, color: C.textMuted, marginTop: 4 }}>
+                        También: {aiSuggestion.altPath}
+                      </div>
+                    )}
+                    {!aiSuggestion.path && (
+                      <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, marginTop: 4 }}>
+                        ⚠️ No encontré carpeta — selecciona manualmente
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
               {aiError && !aiLoading && (
