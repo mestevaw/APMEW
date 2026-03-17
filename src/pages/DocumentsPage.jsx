@@ -1,8 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V4
+// Versión: V5
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V5:
+// - Tree view: todos los directorios inician cerrados
+// - Modal subir: IA lee el PDF/imagen y sugiere carpeta de Google Drive
 // CAMBIOS EN V4:
 // - Fix hamburguesa: backdrop transparente en lugar de listener mousedown (más confiable)
 // - Performance: elimina auto-sync al conectar Drive (solo sync manual)
@@ -57,7 +60,7 @@ const buildTree = (docs) => {
 const TreeNode = ({ name, node, depth, onPreview, searchQuery }) => {
   const hasChildren = Object.keys(node.children).length > 0;
   const hasFiles    = node.files.length > 0;
-  const [open, setOpen] = useState(depth < 2);
+  const [open, setOpen] = useState(false); // V5: todos los directorios inician cerrados
 
   useEffect(() => {
     if (searchQuery) setOpen(true);
@@ -122,16 +125,88 @@ const TreeNode = ({ name, node, depth, onPreview, searchQuery }) => {
   );
 };
 
-// ─── Modal Subir Documento ───
-const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
-  const [dragging, setDragging] = useState(false);
-  const [file, setFile]         = useState(null);
+// ─── Modal Subir Documento (con sugerencia IA) ───
+const UploadModal = ({ onClose, token, signIn, gisLoaded, folderPaths }) => {
+  const [dragging, setDragging]     = useState(false);
+  const [file, setFile]             = useState(null);
+  const [aiSuggestion, setAiSuggestion] = useState(null);   // { path, reason }
+  const [aiLoading, setAiLoading]   = useState(false);
+  const [aiError, setAiError]       = useState(null);
 
   const handleDrop = (e) => {
     e.preventDefault();
     setDragging(false);
     const f = e.dataTransfer.files[0];
-    if (f) setFile(f);
+    if (f) selectFile(f);
+  };
+
+  const selectFile = async (f) => {
+    setFile(f);
+    setAiSuggestion(null);
+    setAiError(null);
+    // Solo analizar si hay token (ya conectado a Drive)
+    if (!token) return;
+    await analyzeFile(f);
+  };
+
+  const analyzeFile = async (f) => {
+    setAiLoading(true);
+    try {
+      // Convertir a base64
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result.split(",")[1]);
+        r.onerror = rej;
+        r.readAsDataURL(f);
+      });
+
+      const isPdf   = f.type === "application/pdf";
+      const isImage = f.type.startsWith("image/");
+      if (!isPdf && !isImage) {
+        setAiSuggestion({ path: null, reason: "Solo puedo analizar PDFs e imágenes para sugerir carpeta." });
+        setAiLoading(false);
+        return;
+      }
+
+      const folderList = folderPaths.slice(0, 120).join("\n");
+
+      const messages = [{
+        role: "user",
+        content: [
+          isPdf
+            ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } }
+            : { type: "image",    source: { type: "base64", media_type: f.type, data: base64 } },
+          {
+            type: "text",
+            text: `Eres un asistente de organización de documentos para una familia mexicana llamada APMEW.
+Analiza este documento y sugiere en cuál de las siguientes carpetas de Google Drive debería guardarse.
+
+CARPETAS DISPONIBLES:
+${folderList}
+
+Responde SOLO con JSON sin markdown, formato exacto:
+{"path": "APMEW/CARPETA/SUBCARPETA", "reason": "Explicación breve en español de por qué esa carpeta"}
+
+Si ninguna carpeta encaja bien, sugiere la más cercana y explica por qué.`
+          }
+        ]
+      }];
+
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 300, messages }),
+      });
+      const data = await resp.json();
+      const text = data.content?.find(b => b.type === "text")?.text || "";
+      const clean = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      setAiSuggestion(parsed);
+    } catch (e) {
+      console.error("AI suggestion error:", e);
+      setAiError("No se pudo analizar el documento.");
+    }
+    setAiLoading(false);
   };
 
   return (
@@ -151,7 +226,7 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
           boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden",
         }}
       >
-        {/* Header modal */}
+        {/* Header */}
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "18px 20px", borderBottom: `1px solid ${C.border}`,
@@ -176,7 +251,7 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
           ) : (
             <>
               <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, margin: 0, textAlign: "center" }}>
-                Sube el PDF o archivo para guardarlo en Google Drive
+                Sube el PDF o archivo — la IA sugerirá dónde guardarlo
               </p>
 
               {/* Zona drag & drop */}
@@ -189,7 +264,7 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
                   border: `2px dashed ${dragging ? C.accent : C.border}`,
                   borderRadius: 12,
                   background: dragging ? `${C.accent}12` : `${C.accent}06`,
-                  padding: "36px 20px", textAlign: "center", cursor: "pointer",
+                  padding: "32px 20px", textAlign: "center", cursor: "pointer",
                   transition: "all 0.2s",
                 }}
               >
@@ -197,17 +272,17 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
                   id="doc-file-input" type="file"
                   accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
                   style={{ display: "none" }}
-                  onChange={e => setFile(e.target.files[0])}
+                  onChange={e => e.target.files[0] && selectFile(e.target.files[0])}
                 />
                 {file ? (
                   <div>
-                    <div style={{ fontSize: 36, marginBottom: 8 }}>✅</div>
+                    <div style={{ fontSize: 34, marginBottom: 8 }}>✅</div>
                     <p style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.accent, margin: 0 }}>{file.name}</p>
                     <p style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, margin: "4px 0 0" }}>{(file.size / 1024).toFixed(0)} KB</p>
                   </div>
                 ) : (
                   <div>
-                    <div style={{ fontSize: 36, marginBottom: 10 }}>📁</div>
+                    <div style={{ fontSize: 34, marginBottom: 10 }}>📁</div>
                     <p style={{ fontFamily: "DM Sans", fontSize: 14, fontWeight: 600, color: C.accent, margin: "0 0 4px" }}>
                       Arrastra · Haz clic · Pega (Ctrl+V)
                     </p>
@@ -218,7 +293,37 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
                 )}
               </div>
 
-              {file && (
+              {/* Sugerencia IA */}
+              {aiLoading && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: `${C.accent}08`, border: `1px solid ${C.accent}25`, borderRadius: 10 }}>
+                  <span style={{ fontSize: 18, animation: "spin 1s linear infinite" }}>🔍</span>
+                  <div>
+                    <div style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Analizando documento...</div>
+                    <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim }}>La IA está leyendo el contenido para sugerir carpeta</div>
+                  </div>
+                </div>
+              )}
+              {aiSuggestion && !aiLoading && (
+                <div style={{ padding: "14px 16px", background: `${C.green}10`, border: `1px solid ${C.green}30`, borderRadius: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 16 }}>🤖</span>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 700, color: C.green }}>Sugerencia de carpeta</span>
+                  </div>
+                  {aiSuggestion.path && (
+                    <div style={{ fontFamily: "JetBrains Mono", fontSize: 12, color: C.accent, background: `${C.accent}10`, borderRadius: 6, padding: "6px 10px", marginBottom: 8, wordBreak: "break-all" }}>
+                      📂 {aiSuggestion.path}
+                    </div>
+                  )}
+                  <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>{aiSuggestion.reason}</div>
+                </div>
+              )}
+              {aiError && !aiLoading && (
+                <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, padding: "8px 12px", background: C.surface2, borderRadius: 8 }}>
+                  ⚠️ {aiError}
+                </div>
+              )}
+
+              {file && !aiLoading && (
                 <Btn style={{ width: "100%", justifyContent: "center" }}>
                   ⬆️ Subir a Google Drive
                 </Btn>
@@ -229,10 +334,9 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded }) => {
           {/* Registrar sin archivo */}
           <button
             style={{
-              display: "flex", alignItems: "center", gap: 10,
-              padding: "12px 16px", background: `${C.blue}10`,
-              border: `1px solid ${C.blue}30`, borderRadius: 10,
-              cursor: "pointer", width: "100%", textAlign: "left",
+              display: "flex", alignItems: "center", gap: 10, padding: "12px 16px",
+              background: `${C.blue}10`, border: `1px solid ${C.blue}30`,
+              borderRadius: 10, cursor: "pointer", width: "100%", textAlign: "left",
             }}
             onMouseEnter={e => e.currentTarget.style.background = `${C.blue}20`}
             onMouseLeave={e => e.currentTarget.style.background = `${C.blue}10`}
@@ -405,7 +509,7 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     <div>
       {/* ─── Modales ─── */}
       <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} mob={mob} />
-      {showUpload && <UploadModal onClose={() => setShowUpload(false)} token={token} signIn={signIn} gisLoaded={gisLoaded} />}
+      {showUpload && <UploadModal onClose={() => setShowUpload(false)} token={token} signIn={signIn} gisLoaded={gisLoaded} folderPaths={documents.map(d => d.folder_path).filter(Boolean).filter((v,i,a) => a.indexOf(v)===i).sort()} />}
 
       {/* ─── V4: Backdrop hamburguesa ─── */}
       {menuOpen && (

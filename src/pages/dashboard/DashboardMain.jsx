@@ -1,4 +1,6 @@
 // src/pages/dashboard/DashboardMain.jsx
+// Versión: V2 — 2026-03-16
+// CAMBIOS V2: Removido botón "Gastos Diarios" de hilera desktop y dropdown mobile
 import { useState, useEffect } from "react";
 import { C } from "../../lib/theme";
 import { fmt } from "../../lib/helpers";
@@ -315,14 +317,13 @@ export const DashboardPage = ({ data, mob, drive, goToPage, goToOwner }) => {
                   { label: "Maud Watson", icon: <HouseIcon />, color: C.orange, badge: PROPERTIES.filter(p => !p.sold).length, action: () => { setShowProperties(true); setShowKids(false); } },
                   { label: "Coches", icon: <CarIcon />, color: "#0EA5E9", badge: CARS.length, action: () => { setShowCars(true); setShowKids(false); } },
                   { label: "Vencimientos", icon: <CalendarIcon />, color: "#F59E0B", action: () => { setShowDeadlines(true); setShowKids(false); } },
-                  { label: "Gastos Diarios", icon: I.expenses, color: C.accent, action: () => goToPage && goToPage("daily") },
                   { label: "Labores Casa", icon: <ChoresIcon />, color: "#A78BFA", action: () => { setShowChores(true); setShowKids(false); } },
-                ].map((item, i) => (
+                ].map((item, i, arr) => (
                   <button key={i} onClick={() => { item.action(); setMobileMenuOpen(false); }} style={{
                     width: "100%", textAlign: "left", padding: "11px 16px",
                     background: "transparent", border: "none", cursor: "pointer",
                     display: "flex", alignItems: "center", gap: 10,
-                    borderBottom: i < 4 ? `1px solid ${C.border}` : "none",
+                    borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none",
                   }}
                     onMouseEnter={e => e.currentTarget.style.background = C.surface2}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -364,14 +365,6 @@ export const DashboardPage = ({ data, mob, drive, goToPage, goToOwner }) => {
             <span style={{ color: "#F59E0B" }}><CalendarIcon /></span>
             <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: "#F59E0B" }}>Vencimientos</span>
           </button>
-          {goToPage && <button onClick={() => goToPage("daily")} style={{
-            display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
-            background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",
-          }} onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = C.accentGlow; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface2; }}>
-            <span style={{ color: C.accent }}>{I.expenses}</span>
-            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>Gastos Diarios</span>
-          </button>}
           <button onClick={() => { setShowChores(true); setShowProperties(false); setShowCars(false); setShowKids(false); }} style={{
             display: "flex", alignItems: "center", gap: 8, padding: "8px 20px",
             background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, cursor: "pointer", transition: "all 0.2s",

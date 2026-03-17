@@ -1,8 +1,10 @@
 // ═══════════════════════════════════════════
 // Archivo: src/App.jsx
-// Versión: V8
+// Versión: V9
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V9:
+// - Regresa "Gastos Diarios" al menú lateral izquierdo
 // CAMBIOS EN V8:
 // - Removido "Gastos Diarios" del menú principal
 // - Removido "Inspecciones" del menú principal (accesible desde fichas de casas)
@@ -152,6 +154,7 @@ export default function App() {
     { id: "patrimony",  label: "Patrimonio",         icon: I.patrimony },
     { id: "projection", label: "Proyección 30 Años", icon: I.projection },
     { id: "checklist",  label: "Checklist",           icon: I.checklist },
+    { id: "daily",      label: "Gastos Diarios",     icon: I.daily },
     { id: "docs",       label: "Documentos",          icon: I.docs },
     { id: "owners",     label: "Empresas",            icon: "🏢" },
   ];
