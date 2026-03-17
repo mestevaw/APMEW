@@ -1,8 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V7
+// Versión: V8
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V8:
+// - Fix PDF: agrega header anthropic-beta pdfs-2024-09-25
+// - Fix modelo: claude-sonnet-4-6 con soporte nativo de PDFs
+// - Fix carpetas: aumenta slice de 120 a 600 para incluir PROPIEDADES MEXICO y todo lo demás
 // CAMBIOS EN V7:
 // - Fix API: verifica resp.ok antes de parsear, muestra error real
 // - Fix modelo: usa claude-haiku-4-5-20251001 (más rápido y disponible)
@@ -176,7 +180,7 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded, folderPaths }) => {
         return;
       }
 
-      const folderList = folderPaths.slice(0, 120).join("\n");
+      const folderList = folderPaths.slice(0, 600).join("\n");
 
       const messages = [{
         role: "user",
@@ -215,9 +219,10 @@ Analiza el documento y responde SOLO con JSON sin markdown:
           "Content-Type": "application/json",
           "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY,
           "anthropic-version": "2023-06-01",
+          "anthropic-beta": "pdfs-2024-09-25",
           "anthropic-dangerous-allow-browser": "true",
         },
-        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 400, messages }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 400, messages }),
       });
       const data = await resp.json();
       if (!resp.ok) {
