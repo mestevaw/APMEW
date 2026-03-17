@@ -3,8 +3,8 @@
 // Versión: V11
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
-// CAMBIOS EN V11:
-// - Documents fetch con limit:50000 (antes 11000 cortaba en la P por orden alfabético)
+// CAMBIOS EN V10:
+// - Documents fetch con limit:50000 (11000 cortaba en la P por superar el tope)
 // CAMBIOS EN V10:
 // - Documents fetch con limit:11000 para mostrar todos los documentos indexados
 // CAMBIOS EN V9:
