@@ -1,9 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/OwnersPage.jsx
-// Versión: V9
+// Versión: V10
 // Fecha: 2026-03-17
 // ═══════════════════════════════════════════
-// CAMBIOS EN V9:
+// CAMBIOS EN V10:
+// - DocumentosTab: búsqueda en tiempo real con debounce 400ms, sin botón de navegar
+// - Lupa integrada en el input directamente
+// CAMBIOS EN V9 (anterior):
 // - DocumentosTab: navega carpeta de Drive del owner directamente (OWNER_DRIVE_FOLDERS)
 //   sin Supabase — muestra árbol real, búsqueda fullText con drive.searchFiles
 // - CuentasTab: idem, navega FROST MANGO/etc. directamente por drive_folder_id
@@ -637,39 +640,34 @@ const OwnerTreeNode = ({ name, node, depth, searchQuery }) => {
 // TAB: DOCUMENTOS  — lee de Supabase, solo Drive para subir
 // =============================================================================
 const DocumentosTab = ({ ownerName, mob, drive }) => {
-  const folderId   = OWNER_DRIVE_FOLDERS[ownerName]?.drive_folder_id || null;
-  const [folder, setFolder]         = useState(folderId);
-  const [breadcrumb, setBreadcrumb] = useState(folderId ? [{ id: folderId, name: ownerName }] : []);
-  const [files, setFiles]           = useState([]);
-  const [loading, setLoading]       = useState(false);
-  const [query, setQuery]           = useState("");
-  const [results, setResults]       = useState([]);
-  const [searching, setSearching]   = useState(false);
-  const [searched, setSearched]     = useState(false);
-  const [mode, setMode]             = useState("browse");
-  const inputRef = useRef(null);
+  const folderId    = OWNER_DRIVE_FOLDERS[ownerName]?.drive_folder_id || null;
+  const [query, setQuery]         = useState("");
+  const [results, setResults]     = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched]   = useState(false);
+  const debounceRef               = useRef(null);
 
-  const { token, searchFiles, listAllFiles } = drive || {};
+  const { token, searchFiles } = drive || {};
+
+  // ─── Búsqueda en tiempo real con debounce 400ms ───────────────────────
+  const doSearch = useCallback(async (q) => {
+    if (!q.trim() || !token) { setResults([]); setSearched(false); return; }
+    setSearching(true);
+    try {
+      const res = await searchFiles(q.trim(), folderId || undefined);
+      setResults(res || []);
+    } catch (e) { console.error(e); setResults([]); }
+    setSearching(false);
+    setSearched(true);
+  }, [token, searchFiles, folderId]);
 
   useEffect(() => {
-    if (!token || !folder || mode !== "browse") return;
-    setLoading(true);
-    listAllFiles(folder)
-      .then(f => setFiles(f || []))
-      .catch(e => { console.error(e); setFiles([]); })
-      .finally(() => setLoading(false));
-  }, [token, folder, mode, listAllFiles]);
-
-  const navigateTo    = (id, name) => { setFolder(id); setBreadcrumb(prev => [...prev, { id, name }]); };
-  const navigateCrumb = (i)        => { setFolder(breadcrumb[i].id); setBreadcrumb(prev => prev.slice(0, i + 1)); };
-
-  const handleSearch = async () => {
-    if (!query.trim() || !token) return;
-    setSearching(true); setSearched(false); setResults([]);
-    try { const res = await searchFiles(query.trim(), folderId || undefined); setResults(res || []); }
-    catch (e) { console.error(e); }
-    setSearching(false); setSearched(true);
-  };
+    clearTimeout(debounceRef.current);
+    if (!query.trim()) { setResults([]); setSearched(false); setSearching(false); return; }
+    setSearching(true);
+    debounceRef.current = setTimeout(() => doSearch(query), 400);
+    return () => clearTimeout(debounceRef.current);
+  }, [query, doSearch]);
 
   if (!token) return (
     <div style={{ textAlign: "center", padding: "30px 0", fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>
@@ -682,104 +680,70 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
     </div>
   );
 
-  const folderItems = files.filter(f => f.mimeType === "application/vnd.google-apps.folder");
-  const fileItems   = files.filter(f => f.mimeType !== "application/vnd.google-apps.folder");
-
   return (
     <>
-      {/* Toggle browse/search */}
-      <div style={{ display: "flex", gap: 0, background: C.surface2, borderRadius: 8, padding: 2, marginBottom: 12, width: "fit-content" }}>
-        {["browse","search"].map(m => (
-          <button key={m} onClick={() => { setMode(m); if (m === "search") setTimeout(() => inputRef.current?.focus(), 60); }}
-            style={{
-              padding: "5px 14px", background: mode === m ? C.accent : "transparent",
-              border: "none", borderRadius: 6, cursor: "pointer",
-              fontFamily: "DM Sans", fontSize: 12, fontWeight: 600,
-              color: mode === m ? "white" : C.textDim,
-            }}>
-            {m === "browse" ? "📂 Navegar" : "🔍 Buscar"}
-          </button>
-        ))}
+      {/* Search bar */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        padding: "8px 12px", marginBottom: 12,
+        background: C.surface2, border: `1px solid ${query ? C.accent : C.border}`,
+        borderRadius: 10, transition: "border-color 0.15s",
+      }}>
+        <svg width="14" height="14" fill="none" stroke={C.textDim} strokeWidth="2" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+          <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
+        </svg>
+        <input
+          type="text" placeholder="Buscar documentos..."
+          value={query} onChange={e => setQuery(e.target.value)}
+          style={{
+            flex: 1, background: "none", border: "none", outline: "none",
+            fontFamily: "DM Sans", fontSize: 13, color: C.text,
+          }}
+        />
+        {searching && <Spinner />}
+        {query && !searching && (
+          <button onClick={() => { setQuery(""); setResults([]); setSearched(false); }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 14, lineHeight: 1 }}>✕</button>
+        )}
       </div>
 
-      {mode === "search" && (
-        <div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <input ref={inputRef} type="text" placeholder="Buscar en documentos..."
-              value={query} onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleSearch()}
-              style={{ flex: 1, padding: "8px 12px", background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8, fontFamily: "DM Sans", fontSize: 13, color: C.text, outline: "none" }} />
-            <button onClick={handleSearch} disabled={!query.trim() || searching}
-              style={{ padding: "8px 16px", background: query.trim() ? C.accent : C.border, color: "white", border: "none", borderRadius: 8, fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, cursor: query.trim() ? "pointer" : "default" }}>
-              {searching ? "..." : "Buscar"}
-            </button>
-          </div>
-          {searching && <div style={{ textAlign: "center", padding: 20 }}><Spinner /></div>}
-          {searched && results.length === 0 && (
-            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, textAlign: "center", padding: "20px 0" }}>Sin resultados para "{query}"</div>
-          )}
-          {results.length > 0 && (
-            <Card style={{ padding: 0 }}>
-              {results.map(f => (
-                <button key={f.id} onClick={() => f.webViewLink && window.open(f.webViewLink, "_blank")}
-                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 14px", background: "transparent", border: "none", cursor: f.webViewLink ? "pointer" : "default", textAlign: "left", borderBottom: `1px solid ${C.border}08` }}
-                  onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                >
-                  <span style={{ fontSize: 15 }}>📄</span>
-                  <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-                </button>
-              ))}
-              <div style={{ padding: "6px 14px", fontFamily: "DM Sans", fontSize: 11, color: C.textMuted }}>{results.length} resultado{results.length !== 1 ? "s" : ""}</div>
-            </Card>
-          )}
+      {searched && results.length === 0 && !searching && (
+        <div style={{ textAlign: "center", padding: "20px 0", fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>
+          Sin resultados para "{query}"
         </div>
       )}
 
-      {mode === "browse" && (
-        <div>
-          {breadcrumb.length > 1 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
-              {breadcrumb.map((crumb, i) => (
-                <span key={crumb.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  {i > 0 && <span style={{ color: C.textDim, fontSize: 11 }}>›</span>}
-                  <button onClick={() => navigateCrumb(i)} style={{ background: "none", border: "none", cursor: i < breadcrumb.length - 1 ? "pointer" : "default", fontFamily: "DM Sans", fontSize: 12, color: i < breadcrumb.length - 1 ? C.accent : C.text, padding: "1px 4px" }}>
-                    {crumb.name}
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          {loading ? (
-            <div style={{ textAlign: "center", padding: 30 }}><Spinner /></div>
-          ) : (
-            <Card style={{ padding: 0, overflow: "hidden" }}>
-              {folderItems.length === 0 && fileItems.length === 0 && (
-                <div style={{ textAlign: "center", padding: "24px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>Carpeta vacía</div>
-              )}
-              {folderItems.map(f => (
-                <button key={f.id} onClick={() => navigateTo(f.id, f.name)}
-                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", borderBottom: `1px solid ${C.border}08` }}
-                  onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                >
-                  <span style={{ fontSize: 16 }}>📁</span>
-                  <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text, flex: 1 }}>{f.name}</span>
-                  <span style={{ color: C.textDim, fontSize: 12 }}>›</span>
-                </button>
-              ))}
-              {fileItems.map(f => (
-                <button key={f.id} onClick={() => f.webViewLink && window.open(f.webViewLink, "_blank")}
-                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 14px", background: "transparent", border: "none", cursor: f.webViewLink ? "pointer" : "default", textAlign: "left", borderBottom: `1px solid ${C.border}08` }}
-                  onMouseEnter={e => e.currentTarget.style.background = C.surface2}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                >
-                  <span style={{ fontSize: 15 }}>📄</span>
-                  <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-                </button>
-              ))}
-            </Card>
-          )}
+      {results.length > 0 && (
+        <Card style={{ padding: 0 }}>
+          {results.map(f => (
+            <button key={f.id} onClick={() => f.webViewLink && window.open(f.webViewLink, "_blank")}
+              style={{
+                display: "flex", alignItems: "center", gap: 8, width: "100%",
+                padding: "8px 14px", background: "transparent", border: "none",
+                cursor: f.webViewLink ? "pointer" : "default", textAlign: "left",
+                borderBottom: `1px solid ${C.border}08`,
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <span style={{ fontSize: 14 }}>
+                {f.mimeType === "application/vnd.google-apps.folder" ? "📁" : "📄"}
+              </span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {f.name}
+              </span>
+            </button>
+          ))}
+          <div style={{ padding: "6px 14px", fontFamily: "DM Sans", fontSize: 11, color: C.textMuted }}>
+            {results.length} resultado{results.length !== 1 ? "s" : ""}
+          </div>
+        </Card>
+      )}
+
+      {!query && (
+        <div style={{ textAlign: "center", padding: "24px 0", fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>
+          Escribe para buscar en los documentos de este dueño
         </div>
       )}
     </>
