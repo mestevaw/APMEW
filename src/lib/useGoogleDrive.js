@@ -1,7 +1,9 @@
 // ═══════════════════════════════════════════
 // Archivo: src/lib/useGoogleDrive.js
-// Versión: 1
-// Fecha: 2026-02-25
+// Versión: V2
+// Fecha: 2026-03-17
+// CAMBIOS EN V2:
+// - searchFiles(query, folderId?): búsqueda fullText en Drive sin indexar
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -292,9 +294,35 @@ export const useGoogleDrive = () => {
     return { dateFolder, yearFolder, inspeccionFolder, results, skipped };
   }, [token, findSubfolder, createFolder, uploadFile, listAllFiles]);
 
+  // ─── Búsqueda fullText en Drive (sin indexar nada) ───────────────────────
+  // query: texto libre, ej. "metrogas" o "seguro"
+  // folderId: opcional — restringe la búsqueda a una carpeta específica
+  const searchFiles = useCallback(async (query, folderId = null) => {
+    if (!token || !query?.trim()) return [];
+    const escaped = query.replace(/'/g, "\'");
+    let q = `fullText contains '${escaped}' and trashed = false`;
+    if (folderId) q += ` and '${folderId}' in parents`;
+    let allFiles = [];
+    let pageToken = null;
+    const fields = "nextPageToken,files(id,name,mimeType,webViewLink,modifiedTime,parents)";
+    do {
+      let url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`
+        + `&fields=${encodeURIComponent(fields)}`
+        + `&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true`
+        + `&orderBy=modifiedTime desc`;
+      if (pageToken) url += `&pageToken=${pageToken}`;
+      const res = await fetch(url, { headers: apiHeaders() });
+      await handleApiResponse(res, `searchFiles("${query}")`);
+      const data = await res.json();
+      if (data?.files) allFiles = [...allFiles, ...data.files];
+      pageToken = data?.nextPageToken;
+    } while (pageToken && allFiles.length < 200); // cap 200 resultados
+    return allFiles;
+  }, [token, apiHeaders, handleApiResponse]);
+
   return {
     token, gisLoaded, signIn, signOut,
     listFiles, listAllFiles, createFolder, findSubfolder,
-    uploadFile, uploadPhotos, searchFolderByAddress,
+    uploadFile, uploadPhotos, searchFolderByAddress, searchFiles,
   };
 };

@@ -1,11 +1,15 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/OwnersPage.jsx
-// Versión: V8
-// Fecha: 2026-03-16
+// Versión: V9
+// Fecha: 2026-03-17
 // ═══════════════════════════════════════════
-// CAMBIOS EN V8:
-// - CuentasTab: árbol empieza desde la subcarpeta bancaria (ej. FROST MANGO)
-//   en lugar de mostrar la ruta completa APMEW → MANGO LLC DOCS → FROST MANGO
+// CAMBIOS EN V9:
+// - DocumentosTab: navega carpeta de Drive del owner directamente (OWNER_DRIVE_FOLDERS)
+//   sin Supabase — muestra árbol real, búsqueda fullText con drive.searchFiles
+// - CuentasTab: idem, navega FROST MANGO/etc. directamente por drive_folder_id
+// - Eliminados todos los supaFetch("documents") de ambas tabs
+// CAMBIOS EN V8 (anterior):
+// - CuentasTab árbol empieza desde subcarpeta bancaria
 // CAMBIOS EN V7:
 // - DocumentosTab: árbol jerárquico (tree view) igual que DocumentsPage
 // - Lupa en esquina superior derecha (siempre visible, sin hamburguesa)
@@ -18,11 +22,12 @@
 //   a qué dueño/propiedad/tipo corresponde el documento
 // ═══════════════════════════════════════════
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { C } from "../lib/theme";
 import { I } from "../lib/icons";
 import { supaFetch, supaInsert, supaDelete } from "../lib/supabase";
 import { Card, Badge, Spinner, Btn } from "../components/UI";
+import { FilePreviewModal } from "../components/FilePreviewModal";
 import {
   PROPERTIES, OWNER_COLORS, OWNER_SHORT, OWNER_BANK_FOLDERS, OWNER_DRIVE_FOLDERS,
   getPropExpenseTypes,
@@ -632,132 +637,149 @@ const OwnerTreeNode = ({ name, node, depth, searchQuery }) => {
 // TAB: DOCUMENTOS  — lee de Supabase, solo Drive para subir
 // =============================================================================
 const DocumentosTab = ({ ownerName, mob, drive }) => {
-  const [docs,        setDocs]        = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchOpen,  setSearchOpen]  = useState(false);
-  const [showUpload,  setShowUpload]  = useState(false);
+  const folderId   = OWNER_DRIVE_FOLDERS[ownerName]?.drive_folder_id || null;
+  const [folder, setFolder]         = useState(folderId);
+  const [breadcrumb, setBreadcrumb] = useState(folderId ? [{ id: folderId, name: ownerName }] : []);
+  const [files, setFiles]           = useState([]);
+  const [loading, setLoading]       = useState(false);
+  const [query, setQuery]           = useState("");
+  const [results, setResults]       = useState([]);
+  const [searching, setSearching]   = useState(false);
+  const [searched, setSearched]     = useState(false);
+  const [mode, setMode]             = useState("browse");
+  const inputRef = useRef(null);
+
+  const { token, searchFiles, listAllFiles } = drive || {};
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const addrs  = ownerProps(ownerName).map(p => p.address);
-        const short  = (OWNER_SHORT[ownerName] || ownerName).toLowerCase();
-        const low    = ownerName.toLowerCase();
-        const allDocs = await supaFetch("documents", { order: "folder_path,title", limit: 11000 });
-        const filtered = (allDocs || []).filter(d => {
-          const path  = (d.folder_path || "").toLowerCase();
-          const title = (d.title || "").toLowerCase();
-          return path.includes(short) || path.includes(low) ||
-            addrs.some(a => path.includes(a.toLowerCase()) || title.includes(a.toLowerCase()));
-        });
-        setDocs(filtered);
-      } catch (err) { console.error("[DocumentosTab]", err); }
-      setLoading(false);
-    };
-    load();
-  }, [ownerName]);
+    if (!token || !folder || mode !== "browse") return;
+    setLoading(true);
+    listAllFiles(folder)
+      .then(f => setFiles(f || []))
+      .catch(e => { console.error(e); setFiles([]); })
+      .finally(() => setLoading(false));
+  }, [token, folder, mode, listAllFiles]);
 
-  if (loading) return <div style={{ textAlign: "center", padding: 40 }}><Spinner /></div>;
+  const navigateTo    = (id, name) => { setFolder(id); setBreadcrumb(prev => [...prev, { id, name }]); };
+  const navigateCrumb = (i)        => { setFolder(breadcrumb[i].id); setBreadcrumb(prev => prev.slice(0, i + 1)); };
 
-  const q = searchQuery.trim().toLowerCase();
-  const filteredDocs = q
-    ? docs.filter(d =>
-        (d.title || "").toLowerCase().includes(q) ||
-        (d.folder_path || "").toLowerCase().includes(q) ||
-        (d.file_type || "").toLowerCase().includes(q)
-      )
-    : docs;
+  const handleSearch = async () => {
+    if (!query.trim() || !token) return;
+    setSearching(true); setSearched(false); setResults([]);
+    try { const res = await searchFiles(query.trim(), folderId || undefined); setResults(res || []); }
+    catch (e) { console.error(e); }
+    setSearching(false); setSearched(true);
+  };
 
-  const tree = buildOwnerTree(filteredDocs);
+  if (!token) return (
+    <div style={{ textAlign: "center", padding: "30px 0", fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>
+      Conecta Google Drive para ver los documentos.
+    </div>
+  );
+  if (!folderId) return (
+    <div style={{ textAlign: "center", padding: "30px 0", fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>
+      Sin carpeta Drive configurada para este dueño.
+    </div>
+  );
+
+  const folderItems = files.filter(f => f.mimeType === "application/vnd.google-apps.folder");
+  const fileItems   = files.filter(f => f.mimeType !== "application/vnd.google-apps.folder");
 
   return (
     <>
-      {showUpload && (
-        <UploadModal onClose={() => setShowUpload(false)} ownerName={ownerName} drive={drive} />
-      )}
-
-      {/* ── Barra superior: lupa + subir ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          {searchOpen && (
-            <input
-              autoFocus
-              type="text"
-              placeholder="Buscar documento o carpeta…"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              onKeyDown={e => e.key === "Escape" && setSearchOpen(false)}
-              style={{
-                width: "100%", boxSizing: "border-box",
-                fontFamily: "DM Sans", fontSize: 13,
-                background: C.surface2, border: `1px solid ${C.accent}50`,
-                borderRadius: 8, padding: "7px 12px", color: C.text, outline: "none",
-              }}
-            />
-          )}
-          {searchOpen && q && (
-            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginTop: 3 }}>
-              {filteredDocs.length} resultado{filteredDocs.length !== 1 ? "s" : ""}
-            </div>
-          )}
-        </div>
-
-        {/* Lupa */}
-        <button
-          onClick={() => { setSearchOpen(v => !v); if (searchOpen) setSearchQuery(""); }}
-          title="Buscar"
-          style={{
-            background: searchOpen ? C.accentGlow : "transparent",
-            border: `1px solid ${searchOpen ? C.accent + "40" : C.border}`,
-            borderRadius: 8, padding: "5px 8px", cursor: "pointer",
-            color: searchOpen ? C.accent : C.textDim,
-            display: "flex", alignItems: "center", transition: "all 0.15s",
-          }}
-        >
-          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
-          </svg>
-        </button>
-
-        {/* Subir */}
-        <button
-          onClick={() => setShowUpload(true)}
-          title="Subir documento"
-          style={{
-            background: "transparent", border: `1px solid ${C.border}`,
-            borderRadius: 8, padding: "5px 8px", cursor: "pointer",
-            color: C.textDim, display: "flex", alignItems: "center",
-            fontFamily: "DM Sans", fontSize: 12, gap: 5, transition: "all 0.15s",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent + "60"; e.currentTarget.style.color = C.accent; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textDim; }}
-        >
-          ⬆️ <span style={{ display: mob ? "none" : "inline" }}>Subir</span>
-        </button>
+      {/* Toggle browse/search */}
+      <div style={{ display: "flex", gap: 0, background: C.surface2, borderRadius: 8, padding: 2, marginBottom: 12, width: "fit-content" }}>
+        {["browse","search"].map(m => (
+          <button key={m} onClick={() => { setMode(m); if (m === "search") setTimeout(() => inputRef.current?.focus(), 60); }}
+            style={{
+              padding: "5px 14px", background: mode === m ? C.accent : "transparent",
+              border: "none", borderRadius: 6, cursor: "pointer",
+              fontFamily: "DM Sans", fontSize: 12, fontWeight: 600,
+              color: mode === m ? "white" : C.textDim,
+            }}>
+            {m === "browse" ? "📂 Navegar" : "🔍 Buscar"}
+          </button>
+        ))}
       </div>
 
-      {docs.length === 0 ? (
-        <Card>
-          <div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-            No hay documentos indexados para este dueño.
+      {mode === "search" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input ref={inputRef} type="text" placeholder="Buscar en documentos..."
+              value={query} onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleSearch()}
+              style={{ flex: 1, padding: "8px 12px", background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8, fontFamily: "DM Sans", fontSize: 13, color: C.text, outline: "none" }} />
+            <button onClick={handleSearch} disabled={!query.trim() || searching}
+              style={{ padding: "8px 16px", background: query.trim() ? C.accent : C.border, color: "white", border: "none", borderRadius: 8, fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, cursor: query.trim() ? "pointer" : "default" }}>
+              {searching ? "..." : "Buscar"}
+            </button>
           </div>
-        </Card>
-      ) : q && filteredDocs.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "20px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-          Sin resultados para "{searchQuery}"
+          {searching && <div style={{ textAlign: "center", padding: 20 }}><Spinner /></div>}
+          {searched && results.length === 0 && (
+            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, textAlign: "center", padding: "20px 0" }}>Sin resultados para "{query}"</div>
+          )}
+          {results.length > 0 && (
+            <Card style={{ padding: 0 }}>
+              {results.map(f => (
+                <button key={f.id} onClick={() => f.webViewLink && window.open(f.webViewLink, "_blank")}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 14px", background: "transparent", border: "none", cursor: f.webViewLink ? "pointer" : "default", textAlign: "left", borderBottom: `1px solid ${C.border}08` }}
+                  onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <span style={{ fontSize: 15 }}>📄</span>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                </button>
+              ))}
+              <div style={{ padding: "6px 14px", fontFamily: "DM Sans", fontSize: 11, color: C.textMuted }}>{results.length} resultado{results.length !== 1 ? "s" : ""}</div>
+            </Card>
+          )}
         </div>
-      ) : (
-        <Card style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ paddingTop: 4, paddingBottom: 4 }}>
-            <OwnerTreeNode name={null} node={tree} depth={0} searchQuery={q} />
-          </div>
-        </Card>
       )}
-      {filteredDocs.length > 0 && (
-        <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, marginTop: 6 }}>
-          {filteredDocs.length} documentos
+
+      {mode === "browse" && (
+        <div>
+          {breadcrumb.length > 1 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 10, flexWrap: "wrap" }}>
+              {breadcrumb.map((crumb, i) => (
+                <span key={crumb.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  {i > 0 && <span style={{ color: C.textDim, fontSize: 11 }}>›</span>}
+                  <button onClick={() => navigateCrumb(i)} style={{ background: "none", border: "none", cursor: i < breadcrumb.length - 1 ? "pointer" : "default", fontFamily: "DM Sans", fontSize: 12, color: i < breadcrumb.length - 1 ? C.accent : C.text, padding: "1px 4px" }}>
+                    {crumb.name}
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          {loading ? (
+            <div style={{ textAlign: "center", padding: 30 }}><Spinner /></div>
+          ) : (
+            <Card style={{ padding: 0, overflow: "hidden" }}>
+              {folderItems.length === 0 && fileItems.length === 0 && (
+                <div style={{ textAlign: "center", padding: "24px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>Carpeta vacía</div>
+              )}
+              {folderItems.map(f => (
+                <button key={f.id} onClick={() => navigateTo(f.id, f.name)}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", borderBottom: `1px solid ${C.border}08` }}
+                  onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <span style={{ fontSize: 16 }}>📁</span>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 500, color: C.text, flex: 1 }}>{f.name}</span>
+                  <span style={{ color: C.textDim, fontSize: 12 }}>›</span>
+                </button>
+              ))}
+              {fileItems.map(f => (
+                <button key={f.id} onClick={() => f.webViewLink && window.open(f.webViewLink, "_blank")}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 14px", background: "transparent", border: "none", cursor: f.webViewLink ? "pointer" : "default", textAlign: "left", borderBottom: `1px solid ${C.border}08` }}
+                  onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <span style={{ fontSize: 15 }}>📄</span>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                </button>
+              ))}
+            </Card>
+          )}
         </div>
       )}
     </>
@@ -864,6 +886,8 @@ const CuentasTab = ({ ownerName, mob }) => {
   const [adding,      setAdding]     = useState(false);
   const [form,        setForm]       = useState({ bank_name: "", account_type: "", account_number: "", balance: "", notes: "" });
   const [bankDocs,    setBankDocs]   = useState([]);
+  const [bankRootId,  setBankRootId]  = useState(null);
+  const [bankRootName,setBankRootName]= useState("");
   const [loadingDocs, setLoadingDocs]= useState(true);
   const [searchQuery, setSearchQuery]= useState("");
   const [searchOpen,  setSearchOpen] = useState(false);
@@ -874,45 +898,41 @@ const CuentasTab = ({ ownerName, mob }) => {
       const rows = await supaFetch("owner_bank_accounts", { filters: `owner_name=eq.${encodeURIComponent(ownerName)}`, order: "bank_name" });
       setAccounts(rows || []);
       setTableExists(true);
-    } catch { setTableExists(false); setAccounts([]); }
-    setLoadingAcc(false);
-  }, [ownerName]);
-
-  useEffect(() => { loadAccounts(); }, [loadAccounts]);
-
-  // Cargar documentos bancarios de Supabase
+    } catch { setTableExists(false); setAccounts(  // V9: Cargar documentos bancarios desde Drive directamente (sin Supabase)
   useEffect(() => {
     const load = async () => {
+      if (!drive?.token) { setLoadingDocs(false); return; }
       setLoadingDocs(true);
       try {
-        const short = (OWNER_SHORT[ownerName] || ownerName).toLowerCase();
-        const low   = ownerName.toLowerCase();
-        const allDocs = await supaFetch("documents", { order: "folder_path,title", limit: 50000 });
-        const bankKeywords = ["frost","bank","cuenta","estado","statement","account","hsb","chase","amex","capital one","bmo"];
+        const ownerFolderId = OWNER_DRIVE_FOLDERS[ownerName]?.drive_folder_id;
+        const bankSubfolder = OWNER_BANK_FOLDERS[ownerName]?.subfolder_name;
+        if (!ownerFolderId) { setBankDocs([]); setLoadingDocs(false); return; }
 
-        // Nombre de la subcarpeta bancaria (ej. "FROST MANGO") — para recortar el árbol
-        const bankSubfolder = OWNER_BANK_FOLDERS[ownerName]?.subfolder_name?.toLowerCase();
-
-        const filtered = (allDocs || []).filter(d => {
-          const path  = (d.folder_path || "").toLowerCase();
-          const title = (d.title || "").toLowerCase();
-          const isOwner = path.includes(short) || path.includes(low);
-          const isBank  = bankKeywords.some(k => path.includes(k) || title.includes(k));
-          return isOwner && isBank;
-        }).map(d => {
-          // V8 FIX: recortar folder_path para que el árbol empiece desde la subcarpeta bancaria
-          // En lugar de mostrar: APMEW / MANGO LLC DOCS / FROST MANGO / 2024 / archivo
-          // Muestra: FROST MANGO / 2024 / archivo
-          if (bankSubfolder) {
-            const parts = (d.folder_path || "").split("/");
-            const idx = parts.findIndex(p => p.toLowerCase().includes(bankSubfolder));
-            if (idx >= 0) return { ...d, folder_path: parts.slice(idx).join("/") };
+        if (bankSubfolder) {
+          const ownerFiles = await drive.listAllFiles(ownerFolderId);
+          const bankFolder = (ownerFiles || []).find(f =>
+            f.mimeType === "application/vnd.google-apps.folder" &&
+            f.name.toUpperCase().includes(bankSubfolder.toUpperCase())
+          );
+          if (bankFolder) {
+            setBankRootId(bankFolder.id);
+            setBankRootName(bankFolder.name);
+            const bankFiles = await drive.listAllFiles(bankFolder.id);
+            setBankDocs(bankFiles || []);
+          } else {
+            setBankDocs([]);
           }
-          return d;
-        });
-
-        setBankDocs(filtered);
+        } else {
+          setBankRootId(ownerFolderId);
+          setBankRootName(ownerName);
+          const files = await drive.listAllFiles(ownerFolderId);
+          setBankDocs(files || []);
+        }
       } catch (err) { console.error("[CuentasTab]", err); }
+      setLoadingDocs(false);
+    };
+    load();
+  }, [ownerName, drive?.token]);rr) { console.error("[CuentasTab]", err); }
       setLoadingDocs(false);
     };
     load();
@@ -939,9 +959,8 @@ const CuentasTab = ({ ownerName, mob }) => {
 
   const q = searchQuery.trim().toLowerCase();
   const filteredDocs = q
-    ? bankDocs.filter(d => (d.title||"").toLowerCase().includes(q) || (d.folder_path||"").toLowerCase().includes(q))
+    ? bankDocs.filter(d => (d.name || "").toLowerCase().includes(q))
     : bankDocs;
-  const tree = buildOwnerTree(filteredDocs);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -972,13 +991,34 @@ const CuentasTab = ({ ownerName, mob }) => {
         )}
         {loadingDocs ? (
           <div style={{ textAlign: "center", padding: 16 }}><Spinner /></div>
-        ) : filteredDocs.length === 0 ? (
+        ) : !drive?.token ? (
           <div style={{ textAlign: "center", padding: "16px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-            {q ? `Sin resultados para "${q}"` : "No hay estados de cuenta indexados."}
+            Conecta Google Drive para ver estados de cuenta.
+          </div>
+        ) : bankDocs.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "16px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
+            {q ? `Sin resultados para "${q}"` : "No se encontraron estados de cuenta."}
           </div>
         ) : (
           <div style={{ paddingTop: 2, paddingBottom: 2 }}>
-            <OwnerTreeNode name={null} node={tree} depth={0} searchQuery={q} />
+            {filteredDocs.map(f => (
+              <button key={f.id}
+                onClick={() => f.webViewLink && window.open(f.webViewLink, "_blank")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  width: "100%", padding: "7px 10px",
+                  background: "transparent", border: "none",
+                  cursor: f.webViewLink ? "pointer" : "default", textAlign: "left",
+                  borderBottom: `1px solid ${C.border}08`,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+              >
+                <span style={{ fontSize: 14 }}>{f.mimeType === "application/vnd.google-apps.folder" ? "📁" : "📄"}</span>
+                <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+              </button>
+            ))}
           </div>
         )}
         {filteredDocs.length > 0 && (
