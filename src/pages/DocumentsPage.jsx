@@ -1,8 +1,12 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V5
+// Versión: V6
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V6:
+// - Fix análisis IA: agrega x-api-key, anthropic-version y anthropic-dangerous-allow-browser
+// - Tree view: primer nivel (depth=0) abre, resto cerrado
+// - Prompt IA mejorado con contexto de casas, bancos, coches, empresas, seguros
 // CAMBIOS EN V5:
 // - Tree view: todos los directorios inician cerrados
 // - Modal subir: IA lee el PDF/imagen y sugiere carpeta de Google Drive
@@ -60,7 +64,7 @@ const buildTree = (docs) => {
 const TreeNode = ({ name, node, depth, onPreview, searchQuery }) => {
   const hasChildren = Object.keys(node.children).length > 0;
   const hasFiles    = node.files.length > 0;
-  const [open, setOpen] = useState(false); // V5: todos los directorios inician cerrados
+  const [open, setOpen] = useState(depth === 0); // V6: primer nivel abierto, resto cerrado
 
   useEffect(() => {
     if (searchQuery) setOpen(true);
@@ -178,23 +182,37 @@ const UploadModal = ({ onClose, token, signIn, gisLoaded, folderPaths }) => {
             : { type: "image",    source: { type: "base64", media_type: f.type, data: base64 } },
           {
             type: "text",
-            text: `Eres un asistente de organización de documentos para una familia mexicana llamada APMEW.
-Analiza este documento y sugiere en cuál de las siguientes carpetas de Google Drive debería guardarse.
+            text: `Eres un asistente de organización de documentos para una familia mexicana llamada APMEW (Esteva Wurts).
+Analiza este documento e indica en cuál de las carpetas de Google Drive debería guardarse.
 
-CARPETAS DISPONIBLES:
+CONTEXTO: Los documentos pueden pertenecer a:
+- Propiedades / casas (recibos de luz, gas, agua, predial, mantenimiento de cada propiedad)
+- Cuentas bancarias y tarjetas (estados de cuenta, comprobantes)
+- Coches / vehículos (facturas, seguros, tenencia, servicios)
+- Empresas (facturas, contratos, estados financieros de LLC, ARGO, MNA WORKS, etc.)
+- Seguros (pólizas, recibos de seguros de vida, gastos médicos, casa, auto)
+- Inversiones (AFORE, annuities, BlackStone, EB5, etc.)
+- Impuestos / SAT (declaraciones, facturas CFDI, comprobantes fiscales)
+- Legal / notarial (escrituras, testamentos, poderes notariales)
+- Personal (identificaciones, pasaportes, documentos personales de cada miembro)
+
+CARPETAS DISPONIBLES EN GOOGLE DRIVE:
 ${folderList}
 
-Responde SOLO con JSON sin markdown, formato exacto:
-{"path": "APMEW/CARPETA/SUBCARPETA", "reason": "Explicación breve en español de por qué esa carpeta"}
-
-Si ninguna carpeta encaja bien, sugiere la más cercana y explica por qué.`
+Analiza el documento y responde SOLO con JSON sin markdown:
+{"path": "APMEW/CARPETA/SUBCARPETA", "reason": "Explicación breve en español: qué es el documento y por qué va en esa carpeta"}`
           }
         ]
       }];
 
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-allow-browser": "true",
+        },
         body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 300, messages }),
       });
       const data = await resp.json();
