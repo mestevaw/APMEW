@@ -70,7 +70,7 @@ const TabBar = ({ active, onChange, mob, rightSlot }) => (
         </button>
       ))}
     </div>
-    {rightSlot && <div style={{ paddingBottom: 4, paddingRight: 4, flexShrink: 0 }}>{rightSlot}</div>}
+    {rightSlot && <div style={{ paddingBottom: 5, paddingRight: 4, flexShrink: 0, alignSelf: "center" }}>{rightSlot}</div>}
   </div>
 );
 
@@ -1331,8 +1331,8 @@ export const OwnersPage = ({ mob, drive, initialOwner, onConsumed }) => {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 26, fontWeight: 700, color: C.text, marginBottom: 4 }}>🏢 Dueños</h1>
-        <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>Documentos, impuestos, cuentas y gastos por propietario.</p>
+        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 26, fontWeight: 700, color: C.text, marginBottom: 4 }}>🏢 Empresas</h1>
+        <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>Documentos, impuestos, cuentas y gastos por empresa.</p>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {OWNERS.map((ownerName) => (
