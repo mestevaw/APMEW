@@ -40,35 +40,37 @@ const TABS = [
 ];
 
 // ─── Tab bar ─────────────────────────────────────────────────────────────────
-const TabBar = ({ active, onChange, mob }) => (
+const TabBar = ({ active, onChange, mob, rightSlot }) => (
   <div style={{
-    display: "flex", gap: 0,
+    display: "flex", alignItems: "center", gap: 0,
     borderBottom: `1px solid ${C.border}`,
     marginBottom: 20,
-    overflowX: "auto",
   }}>
-    {TABS.map((t) => (
-      <button
-        key={t.id}
-        onClick={() => onChange(t.id)}
-        style={{
-          padding: mob ? "9px 13px" : "10px 18px",
-          background: "none", border: "none",
-          borderBottom: active === t.id ? `2px solid ${C.accent}` : "2px solid transparent",
-          cursor: "pointer",
-          fontFamily: "DM Sans",
-          fontSize: mob ? 12 : 13,
-          fontWeight: active === t.id ? 600 : 400,
-          color: active === t.id ? C.accent : C.textDim,
-          whiteSpace: "nowrap",
-          transition: "all 0.15s",
-          marginBottom: -1,
-          flexShrink: 0,
-        }}
-      >
-        {t.icon} {t.label}
-      </button>
-    ))}
+    <div style={{ display: "flex", flex: 1, overflowX: "auto" }}>
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          style={{
+            padding: mob ? "9px 13px" : "10px 18px",
+            background: "none", border: "none",
+            borderBottom: active === t.id ? `2px solid ${C.accent}` : "2px solid transparent",
+            cursor: "pointer",
+            fontFamily: "DM Sans",
+            fontSize: mob ? 12 : 13,
+            fontWeight: active === t.id ? 600 : 400,
+            color: active === t.id ? C.accent : C.textDim,
+            whiteSpace: "nowrap",
+            transition: "all 0.15s",
+            marginBottom: -1,
+            flexShrink: 0,
+          }}
+        >
+          {t.icon} {t.label}
+        </button>
+      ))}
+    </div>
+    {rightSlot && <div style={{ paddingBottom: 4, paddingRight: 4, flexShrink: 0 }}>{rightSlot}</div>}
   </div>
 );
 
@@ -541,56 +543,37 @@ Responde SOLO con JSON, sin texto extra, sin backticks:
 };
 
 // =============================================================================
-// TAB: DOCUMENTOS  (navega Drive directamente)
+// TAB: DOCUMENTOS  — lee de Supabase, solo Drive para subir
 // =============================================================================
-const DocumentosTab = ({ ownerName, mob, drive }) => {
-  const driveFolder = OWNER_DRIVE_FOLDERS?.[ownerName];
-  const bankFolder  = OWNER_BANK_FOLDERS?.[ownerName];
-
-  const [subfolders,     setSubfolders]     = useState([]);
-  const [loading,        setLoading]        = useState(true);
-  const [expandedFolder, setExpandedFolder] = useState(null);
-  const [folderFiles,    setFolderFiles]    = useState({});
-  const [loadingFiles,   setLoadingFiles]   = useState({});
-  const [searchQuery,    setSearchQuery]    = useState("");
-  const [showSearch,     setShowSearch]     = useState(false);
-  const [showUpload,     setShowUpload]     = useState(false);
+const DocumentosTab = ({ ownerName, mob, drive, showSearch, setShowSearch, showUpload, setShowUpload }) => {
+  const [docs,        setDocs]        = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [expanded,    setExpanded]    = useState({});
 
   useEffect(() => {
-    if (!driveFolder?.drive_folder_id || !drive?.token) { setLoading(false); return; }
     const load = async () => {
       setLoading(true);
       try {
-        const items = await drive.listAllFiles(driveFolder.drive_folder_id);
-        const folders = (items || [])
-          .filter(f => f.mimeType === "application/vnd.google-apps.folder")
-          .filter(f => {
-            if (!bankFolder?.subfolder_name) return true;
-            return f.name.toUpperCase() !== bankFolder.subfolder_name.toUpperCase();
-          })
-          .sort((a, b) => a.name.localeCompare(b.name));
-        setSubfolders(folders);
-      } catch (err) { console.error("[DocumentosTab] Drive:", err); }
+        const addrs  = ownerProps(ownerName).map(p => p.address);
+        const short  = (OWNER_SHORT[ownerName] || ownerName).toLowerCase();
+        const low    = ownerName.toLowerCase();
+        const allDocs = await supaFetch("documents", { order: "folder_path,title" });
+        const filtered = (allDocs || []).filter(d => {
+          const path  = (d.folder_path || "").toLowerCase();
+          const title = (d.title || "").toLowerCase();
+          return path.includes(short) || path.includes(low) ||
+            addrs.some(a => path.includes(a.toLowerCase()) || title.includes(a.toLowerCase()));
+        });
+        setDocs(filtered);
+      } catch (err) { console.error("[DocumentosTab]", err); }
       setLoading(false);
     };
     load();
-  }, [driveFolder?.drive_folder_id, drive?.token, ownerName]);
+  }, [ownerName]);
 
-  const toggleFolder = async (folder) => {
-    if (expandedFolder === folder.id) { setExpandedFolder(null); return; }
-    setExpandedFolder(folder.id);
-    if (folderFiles[folder.id]) return;
-    setLoadingFiles(p => ({ ...p, [folder.id]: true }));
-    try {
-      const files = await drive.listAllFiles(folder.id);
-      setFolderFiles(p => ({ ...p, [folder.id]: files || [] }));
-    } catch (err) { console.error("[DocumentosTab] folder files:", err); }
-    setLoadingFiles(p => ({ ...p, [folder.id]: false }));
-  };
-
-  const fileIcon = (f = {}) => {
-    if (f.mimeType === "application/vnd.google-apps.folder") return "📁";
-    const ext = (f.name || "").split(".").pop().toLowerCase();
+  const fileIcon = (name = "") => {
+    const ext = name.split(".").pop().toLowerCase();
     if (ext === "pdf") return "📕";
     if (["xlsx","xls","numbers"].includes(ext)) return "📗";
     if (["docx","doc","pages"].includes(ext)) return "📘";
@@ -598,73 +581,38 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
     return "📄";
   };
 
-  const driveLink = (f) => {
-    if (f.mimeType === "application/vnd.google-apps.folder")
-      return `https://drive.google.com/drive/folders/${f.id}`;
-    return `https://drive.google.com/file/d/${f.id}/view`;
-  };
-
-  // Header always visible — hamburger + search
-  const Header = () => (
-    <>
-      {showUpload && <UploadModal onClose={() => setShowUpload(false)} ownerName={ownerName} />}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        {showSearch && (
-          <input autoFocus type="text" placeholder="Buscar documento o carpeta…"
-            value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-            style={{ flex: 1, fontFamily: "DM Sans", fontSize: 13, background: C.surface2,
-              border: `1px solid ${searchQuery ? C.accent : C.border}`,
-              borderRadius: 8, padding: "7px 12px", color: C.text, outline: "none" }} />
-        )}
-        {showSearch && searchQuery && (
-          <button onClick={() => setSearchQuery("")}
-            style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 16 }}>✕</button>
-        )}
-        <div style={{ flex: 1 }} />
-        <DocMenu onSearch={() => setShowSearch(s => !s)} onUpload={() => setShowUpload(true)} />
-      </div>
-    </>
-  );
-
-  if (!driveFolder?.drive_folder_id) return (
-    <><Header />
-    <Card><div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-      📌 Carpeta Drive no configurada para este dueño.
-    </div></Card></>
-  );
-
-  if (!drive?.token) return (
-    <><Header />
-    <Card><div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-      Conecta Google Drive para ver los documentos.
-    </div></Card></>
-  );
-
-  if (loading) return <><Header /><div style={{ textAlign: "center", padding: 40 }}><Spinner /></div></>;
-
-  if (!subfolders.length) return (
-    <><Header />
-    <Card><div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-      No se encontraron carpetas en Drive.
-    </div></Card></>
-  );
+  if (loading) return <div style={{ textAlign: "center", padding: 40 }}><Spinner /></div>;
 
   const q = searchQuery.trim().toLowerCase();
-  const visibleFolders = q
-    ? subfolders.filter(f => {
-        if (f.name.toLowerCase().includes(q)) return true;
-        const files = folderFiles[f.id] || [];
-        return files.some(file => (file.name || "").toLowerCase().includes(q));
-      })
-    : subfolders;
+
+  // Group by folder_path
+  const byFolder = {};
+  docs.forEach(d => {
+    const f = d.folder_path || "Sin carpeta";
+    if (!byFolder[f]) byFolder[f] = [];
+    byFolder[f].push(d);
+  });
+
+  // Filter by search
+  const visibleFolders = Object.entries(byFolder).filter(([folder, items]) => {
+    if (!q) return true;
+    if (folder.toLowerCase().includes(q)) return true;
+    return items.some(d => (d.title || d.file_name || "").toLowerCase().includes(q));
+  });
 
   return (
     <>
-      {showUpload && <UploadModal onClose={() => setShowUpload(false)} ownerName={ownerName} />}
+      {showUpload && (
+        <UploadModal
+          onClose={() => setShowUpload(false)}
+          ownerName={ownerName}
+          drive={drive}
+        />
+      )}
 
-      {/* Header: search bar + hamburger menu */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        {showSearch && (
+      {/* Search bar — shown when toggled from hamburger */}
+      {showSearch && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <input
             autoFocus
             type="text"
@@ -677,83 +625,87 @@ const DocumentosTab = ({ ownerName, mob, drive }) => {
               borderRadius: 8, padding: "7px 12px", color: C.text, outline: "none",
             }}
           />
-        )}
-        {showSearch && searchQuery && (
-          <button onClick={() => setSearchQuery("")} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 16 }}>✕</button>
-        )}
-        <div style={{ flex: showSearch ? 0 : 1 }} />
-        <DocMenu
-          onSearch={() => setShowSearch(s => !s)}
-          onUpload={() => setShowUpload(true)}
-        />
-      </div>
-
-      {q && visibleFolders.length === 0 && (
-        <div style={{ textAlign: "center", padding: "20px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-          Sin resultados para "{searchQuery}"
+          {searchQuery && (
+            <button onClick={() => setSearchQuery("")}
+              style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 16 }}>✕</button>
+          )}
+          <button onClick={() => { setShowSearch(false); setSearchQuery(""); }}
+            style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: C.textDim, fontFamily: "DM Sans", fontSize: 12 }}>
+            Cerrar
+          </button>
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {visibleFolders.map((folder) => {
-          const isOpen = expandedFolder === folder.id;
-          const files  = (folderFiles[folder.id] || []).filter(f =>
-            !q || (f.name || "").toLowerCase().includes(q) || folder.name.toLowerCase().includes(q)
-          );
-          const isLoad = loadingFiles[folder.id];
-          return (
-            <div key={folder.id}>
-              <button
-                onClick={() => toggleFolder(folder)}
-                style={{
-                  width: "100%", display: "flex", alignItems: "center", gap: 8,
-                  padding: "10px 14px",
-                  background: isOpen ? C.accentGlow : C.surface,
-                  border: `1px solid ${isOpen ? C.accent + "40" : C.border}`,
-                  borderRadius: isOpen ? "10px 10px 0 0" : 10,
-                  cursor: "pointer", transition: "all 0.15s",
-                }}
-                onMouseEnter={e => !isOpen && (e.currentTarget.style.background = C.surface2)}
-                onMouseLeave={e => !isOpen && (e.currentTarget.style.background = C.surface)}
-              >
-                <span style={{ fontSize: 15, flexShrink: 0 }}>📁</span>
-                <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: isOpen ? C.accent : C.text, flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {folder.name}
-                </span>
-                {files.length > 0 && <Badge color={C.textDim}>{files.length}</Badge>}
-                <span style={{ color: C.textMuted, fontSize: 11, marginLeft: 4 }}>{isOpen ? "▲" : "▼"}</span>
-              </button>
+      {docs.length === 0 ? (
+        <Card>
+          <div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
+            No hay documentos indexados para este dueño.
+          </div>
+        </Card>
+      ) : q && visibleFolders.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "20px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
+          Sin resultados para "{searchQuery}"
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {visibleFolders.map(([folder, allItems]) => {
+            const items = q
+              ? allItems.filter(d => (d.title || d.file_name || "").toLowerCase().includes(q) || folder.toLowerCase().includes(q))
+              : allItems;
+            const isOpen = expanded[folder];
+            return (
+              <div key={folder}>
+                <button
+                  onClick={() => setExpanded(ex => ({ ...ex, [folder]: !isOpen }))}
+                  style={{
+                    width: "100%", display: "flex", alignItems: "center", gap: 8,
+                    padding: "10px 14px",
+                    background: isOpen ? C.accentGlow : C.surface,
+                    border: `1px solid ${isOpen ? C.accent + "40" : C.border}`,
+                    borderRadius: isOpen ? "10px 10px 0 0" : 10,
+                    cursor: "pointer", transition: "all 0.15s",
+                  }}
+                  onMouseEnter={e => !isOpen && (e.currentTarget.style.background = C.surface2)}
+                  onMouseLeave={e => !isOpen && (e.currentTarget.style.background = C.surface)}
+                >
+                  <span style={{ fontSize: 14, flexShrink: 0 }}>📁</span>
+                  <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: isOpen ? C.accent : C.text, flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {folder}
+                  </span>
+                  <Badge color={C.textDim}>{items.length}</Badge>
+                  <span style={{ color: C.textMuted, fontSize: 11, marginLeft: 4 }}>{isOpen ? "▲" : "▼"}</span>
+                </button>
 
-              {isOpen && (
-                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 10px 10px", maxHeight: 320, overflowY: "auto" }}>
-                  {isLoad ? (
-                    <div style={{ textAlign: "center", padding: 16 }}><Spinner /></div>
-                  ) : files.length === 0 ? (
-                    <div style={{ padding: "12px 16px", fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>Carpeta vacía</div>
-                  ) : files.map((f, i) => (
-                    <a key={f.id || i}
-                      href={driveLink(f)}
-                      target="_blank" rel="noreferrer"
-                      style={{
-                        display: "flex", alignItems: "center", gap: 8,
-                        padding: "8px 16px",
-                        borderBottom: i < files.length - 1 ? `1px solid ${C.border}` : "none",
-                        textDecoration: "none", cursor: "pointer", transition: "background 0.12s",
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.background = C.accentGlow}
-                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                    >
-                      <span style={{ fontSize: 13, flexShrink: 0 }}>{fileIcon(f)}</span>
-                      <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-                      <span style={{ fontSize: 11, color: C.accent, flexShrink: 0 }}>↗</span>
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                {isOpen && (
+                  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 10px 10px" }}>
+                    {items.map((d, i) => (
+                      <a key={d.id || i}
+                        href={d.drive_file_id ? `https://drive.google.com/file/d/${d.drive_file_id}/view` : "#"}
+                        target="_blank" rel="noreferrer"
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8,
+                          padding: "8px 16px",
+                          borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none",
+                          textDecoration: "none", cursor: d.drive_file_id ? "pointer" : "default",
+                          transition: "background 0.12s",
+                        }}
+                        onMouseEnter={e => d.drive_file_id && (e.currentTarget.style.background = C.accentGlow)}
+                        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <span style={{ fontSize: 13, flexShrink: 0 }}>{fileIcon(d.title || d.file_name || "")}</span>
+                        <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {d.title || d.file_name || "Sin nombre"}
+                        </span>
+                        {d.drive_file_id && <span style={{ fontSize: 11, color: C.accent, flexShrink: 0 }}>↗</span>}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 };
@@ -1251,11 +1203,21 @@ const GastosTab = ({ ownerName, mob }) => {
 // OWNER DETAIL VIEW  (header + 5 tabs)
 // =============================================================================
 const OwnerPageDetail = ({ ownerName, mob, drive, onBack, onSelectProperty }) => {
-  const [tab, setTab] = useState("resumen");
-  const color         = OWNER_COLORS[ownerName] || C.accent;
-  const props         = ownerProps(ownerName);
-  const activeProps   = props.filter((p) => !p.sold);
-  const soldProps     = props.filter((p) => p.sold);
+  const [tab,            setTab]            = useState("resumen");
+  const [showDocSearch,  setShowDocSearch]  = useState(false);
+  const [showDocUpload,  setShowDocUpload]  = useState(false);
+  const color       = OWNER_COLORS[ownerName] || C.accent;
+  const props       = ownerProps(ownerName);
+  const activeProps = props.filter((p) => !p.sold);
+  const soldProps   = props.filter((p) => p.sold);
+
+  // Hamburger menu shown only when on Documentos tab
+  const docMenuSlot = tab === "documentos" ? (
+    <DocMenu
+      onSearch={() => setShowDocSearch(s => !s)}
+      onUpload={() => setShowDocUpload(true)}
+    />
+  ) : null;
 
   return (
     <div>
@@ -1274,10 +1236,12 @@ const OwnerPageDetail = ({ ownerName, mob, drive, onBack, onSelectProperty }) =>
         </div>
       </div>
 
-      <TabBar active={tab} onChange={setTab} mob={mob} />
+      <TabBar active={tab} onChange={(t) => { setTab(t); setShowDocSearch(false); }} mob={mob} rightSlot={docMenuSlot} />
 
       {tab === "resumen"    && <ResumenTab    ownerName={ownerName} mob={mob} onSelectProperty={onSelectProperty} />}
-      {tab === "documentos" && <DocumentosTab ownerName={ownerName} mob={mob} drive={drive} />}
+      {tab === "documentos" && <DocumentosTab ownerName={ownerName} mob={mob} drive={drive}
+          showSearch={showDocSearch} setShowSearch={setShowDocSearch}
+          showUpload={showDocUpload} setShowUpload={setShowDocUpload} />}
       {tab === "impuestos"  && <ImpuestosTab  ownerName={ownerName} mob={mob} />}
       {tab === "cuentas"    && <CuentasTab    ownerName={ownerName} mob={mob} drive={drive} />}
       {tab === "gastos"     && <GastosTab     ownerName={ownerName} mob={mob} />}
