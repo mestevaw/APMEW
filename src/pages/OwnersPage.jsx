@@ -899,7 +899,11 @@ const CuentasTab = ({ ownerName, mob, drive }) => {
       const rows = await supaFetch("owner_bank_accounts", { filters: `owner_name=eq.${encodeURIComponent(ownerName)}`, order: "bank_name" });
       setAccounts(rows || []);
       setTableExists(true);
-    } catch { setTableExists(false); setAccounts(  // V9: Cargar documentos bancarios desde Drive directamente (sin Supabase)
+    } catch { setTableExists(false); setAccounts([]); }
+    setLoadingAcc(false);
+  }, [ownerName]);
+
+  // V9: Cargar documentos bancarios desde Drive directamente (sin Supabase)
   useEffect(() => {
     const load = async () => {
       if (!driveToken) { setLoadingDocs(false); return; }
