@@ -1,8 +1,11 @@
 // ═══════════════════════════════════════════
 // Archivo: src/App.jsx
-// Versión: V7
+// Versión: V8
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V8:
+// - Removido "Gastos Diarios" del menú principal
+// - Removido "Inspecciones" del menú principal (accesible desde fichas de casas)
 // CAMBIOS EN V7:
 // - Drive ya NO es requerido para entrar a la app
 // - Datos de Supabase se cargan directo al montar
@@ -143,16 +146,14 @@ export default function App() {
 
   // ─── Navigation ───────────────────────────────────────────────────────────
   const navItems = [
-    { id: "income",      label: "Ingresos Actuales",  icon: I.income },
-    { id: "retIncome",   label: "Ingresos Retiro",    icon: I.income },
-    { id: "expenses",    label: "Gastos Retiro",       icon: I.expenses },
-    { id: "patrimony",   label: "Patrimonio",          icon: I.patrimony },
-    { id: "projection",  label: "Proyección 30 Años",  icon: I.projection },
-    { id: "checklist",   label: "Checklist",            icon: I.checklist },
-    { id: "daily",       label: "Gastos Diarios",      icon: I.daily },
-    { id: "docs",        label: "Documentos",           icon: I.docs },
-    { id: "owners",      label: "Empresas",             icon: "🏢" },
-    { id: "inspections", label: "Inspecciones",         icon: I.inspection },
+    { id: "income",     label: "Ingresos Actuales", icon: I.income },
+    { id: "retIncome",  label: "Ingresos Retiro",   icon: I.income },
+    { id: "expenses",   label: "Gastos Retiro",      icon: I.expenses },
+    { id: "patrimony",  label: "Patrimonio",         icon: I.patrimony },
+    { id: "projection", label: "Proyección 30 Años", icon: I.projection },
+    { id: "checklist",  label: "Checklist",           icon: I.checklist },
+    { id: "docs",       label: "Documentos",          icon: I.docs },
+    { id: "owners",     label: "Empresas",            icon: "🏢" },
   ];
 
   const goHome    = () => { setPage("dashboard"); setDashKey(k => k + 1); if (mob) setSidebarOpen(false); };

@@ -1,8 +1,14 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/DocumentsPage.jsx
-// Versión: V2
-// Fecha: 2026-03-02
+// Versión: V3
+// Fecha: 2026-03-16
 // ═══════════════════════════════════════════
+// CAMBIOS EN V3:
+// - Tab default cambia a "indexed": la página abre sin pedir Drive
+// - Menú hamburguesa a la izquierda del título "Documentos"
+// - Items del menú: "Búsqueda" y "Subir documento"
+// - Dropdown cierra al hacer click fuera
+// - Panel "Subir documento" pide conectar Drive solo si no hay sesión
 // CAMBIOS EN V2:
 // - Agregado panel de estadísticas del índice
 // - Muestra: carpetas indexadas, archivos indexados, última sincronización
@@ -34,15 +40,19 @@ const HIDDEN_FOLDERS = [];
 
 // ─── Component ───
 export const DocumentsPage = ({ documents, mob, reload, drive }) => {
-  const [tab, setTab] = useState("drive");
+  const [tab, setTab] = useState("indexed"); // ← V3: abre en Indexados, no requiere Drive
   const [currentFolder, setCurrentFolder] = useState(DRIVE_ROOT_FOLDER);
   const [breadcrumb, setBreadcrumb] = useState([{ id: DRIVE_ROOT_FOLDER, name: "APMEW" }]);
   const [files, setFiles] = useState([]);
   const [loadingDrive, setLoadingDrive] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
   const [previewFile, setPreviewFile] = useState(null);
-  const [indexStats, setIndexStats] = useState(null); // ← NUEVO
-  const [showStats, setShowStats] = useState(false); // ← NUEVO
+  const [indexStats, setIndexStats] = useState(null);
+  const [showStats, setShowStats] = useState(false);
+  const [menuOpen, setMenuOpen]     = useState(false);    // ← V3: hamburguesa
+  const [showSearch, setShowSearch] = useState(false);    // ← V3: panel búsqueda
+  const [showUpload, setShowUpload] = useState(false);    // ← V3: panel subir doc
+  const menuRef = useRef(null);                           // ← V3: click-fuera
   const { token, gisLoaded, signIn, signOut, listAllFiles } = drive;
 
   // Load folder contents
@@ -93,6 +103,16 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
   useEffect(() => {
     if (token) loadIndexStats();
   }, [token]);
+
+  // ─── V3: Cerrar menú hamburguesa al hacer click fuera ───
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   // ─── Incremental sync ───
   const [syncing, setSyncing] = useState(false);
@@ -200,10 +220,90 @@ export const DocumentsPage = ({ documents, mob, reload, drive }) => {
     }}>{label}</button>
   );
 
+  // ─── V3: Item del menú hamburguesa ───
+  const MenuItem = ({ icon, label, onClick }) => (
+    <button onClick={onClick} style={{
+      display: "flex", alignItems: "center", gap: 10,
+      width: "100%", padding: "11px 16px",
+      background: "transparent", border: "none", cursor: "pointer",
+      fontFamily: "DM Sans", fontSize: 14, color: C.text, textAlign: "left",
+    }}
+      onMouseEnter={e => e.currentTarget.style.background = C.surface2}
+      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+    >
+      <span style={{ fontSize: 16 }}>{icon}</span>{label}
+    </button>
+  );
+
   return (
     <div>
-      <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, marginBottom: 4 }}>Documentos</h1>
+      {/* ─── V3: Header con hamburguesa ─── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <div ref={menuRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setMenuOpen(v => !v)}
+            title="Menú documentos"
+            style={{
+              background: menuOpen ? C.accentGlow : "transparent",
+              border: `1px solid ${menuOpen ? C.accent + "40" : C.border}`,
+              borderRadius: 8, padding: "5px 7px", cursor: "pointer",
+              color: menuOpen ? C.accent : C.textDim,
+              display: "flex", alignItems: "center", transition: "all 0.15s",
+            }}
+          >
+            {I.menu}
+          </button>
+          {menuOpen && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 6px)", left: 0,
+              background: C.surface, border: `1px solid ${C.border}`,
+              borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.22)",
+              zIndex: 200, minWidth: 190, overflow: "hidden",
+            }}>
+              <div style={{ padding: "8px 16px 6px", fontFamily: "DM Sans", fontSize: 10, fontWeight: 700, color: C.textDim, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                Documentos
+              </div>
+              <div style={{ borderTop: `1px solid ${C.border}` }}>
+                <MenuItem icon="🔍" label="Búsqueda"
+                  onClick={() => { setShowSearch(v => !v); setShowUpload(false); setMenuOpen(false); }} />
+                <MenuItem icon="⬆️" label="Subir documento"
+                  onClick={() => { setShowUpload(v => !v); setShowSearch(false); setMenuOpen(false); }} />
+              </div>
+            </div>
+          )}
+        </div>
+        <h1 style={{ fontFamily: "DM Sans", fontSize: mob ? 20 : 24, fontWeight: 700, color: C.text, margin: 0 }}>Documentos</h1>
+      </div>
       <p style={{ fontFamily: "DM Sans", fontSize: mob ? 12 : 14, color: C.textDim, marginBottom: 20 }}>Google Drive + índice en Supabase</p>
+
+      {/* ─── V3: Panel Búsqueda ─── */}
+      {showSearch && (
+        <div style={{ marginBottom: 16, padding: 16, background: C.surface, border: `1px solid ${C.accent}30`, borderRadius: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>🔍 Búsqueda de documentos</span>
+            <button onClick={() => setShowSearch(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim }}>{I.close}</button>
+          </div>
+          <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, margin: 0 }}>Próximamente — búsqueda por nombre, tipo y carpeta.</p>
+        </div>
+      )}
+
+      {/* ─── V3: Panel Subir documento ─── */}
+      {showUpload && (
+        <div style={{ marginBottom: 16, padding: 16, background: C.surface, border: `1px solid ${C.accent}30`, borderRadius: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.accent }}>⬆️ Subir documento</span>
+            <button onClick={() => setShowUpload(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim }}>{I.close}</button>
+          </div>
+          {!token ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start" }}>
+              <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, margin: 0 }}>Necesitas conectar Google Drive para subir documentos.</p>
+              <Btn onClick={signIn} disabled={!gisLoaded}>{I.google} <span style={{ marginLeft: 6 }}>Conectar Google Drive</span></Btn>
+            </div>
+          ) : (
+            <p style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim, margin: 0 }}>Próximamente — subida de documentos a Google Drive.</p>
+          )}
+        </div>
+      )}
 
       {/* ─── NUEVO: Panel de Estadísticas del Índice ─── */}
       {token && indexStats && (
