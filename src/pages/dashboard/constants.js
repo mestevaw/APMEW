@@ -66,15 +66,23 @@ export const PROPERTY_VALUES_2025 = {
 export const OWNER_COLORS = { "Mango Nest": "#4ADE80", "MNA Works": "#60A5FA", "Tortuga Home": "#F59E0B", "Argo Real": "#A78BFA", "Miguel y AnaP": "#C8A862" };
 export const OWNER_SHORT = { "Mango Nest": "Mango", "MNA Works": "MNA", "Tortuga Home": "Tortuga", "Argo Real": "Argo", "Miguel y AnaP": "AnaPMEW" };
 
-// ─── Carpetas Drive de estados de cuenta por dueño ───────────────────────────
-// Para obtener el ID de una carpeta: ábrela en drive.google.com
-// y copia el ID al final de la URL:
-//   https://drive.google.com/drive/folders/ESTE_ES_EL_ID
+// ─── Carpeta raíz de documentos en Drive por dueño ───────────────────────────
+// La tab "Documentos" navega esta carpeta (subcarpetas por propiedad)
+// La tab "Cuentas" busca la subcarpeta bancaria dentro de esta misma carpeta
+export const OWNER_DRIVE_FOLDERS = {
+  "Mango Nest":    { drive_folder_id: "1NqfKtpdkGnhyV7X_-Vsg5pf7T5HC-ix6" }, // MANGO NEST
+  "MNA Works":     { drive_folder_id: null },
+  "Tortuga Home":  { drive_folder_id: null },
+  "Miguel y AnaP": { drive_folder_id: null },
+};
+
+// ─── Nombre de la subcarpeta bancaria dentro de OWNER_DRIVE_FOLDERS ──────────
+// Se busca dinámicamente por nombre dentro de la carpeta raíz del dueño
 export const OWNER_BANK_FOLDERS = {
-  "Mango Nest":    { label: "FROST MANGO",  drive_folder_id: null }, // ← pegar ID aquí
-  "MNA Works":     { label: "MNA Cuentas",  drive_folder_id: null },
-  "Tortuga Home":  { label: "Tortuga Ctas", drive_folder_id: null },
-  "Miguel y AnaP": { label: "Cuentas",      drive_folder_id: null },
+  "Mango Nest":    { label: "FROST MANGO",  subfolder_name: "FROST MANGO"  },
+  "MNA Works":     { label: "MNA Cuentas",  subfolder_name: null },
+  "Tortuga Home":  { label: "Tortuga Ctas", subfolder_name: null },
+  "Miguel y AnaP": { label: "Cuentas",      subfolder_name: null },
 };
 
 export const CARS = [

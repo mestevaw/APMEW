@@ -1,11 +1,16 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/OwnersPage.jsx
-// Versión: V3
+// Versión: V4
 // Fecha: 2026-03-16
 // ═══════════════════════════════════════════
-// CAMBIOS EN V3:
-// - Acepta prop initialOwner: abre directamente el dueño indicado al cargar
-// - Acepta prop onConsumed: callback para limpiar el estado en App.jsx
+// CAMBIOS EN V4:
+// - DocumentosTab: navega Drive directamente (OWNER_DRIVE_FOLDERS)
+//   en lugar de buscar en Supabase. Muestra subcarpetas por propiedad,
+//   expandibles para ver archivos, con link "Ver ↗" a Drive.
+//   Excluye la subcarpeta bancaria (FROST MANGO) para no duplicarla.
+// - CuentasTab: encuentra FROST MANGO dinámicamente como subcarpeta
+//   dentro de la carpeta raíz del dueño (no necesita ID separado).
+// - Importa OWNER_DRIVE_FOLDERS de constants
 // ═══════════════════════════════════════════
 
 import { useState, useEffect, useCallback } from "react";
@@ -14,7 +19,7 @@ import { I } from "../lib/icons";
 import { supaFetch, supaInsert, supaDelete } from "../lib/supabase";
 import { Card, Badge, Spinner, Btn } from "../components/UI";
 import {
-  PROPERTIES, OWNER_COLORS, OWNER_SHORT, OWNER_BANK_FOLDERS,
+  PROPERTIES, OWNER_COLORS, OWNER_SHORT, OWNER_BANK_FOLDERS, OWNER_DRIVE_FOLDERS,
   getPropExpenseTypes,
 } from "./dashboard/constants";
 import PropertyDetail from "./dashboard/PropertyDetail";
@@ -234,68 +239,161 @@ const ResumenTab = ({ ownerName, mob, onSelectProperty }) => {
 };
 
 // =============================================================================
-// TAB: DOCUMENTOS
+// TAB: DOCUMENTOS  (navega Drive directamente)
 // =============================================================================
-const DocumentosTab = ({ ownerName, mob }) => {
-  const [docs, setDocs]       = useState([]);
-  const [loading, setLoading] = useState(true);
+const DocumentosTab = ({ ownerName, mob, drive }) => {
+  const driveFolder  = OWNER_DRIVE_FOLDERS?.[ownerName];
+  const bankFolder   = OWNER_BANK_FOLDERS?.[ownerName];
 
+  const [subfolders,     setSubfolders]     = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [expandedFolder, setExpandedFolder] = useState(null);
+  const [folderFiles,    setFolderFiles]    = useState({});
+  const [loadingFiles,   setLoadingFiles]   = useState({});
+
+  // Load subfolders of owner's root Drive folder
   useEffect(() => {
+    if (!driveFolder?.drive_folder_id || !drive?.token) { setLoading(false); return; }
     const load = async () => {
       setLoading(true);
       try {
-        const addrs   = ownerProps(ownerName).map((p) => p.address);
-        const allDocs = await supaFetch("documents", { order: "folder_path,title" });
-        const short   = (OWNER_SHORT[ownerName] || ownerName).toLowerCase();
-        const low     = ownerName.toLowerCase();
-        const filtered = (allDocs || []).filter((d) => {
-          const path  = (d.folder_path || "").toLowerCase();
-          const title = (d.title || "").toLowerCase();
-          return path.includes(short) || path.includes(low) ||
-            addrs.some((a) => path.includes(a.toLowerCase()) || title.includes(a.toLowerCase()));
-        });
-        setDocs(filtered);
-      } catch (err) { console.error("[OwnersPage] docs:", err); }
+        const items = await drive.listAllFiles(driveFolder.drive_folder_id);
+        const folders = (items || [])
+          .filter(f => f.mimeType === "application/vnd.google-apps.folder")
+          .filter(f => {
+            // Exclude the bank subfolder so it doesn't duplicate Cuentas tab
+            if (!bankFolder?.subfolder_name) return true;
+            return f.name.toUpperCase() !== bankFolder.subfolder_name.toUpperCase();
+          })
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setSubfolders(folders);
+      } catch (err) { console.error("[DocumentosTab] Drive:", err); }
       setLoading(false);
     };
     load();
-  }, [ownerName]);
+  }, [driveFolder?.drive_folder_id, drive?.token, ownerName]);
 
-  if (loading) return <div style={{ textAlign: "center", padding: 40 }}><Spinner /></div>;
+  const toggleFolder = async (folder) => {
+    if (expandedFolder === folder.id) { setExpandedFolder(null); return; }
+    setExpandedFolder(folder.id);
+    if (folderFiles[folder.id]) return;
+    setLoadingFiles(p => ({ ...p, [folder.id]: true }));
+    try {
+      const files = await drive.listAllFiles(folder.id);
+      setFolderFiles(p => ({ ...p, [folder.id]: files || [] }));
+    } catch (err) { console.error("[DocumentosTab] folder files:", err); }
+    setLoadingFiles(p => ({ ...p, [folder.id]: false }));
+  };
 
-  if (!docs.length) return (
+  const fileIcon = (f = {}) => {
+    if (f.mimeType === "application/vnd.google-apps.folder") return "📁";
+    const ext = (f.name || "").split(".").pop().toLowerCase();
+    if (ext === "pdf") return "📕";
+    if (["xlsx","xls","numbers"].includes(ext)) return "📗";
+    if (["docx","doc","pages"].includes(ext)) return "📘";
+    if (["jpg","jpeg","png","heic"].includes(ext)) return "🖼️";
+    return "📄";
+  };
+
+  const driveLink = (f) => {
+    if (f.mimeType === "application/vnd.google-apps.folder")
+      return `https://drive.google.com/drive/folders/${f.id}`;
+    return `https://drive.google.com/file/d/${f.id}/view`;
+  };
+
+  // No Drive folder configured
+  if (!driveFolder?.drive_folder_id) return (
     <Card>
       <div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
-        No hay documentos indexados para este dueño.
+        📌 Carpeta Drive no configurada para este dueño.
       </div>
     </Card>
   );
 
-  const byFolder = {};
-  docs.forEach((d) => { const f = d.folder_path || "Sin carpeta"; if (!byFolder[f]) byFolder[f] = []; byFolder[f].push(d); });
+  // Drive not connected
+  if (!drive?.token) return (
+    <Card>
+      <div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
+        Conecta Google Drive para ver los documentos.
+      </div>
+    </Card>
+  );
+
+  if (loading) return <div style={{ textAlign: "center", padding: 40 }}><Spinner /></div>;
+
+  if (!subfolders.length) return (
+    <Card>
+      <div style={{ textAlign: "center", padding: "30px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
+        No se encontraron carpetas en Drive.
+      </div>
+    </Card>
+  );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {Object.entries(byFolder).map(([folder, items]) => (
-        <Card key={folder}>
-          <div style={{ fontFamily: "DM Sans", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>📁 {folder}</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {items.map((doc, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 10px", background: C.surface2, borderRadius: 7, gap: 8 }}>
-                <span style={{ fontFamily: "DM Sans", fontSize: 13, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  📄 {doc.title || doc.file_name || "Sin nombre"}
-                </span>
-                {doc.drive_file_id && (
-                  <a href={`https://drive.google.com/file/d/${doc.drive_file_id}/view`} target="_blank" rel="noreferrer"
-                    style={{ fontFamily: "DM Sans", fontSize: 11, color: C.accent, textDecoration: "none", whiteSpace: "nowrap" }}>
-                    Ver ↗
-                  </a>
-                )}
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {subfolders.map((folder) => {
+        const isOpen  = expandedFolder === folder.id;
+        const files   = folderFiles[folder.id] || [];
+        const isLoad  = loadingFiles[folder.id];
+        return (
+          <div key={folder.id}>
+            <button
+              onClick={() => toggleFolder(folder)}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", gap: 8,
+                padding: "10px 14px",
+                background: isOpen ? C.accentGlow : C.surface,
+                border: `1px solid ${isOpen ? C.accent + "40" : C.border}`,
+                borderRadius: isOpen ? "10px 10px 0 0" : 10,
+                cursor: "pointer", transition: "all 0.15s",
+              }}
+              onMouseEnter={e => !isOpen && (e.currentTarget.style.background = C.surface2)}
+              onMouseLeave={e => !isOpen && (e.currentTarget.style.background = C.surface)}
+            >
+              <span style={{ fontSize: 15, flexShrink: 0 }}>📁</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: isOpen ? C.accent : C.text, flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {folder.name}
+              </span>
+              {files.length > 0 && <Badge color={C.textDim}>{files.length}</Badge>}
+              <span style={{ color: C.textMuted, fontSize: 11, marginLeft: 4 }}>{isOpen ? "▲" : "▼"}</span>
+            </button>
+
+            {isOpen && (
+              <div style={{
+                background: C.surface, border: `1px solid ${C.border}`,
+                borderTop: "none", borderRadius: "0 0 10px 10px",
+                maxHeight: 320, overflowY: "auto",
+              }}>
+                {isLoad ? (
+                  <div style={{ textAlign: "center", padding: 16 }}><Spinner /></div>
+                ) : files.length === 0 ? (
+                  <div style={{ padding: "12px 16px", fontFamily: "DM Sans", fontSize: 12, color: C.textDim }}>
+                    Carpeta vacía
+                  </div>
+                ) : files.map((f, i) => (
+                  <div key={f.id || i} style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "8px 16px",
+                    borderBottom: i < files.length - 1 ? `1px solid ${C.border}` : "none",
+                  }}>
+                    <span style={{ fontSize: 13, flexShrink: 0 }}>{fileIcon(f)}</span>
+                    <span style={{ fontFamily: "DM Sans", fontSize: 12, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {f.name}
+                    </span>
+                    <a
+                      href={driveLink(f)}
+                      target="_blank" rel="noreferrer"
+                      style={{ fontFamily: "DM Sans", fontSize: 11, color: C.accent, textDecoration: "none", flexShrink: 0 }}
+                    >
+                      Ver ↗
+                    </a>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        </Card>
-      ))}
+        );
+      })}
     </div>
   );
 };
@@ -403,13 +501,15 @@ const CuentasTab = ({ ownerName, mob, drive }) => {
   const [adding, setAdding]           = useState(false);
   const [form, setForm]               = useState({ bank_name: "", account_type: "", account_number: "", balance: "", notes: "" });
 
-  const bankFolder = OWNER_BANK_FOLDERS?.[ownerName];
+  const bankFolderCfg = OWNER_BANK_FOLDERS?.[ownerName];
+  const rootFolderCfg = OWNER_DRIVE_FOLDERS?.[ownerName];
 
-  const [yearFolders, setYearFolders]   = useState([]);
-  const [loadingDrive, setLoadingDrive] = useState(false);
-  const [expandedYear, setExpandedYear] = useState(null);
-  const [yearFiles, setYearFiles]       = useState({});
-  const [loadingFiles, setLoadingFiles] = useState({});
+  const [yearFolders,   setYearFolders]   = useState([]);
+  const [loadingDrive,  setLoadingDrive]  = useState(false);
+  const [bankFolderFound, setBankFolderFound] = useState(null); // { id, name }
+  const [expandedYear,  setExpandedYear]  = useState(null);
+  const [yearFiles,     setYearFiles]     = useState({});
+  const [loadingFiles,  setLoadingFiles]  = useState({});
 
   const loadAccounts = useCallback(async () => {
     setLoadingAcc(true);
@@ -423,14 +523,22 @@ const CuentasTab = ({ ownerName, mob, drive }) => {
 
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
 
+  // Find bank subfolder by name inside root Drive folder, then load its year-subfolders
   useEffect(() => {
-    if (!drive?.token || !bankFolder?.drive_folder_id) return;
+    if (!drive?.token || !rootFolderCfg?.drive_folder_id || !bankFolderCfg?.subfolder_name) return;
     const load = async () => {
       setLoadingDrive(true);
       try {
-        const files = await drive.listAllFiles(bankFolder.drive_folder_id);
-        const folders = (files || [])
-          .filter((f) => f.mimeType === "application/vnd.google-apps.folder")
+        const rootItems = await drive.listAllFiles(rootFolderCfg.drive_folder_id);
+        const bankSub = (rootItems || []).find(
+          f => f.mimeType === "application/vnd.google-apps.folder" &&
+               f.name.toUpperCase() === bankFolderCfg.subfolder_name.toUpperCase()
+        );
+        if (!bankSub) { setLoadingDrive(false); return; }
+        setBankFolderFound(bankSub);
+        const bankItems = await drive.listAllFiles(bankSub.id);
+        const folders = (bankItems || [])
+          .filter(f => f.mimeType === "application/vnd.google-apps.folder")
           .sort((a, b) => {
             const ya = parseInt(a.name), yb = parseInt(b.name);
             return isNaN(ya) || isNaN(yb) ? a.name.localeCompare(b.name) : yb - ya;
@@ -440,7 +548,7 @@ const CuentasTab = ({ ownerName, mob, drive }) => {
       setLoadingDrive(false);
     };
     load();
-  }, [drive?.token, bankFolder?.drive_folder_id]);
+  }, [drive?.token, rootFolderCfg?.drive_folder_id, bankFolderCfg?.subfolder_name]);
 
   const toggleYear = async (folder) => {
     if (expandedYear === folder.id) { setExpandedYear(null); return; }
@@ -487,24 +595,26 @@ const CuentasTab = ({ ownerName, mob, drive }) => {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
       {/* Drive bank folder section */}
-      {bankFolder && (
+      {bankFolderCfg && (
         <Card>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
             <div>
-              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text }}>🏦 {bankFolder.label}</span>
+              <span style={{ fontFamily: "DM Sans", fontSize: 13, fontWeight: 600, color: C.text }}>🏦 {bankFolderCfg.label}</span>
               <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textDim, marginLeft: 8 }}>Estados de cuenta · Drive</span>
             </div>
             {!drive?.token && <span style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted }}>(conecta Drive)</span>}
           </div>
 
-          {!bankFolder.drive_folder_id ? (
+          {!rootFolderCfg?.drive_folder_id ? (
             <div style={{ padding: "12px 14px", background: C.surface2, borderRadius: 8, fontFamily: "DM Sans", fontSize: 12, color: C.textDim, lineHeight: 1.6 }}>
-              📌 Pega el <strong style={{ color: C.accent }}>ID de la carpeta Drive</strong> de <em>{bankFolder.label}</em> en{" "}
-              <code style={{ fontFamily: "JetBrains Mono", fontSize: 11, color: C.blue }}>OWNER_BANK_FOLDERS["{ownerName}"].drive_folder_id</code>{" "}
-              en <strong>constants.js</strong>.
+              📌 Carpeta Drive no configurada para este dueño.
             </div>
           ) : loadingDrive ? (
             <div style={{ textAlign: "center", padding: 20 }}><Spinner /></div>
+          ) : !bankFolderFound ? (
+            <div style={{ textAlign: "center", padding: "16px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>
+              No se encontró "{bankFolderCfg.subfolder_name}" en Drive.
+            </div>
           ) : yearFolders.length === 0 ? (
             <div style={{ textAlign: "center", padding: "16px 0", color: C.textDim, fontFamily: "DM Sans", fontSize: 13 }}>No se encontraron subcarpetas.</div>
           ) : (
@@ -788,7 +898,7 @@ const OwnerPageDetail = ({ ownerName, mob, drive, onBack, onSelectProperty }) =>
       <TabBar active={tab} onChange={setTab} mob={mob} />
 
       {tab === "resumen"    && <ResumenTab    ownerName={ownerName} mob={mob} onSelectProperty={onSelectProperty} />}
-      {tab === "documentos" && <DocumentosTab ownerName={ownerName} mob={mob} />}
+      {tab === "documentos" && <DocumentosTab ownerName={ownerName} mob={mob} drive={drive} />}
       {tab === "impuestos"  && <ImpuestosTab  ownerName={ownerName} mob={mob} />}
       {tab === "cuentas"    && <CuentasTab    ownerName={ownerName} mob={mob} drive={drive} />}
       {tab === "gastos"     && <GastosTab     ownerName={ownerName} mob={mob} />}
@@ -804,7 +914,7 @@ const OwnerCard = ({ ownerName, onClick, mob }) => {
   const props      = ownerProps(ownerName);
   const active     = props.filter((p) => !p.sold);
   const sold       = props.filter((p) => p.sold);
-  const hasBankFol = !!OWNER_BANK_FOLDERS?.[ownerName]?.drive_folder_id;
+  const hasBankFol = !!(OWNER_DRIVE_FOLDERS?.[ownerName]?.drive_folder_id && OWNER_BANK_FOLDERS?.[ownerName]?.subfolder_name);
 
   return (
     <button onClick={onClick} style={{
