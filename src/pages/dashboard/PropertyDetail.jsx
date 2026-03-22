@@ -1,8 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/pages/dashboard/PropertyDetail.jsx
-// Versión: V4
-// Fecha: 2026-03-06
+// Versión: V5
+// Fecha: 2026-03-22
 // ═══════════════════════════════════════════
+// CAMBIOS EN V5:
+// - Eliminada "Subida Masiva" del menú hamburguesa
+// - "Subir Fotos" abre modal drag-and-drop (arrastra / clic / pega)
+//   en lugar del input file invisible
+// - findFolderByAddress recibe drive como 3er arg
 // CAMBIOS EN V4 (desde V3):
 // - Nuevo: Opción "Archivar Correspondencia" en menú hamburguesa
 // - Abre modal CorrespondenciaUpload que lee el PDF con Claude y
@@ -22,8 +27,120 @@ import { DropMenu, MenuBtn, MenuDivider, MenuLabel, HamburgerBtn } from "./MenuC
 import SupaExplorer from "./SupaExplorer";
 import PropertyExpenses from "./PropertyExpenses";
 import PropertyTabs from "./PropertyTabs";
-import { BulkPhotoUpload } from "../../components/BulkPhotoUpload";
 import { CorrespondenciaUpload } from "../../components/CorrespondenciaUpload";
+
+// ─── PhotoUploadModal — drag / click / paste ──────────────────────────────────
+const PhotoUploadModal = ({ drive, folderId, property, mob, onClose, onComplete }) => {
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState("");
+  const inputRef = useRef(null);
+
+  const handleFiles = async (files) => {
+    const imgs = Array.from(files).filter(f => f.type.startsWith("image/"));
+    if (!imgs.length) return;
+    if (!folderId) { onComplete("❌ Sin carpeta configurada para esta propiedad"); onClose(); return; }
+    setUploading(true);
+    try {
+      const result = await drive.uploadPhotos(
+        imgs, folderId, property.address,
+        (cur, total, name) => setProgress(`Subiendo ${cur}/${total}: ${name.slice(0, 28)}...`)
+      );
+      onComplete(`✓ ${result.results.length - (result.skipped || 0)} fotos subidas${result.skipped ? `, ${result.skipped} ya existían` : ""}`);
+      onClose();
+    } catch (e) {
+      onComplete("❌ Error: " + e.message);
+      onClose();
+    }
+  };
+
+  // Paste support
+  useEffect(() => {
+    const h = (e) => {
+      const files = Array.from(e.clipboardData?.files || []).filter(f => f.type.startsWith("image/"));
+      if (files.length) handleFiles(files);
+    };
+    window.addEventListener("paste", h);
+    return () => window.removeEventListener("paste", h);
+  }, [folderId]);
+
+  const onDragOver  = (e) => { e.preventDefault(); setDragging(true); };
+  const onDragLeave = (e) => { e.preventDefault(); setDragging(false); };
+  const onDrop      = (e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); };
+  const onClick     = () => inputRef.current?.click();
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      background: "rgba(0,0,0,0.80)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: mob ? 16 : 40,
+    }}>
+      <div style={{
+        background: C.surface, borderRadius: 20,
+        border: `1px solid ${C.border}`,
+        padding: mob ? "24px 20px" : "32px 36px",
+        maxWidth: 520, width: "100%",
+        boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 22 }}>📷</span>
+            <h2 style={{ fontFamily: "DM Sans", fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+              Subir Fotos
+            </h2>
+          </div>
+          {!uploading && (
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.textDim, fontSize: 22, lineHeight: 1 }}>✕</button>
+          )}
+        </div>
+
+        <div style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, marginBottom: 20 }}>
+          📍 {property.address}
+        </div>
+
+        {uploading ? (
+          <div style={{ textAlign: "center", padding: "32px 0" }}>
+            <div style={{ width: 36, height: 36, border: `3px solid ${C.border}`, borderTopColor: C.accent, borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 16px" }} />
+            <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.textDim }}>{progress || "Subiendo..."}</div>
+          </div>
+        ) : (
+          <>
+            <input ref={inputRef} type="file" accept="image/*" multiple onChange={e => handleFiles(e.target.files)} style={{ display: "none" }} />
+
+            {/* Drop zone */}
+            <div
+              onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} onClick={onClick}
+              style={{
+                border: `2px dashed ${dragging ? C.accent : C.border}`,
+                borderRadius: 14,
+                background: dragging ? `${C.accent}12` : C.surface2,
+                padding: "44px 24px",
+                textAlign: "center",
+                cursor: "pointer",
+                transition: "all 0.15s",
+                marginBottom: 16,
+              }}
+            >
+              <div style={{ fontSize: 48, marginBottom: 14 }}>{dragging ? "⬇️" : "🖼️"}</div>
+              <div style={{ fontFamily: "DM Sans", fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 6 }}>
+                {dragging ? "Suelta las fotos aquí" : "Arrastra · Haz clic · Pega (Ctrl+V)"}
+              </div>
+              <div style={{ fontFamily: "DM Sans", fontSize: 13, color: C.accent }}>
+                Fotos desde cualquier fuente
+              </div>
+            </div>
+
+            <div style={{ fontFamily: "DM Sans", fontSize: 11, color: C.textMuted, textAlign: "center" }}>
+              Se guardan en Drive: {property.address} › INSPECCION › {new Date().getFullYear()} › hoy
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   const [folderId, setFolderId] = useState(null);
@@ -38,7 +155,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
   const uploadRef = useRef(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const personal = isPersonalProperty(property.address);
-  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [showCorrespondencia, setShowCorrespondencia] = useState(false);
 
   useEffect(() => {
@@ -157,8 +274,6 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
 
   return (
     <div>
-      <input ref={uploadRef} type="file" accept="image/*" multiple onChange={handleUpload} style={{ display: "none" }} />
-
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -190,11 +305,8 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
           <HamburgerBtn open={menuOpen} onClick={() => setMenuOpen(!menuOpen)} />
           <DropMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
             <MenuLabel>📸 Inspecciones</MenuLabel>
-            <MenuBtn onClick={() => { handleCameraClick(); setMenuOpen(false); }}>
+            <MenuBtn onClick={() => { setShowPhotoModal(true); setMenuOpen(false); }}>
               📷 Subir Fotos
-            </MenuBtn>
-            <MenuBtn onClick={() => { setShowBulkUpload(true); setMenuOpen(false); }}>
-              📦 Subida Masiva
             </MenuBtn>
             <MenuDivider />
             <MenuLabel>📂 Documentos</MenuLabel>
@@ -248,17 +360,19 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
       <PropertyTabs property={property} mob={mob} drive={drive} onInspectionPhotos={() => setInspPanel(true)} folderId={folderId} />
 
 
-      {/* Bulk Upload Modal */}
-      {showBulkUpload && (
-        <BulkPhotoUpload
+      {/* Photo Upload Modal — drag, click, paste */}
+      {showPhotoModal && (
+        <PhotoUploadModal
           drive={drive}
-          onClose={() => setShowBulkUpload(false)}
-          onComplete={(results) => {
-            setUploadMsg(`✓ ${results.success} fotos subidas, ${results.failed} fallidas`);
+          folderId={folderId}
+          property={property}
+          mob={mob}
+          onClose={() => setShowPhotoModal(false)}
+          onComplete={(msg) => {
+            setUploadMsg(msg);
             setTimeout(() => setUploadMsg(""), 6000);
             setRefreshKey(k => k + 1);
           }}
-          mob={mob}
         />
       )}
 
