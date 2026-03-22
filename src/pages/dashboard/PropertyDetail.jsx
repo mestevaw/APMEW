@@ -47,7 +47,7 @@ const PropertyDetail = ({ property, mob, drive, onBack, onOwnerClick }) => {
     const findFolder = async () => {
       // Strategy 1: Supabase index (instantáneo — tiene el google_drive_id directo)
       try {
-        const folder = await findFolderByAddress(property.address, property.owner);
+        const folder = await findFolderByAddress(property.address, property.owner, drive);
         if (folder?.google_drive_id) {
           console.log("[PropertyDetail] Found via Supabase:", folder.google_drive_id);
           setFolderId(folder.google_drive_id);

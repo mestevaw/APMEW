@@ -156,7 +156,7 @@ export const BulkPhotoUpload = ({ drive, onClose, onComplete, mob }) => {
     const year     = date.getFullYear().toString();
 
     // Raíz de propiedad (desde Supabase)
-    const sf = await findFolderByAddress(property.address, property.owner);
+    const sf = await findFolderByAddress(property.address, property.owner, drive);
     if (!sf?.google_drive_id) throw new Error(`Sin carpeta en Supabase para: ${property.address}`);
     const propId = sf.google_drive_id;
 

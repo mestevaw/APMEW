@@ -74,7 +74,7 @@ const InspectionPanel = ({ property, mob, drive, folderId: propFolderId }) => {
         let rootId = propFolderId;
 
         if (!rootId) {
-          const sf = await findFolderByAddress(property.address, property.owner);
+          const sf = await findFolderByAddress(property.address, property.owner, drive);
           rootId   = sf?.google_drive_id || null;
         }
 

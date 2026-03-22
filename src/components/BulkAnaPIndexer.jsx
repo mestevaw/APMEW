@@ -1,17 +1,13 @@
 // ═══════════════════════════════════════════
 // Archivo: src/components/BulkAnaPIndexer.jsx
-// Versión: V2
-// Fecha: 2026-03-16
+// Versión: V1 — Proceso único / one-shot
+// Fecha: 2026-03-04
 // ═══════════════════════════════════════════
-// CAMBIOS EN V2:
-// - BUG CRÍTICO FIX: headers de Claude API ahora completos
-//   (antes faltaban x-api-key, anthropic-version,
-//    anthropic-dangerous-direct-browser-access, anthropic-beta)
-// - INCONSISTENCIA LÓGICA FIX: alreadyIndexed ahora busca por
-//   source_doc=eq.AnaP (igual que AnaPIndexer) en lugar de
-//   notes=ilike.*AnaP* — evita doble-indexación cuando la
-//   propiedad fue indexada previamente con el modal individual
-// - Bulk ahora también guarda source_doc: "AnaP" (consistencia)
+// Recorre TODAS las propiedades, encuentra el PDF suelto
+// en su carpeta GASTOS, lo manda a Claude API para extracción
+// y guarda los gastos en property_expenses automáticamente.
+//
+// Uso: una sola vez. El doc AnaP ya no cambia.
 // ═══════════════════════════════════════════
 
 import { useState, useRef } from "react";
@@ -26,13 +22,7 @@ import { DRIVE_ROOT_FOLDER } from "../lib/config";
 const extractExpenses = async (base64Data, address) => {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY || "",
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-      "anthropic-beta": "pdfs-2024-09-25",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
       max_tokens: 4000,
@@ -84,9 +74,11 @@ const pdfToBase64 = async (fileId, token) => {
 
 // ─── Find loose PDF in GASTOS folder ─────────────────────────────────────
 const findAnaPDoc = async (property, drive) => {
-  const sf = await findFolderByAddress(property.address, property.owner);
+  // 1. Supabase first
+  const sf = await findFolderByAddress(property.address, property.owner, drive);
   let rootId = sf?.google_drive_id;
 
+  // 2. Drive API fallback
   if (!rootId && drive.searchFolderByAddress) {
     const df = await drive.searchFolderByAddress(property.address, property.owner, DRIVE_ROOT_FOLDER);
     rootId = df?.id;
@@ -104,11 +96,9 @@ const findAnaPDoc = async (property, drive) => {
 };
 
 // ─── Check if already indexed ─────────────────────────────────────────────
-// FIX V2: busca por source_doc=eq.AnaP en lugar de notes=ilike.*AnaP*
-// para ser consistente con AnaPIndexer (que guarda source_doc, no notes con "AnaP")
 const alreadyIndexed = async (address) => {
   const rows = await supaFetch("property_expenses", {
-    filters: `property_address=eq.${encodeURIComponent(address)}&source_doc=eq.AnaP`,
+    filters: `property_address=eq.${encodeURIComponent(address)}&notes=ilike.*AnaP*`,
     limit: 1,
   });
   return (rows || []).length > 0;
@@ -118,7 +108,7 @@ const alreadyIndexed = async (address) => {
 // COMPONENTE
 // ═══════════════════════════════════════════
 export const BulkAnaPIndexer = ({ drive, onClose }) => {
-  const [phase, setPhase]     = useState("confirm");
+  const [phase, setPhase]     = useState("confirm"); // confirm → running → done
   const [log, setLog]         = useState([]);
   const [summary, setSummary] = useState(null);
   const logRef = useRef(null);
@@ -136,14 +126,16 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
     for (const prop of active) {
       addLog(`\n🏠 ${prop.address}`);
 
+      // Check if already done
       try {
         if (await alreadyIndexed(prop.address)) {
           addLog(`  ⏭️ Ya indexado — saltando`, C.textDim);
           skipped++;
           continue;
         }
-      } catch (e) { /* continuar de todas formas */ }
+      } catch (e) { /* continue anyway */ }
 
+      // Find PDF
       let pdf = null;
       try {
         pdf = await findAnaPDoc(prop, drive);
@@ -161,6 +153,7 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
       addLog(`  📕 ${pdf.name}`);
       found++;
 
+      // Download & extract
       let expenses = [];
       try {
         addLog(`  📥 Descargando...`);
@@ -175,6 +168,7 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
         continue;
       }
 
+      // Save to Supabase
       let saved = 0;
       for (const exp of expenses) {
         if (!exp.amount || Number(exp.amount) <= 0) continue;
@@ -185,9 +179,8 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
             amount:           parseFloat(exp.amount) || 0,
             period_month:     exp.period_month || null,
             period_year:      exp.period_year  || null,
-            notes:            [exp.vendor, exp.notes].filter(Boolean).join(" — ") || null,
+            notes:            [exp.vendor, exp.notes, "AnaP"].filter(Boolean).join(" — "),
             paid:             true,
-            source_doc:       "AnaP",   // FIX V2: consistente con AnaPIndexer
           });
           saved++;
         } catch (e) {
@@ -198,6 +191,7 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
       indexed += saved;
       addLog(`  💾 ${saved} guardados en Supabase`, C.green);
 
+      // Pause to avoid rate limits
       await new Promise(r => setTimeout(r, 1500));
     }
 
@@ -215,6 +209,7 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
     }}>
       <Card style={{ maxWidth: 580, width: "100%", padding: 26 }}>
 
+        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <div>
             <h2 style={{ fontFamily: "DM Sans", fontSize: 17, fontWeight: 700, color: C.text, margin: 0 }}>
@@ -229,6 +224,7 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
           )}
         </div>
 
+        {/* ── CONFIRM ── */}
         {phase === "confirm" && (
           <div>
             <div style={{
@@ -246,17 +242,21 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
                 ⏱️ Tarda ~2-3 min dependiendo de cuántos PDFs haya
               </div>
             </div>
-            <button onClick={runAll} style={{
-              width: "100%", padding: "13px 0",
-              background: C.accent, color: "white",
-              border: "none", borderRadius: 8,
-              fontFamily: "DM Sans", fontSize: 15, fontWeight: 700, cursor: "pointer",
-            }}>
+            <button
+              onClick={runAll}
+              style={{
+                width: "100%", padding: "13px 0",
+                background: C.accent, color: "white",
+                border: "none", borderRadius: 8,
+                fontFamily: "DM Sans", fontSize: 15, fontWeight: 700, cursor: "pointer",
+              }}
+            >
               🚀 Iniciar indexación de todos los documentos
             </button>
           </div>
         )}
 
+        {/* ── RUNNING ── */}
         {phase === "running" && (
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
@@ -265,13 +265,16 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
                 Procesando... no cierres esta ventana
               </span>
             </div>
-            <div ref={logRef} style={{
-              background: C.surface2, border: `1px solid ${C.border}`,
-              borderRadius: 10, padding: "12px 14px",
-              fontFamily: "monospace", fontSize: 12,
-              maxHeight: 380, overflowY: "auto",
-              display: "flex", flexDirection: "column", gap: 2,
-            }}>
+            <div
+              ref={logRef}
+              style={{
+                background: C.surface2, border: `1px solid ${C.border}`,
+                borderRadius: 10, padding: "12px 14px",
+                fontFamily: "monospace", fontSize: 12,
+                maxHeight: 380, overflowY: "auto",
+                display: "flex", flexDirection: "column", gap: 2,
+              }}
+            >
               {log.map((entry, i) => (
                 <div key={i} style={{ color: entry.color || C.textDim, whiteSpace: "pre-wrap" }}>
                   {entry.msg}
@@ -281,6 +284,7 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
           </div>
         )}
 
+        {/* ── DONE ── */}
         {phase === "done" && summary && (
           <div>
             <div style={{
@@ -296,16 +300,19 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
               {summary.failed  > 0 && <div style={{ color: C.red }}>❌ Con error: <strong>{summary.failed}</strong></div>}
             </div>
 
+            {/* Collapsible log */}
             <details style={{ marginBottom: 14 }}>
               <summary style={{ fontFamily: "DM Sans", fontSize: 12, color: C.textDim, cursor: "pointer", marginBottom: 6 }}>
                 Ver log completo
               </summary>
-              <div style={{
-                background: C.surface2, border: `1px solid ${C.border}`,
-                borderRadius: 8, padding: "10px 12px",
-                fontFamily: "monospace", fontSize: 11,
-                maxHeight: 240, overflowY: "auto",
-              }}>
+              <div
+                style={{
+                  background: C.surface2, border: `1px solid ${C.border}`,
+                  borderRadius: 8, padding: "10px 12px",
+                  fontFamily: "monospace", fontSize: 11,
+                  maxHeight: 240, overflowY: "auto",
+                }}
+              >
                 {log.map((entry, i) => (
                   <div key={i} style={{ color: entry.color || C.textDim, whiteSpace: "pre-wrap" }}>
                     {entry.msg}
@@ -314,12 +321,15 @@ export const BulkAnaPIndexer = ({ drive, onClose }) => {
               </div>
             </details>
 
-            <button onClick={onClose} style={{
-              width: "100%", padding: "12px 0",
-              background: C.green, color: "white",
-              border: "none", borderRadius: 8,
-              fontFamily: "DM Sans", fontSize: 14, fontWeight: 700, cursor: "pointer",
-            }}>
+            <button
+              onClick={onClose}
+              style={{
+                width: "100%", padding: "12px 0",
+                background: C.green, color: "white",
+                border: "none", borderRadius: 8,
+                fontFamily: "DM Sans", fontSize: 14, fontWeight: 700, cursor: "pointer",
+              }}
+            >
               Cerrar
             </button>
           </div>

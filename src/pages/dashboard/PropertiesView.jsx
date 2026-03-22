@@ -119,7 +119,7 @@ const PropertiesView = ({ mob, drive, onSelectProperty, onBack, onOwnerClick }) 
 
     setUploading(true); 
     setUploadMsg(`Buscando carpeta de ${uploadTarget.address}...`);
-    const folder = await findFolderByAddress(uploadTarget.address, uploadTarget.owner);
+    const folder = await findFolderByAddress(uploadTarget.address, uploadTarget.owner, drive);
     if (!folder) {
       setUploadMsg("No se encontró la carpeta. Vincula manualmente primero.");
       setUploading(false); 
